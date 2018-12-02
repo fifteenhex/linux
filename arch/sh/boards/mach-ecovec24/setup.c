@@ -173,6 +173,8 @@ static struct platform_device sh_eth_device = {
 	.id = 0,
 	.dev = {
 		.platform_data = &sh_eth_plat,
+		.dma_mask = &sh_eth_device.dev.coherent_dma_mask,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 	.num_resources = ARRAY_SIZE(sh_eth_resources),
 	.resource = sh_eth_resources,
