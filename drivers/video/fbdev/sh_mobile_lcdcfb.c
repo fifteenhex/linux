@@ -1499,7 +1499,7 @@ static const struct fb_ops sh_mobile_lcdc_overlay_ops = {
 	.fb_ioctl       = sh_mobile_lcdc_overlay_ioctl,
 	.fb_check_var	= sh_mobile_lcdc_overlay_check_var,
 	.fb_set_par	= sh_mobile_lcdc_overlay_set_par,
-	.fb_mmap	= sh_mobile_lcdc_overlay_mmap,
+/*	.fb_mmap	= sh_mobile_lcdc_overlay_mmap,*/
 };
 
 static void
@@ -1976,7 +1976,7 @@ static const struct fb_ops sh_mobile_lcdc_ops = {
 	.fb_release	= sh_mobile_lcdc_release,
 	.fb_check_var	= sh_mobile_lcdc_check_var,
 	.fb_set_par	= sh_mobile_lcdc_set_par,
-	.fb_mmap	= sh_mobile_lcdc_mmap,
+/*	.fb_mmap	= sh_mobile_lcdc_mmap,*/
 };
 
 static void
