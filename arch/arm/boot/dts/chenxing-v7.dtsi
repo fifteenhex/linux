@@ -445,6 +445,27 @@
 			interrupts-extended = <&intc_fiq 2 IRQ_TYPE_LEVEL_HIGH>;
 		};
 
+		timer0: timer@1f006040 {
+			compatible = "mstar,msc313e-timer";
+			reg = <0x1f006040 0x40>;
+			clocks = <&xtal12>;
+			interrupts-extended = <&intc_fiq 0 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
+		timer1: timer@1f006080 {
+			compatible = "mstar,msc313e-timer";
+			reg = <0x1f006080 0x40>;
+			clocks = <&xtal12>;
+			interrupts-extended = <&intc_fiq 1 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
+		timer2: timer@1f0060c0 {
+			compatible = "mstar,msc313e-timer";
+			reg = <0x1f0060c0 0x40>;
+			clocks = <&xtal12>;
+			interrupts-extended = <&intc_fiq 12 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
 		gic: interrupt-controller@16001000 {
 			compatible = "arm,cortex-a7-gic";
 			#interrupt-cells = <3>;
