@@ -1392,4 +1392,10 @@ config I2C_FSI
 	  This driver can also be built as a module. If so, the module will be
 	  called as i2c-fsi.
 
+config I2C_MSC313E
+	tristate "MStar MSC313E I2C driver"
+	select REGMAP_MMIO
+	depends on ARCH_MSTAR
+	help
+	  MStar MSC313E I2C master driver
 endmenu
