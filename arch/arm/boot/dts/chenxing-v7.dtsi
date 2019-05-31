@@ -476,6 +476,17 @@
 			      <0x16002000 0x1000>;
 		};
 
+		bdma: bdma@1f200400 {
+			compatible = "mstar,msc313-bdma";
+			reg = <0x1f200400 0x80>;
+			interrupt-parent = <&intc_irq>;
+			interrupts = <40 IRQ_TYPE_LEVEL_HIGH>,
+				     <41 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clkgen_mux_bdma 0>;
+			status = "okay";
+			#dma-cells = <1>;
+		};
+
 		intc_fiq: intc@1f201310 {
 			compatible = "mstar,msc313e-intc-fiq";
 			interrupt-controller;
@@ -693,6 +704,17 @@
 				 <&clk_utmi_160_div8>,
 				 <&xtal12>,
 				 <&xtal12_div40>;
+		};
+
+		clkgen_mux_bdma: clkgen_mux@1f207180 {
+			compatible = "mstar,msc313e-clkgen-mux";
+			reg = <0x1f207180 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "bdma";
+			shifts = <0>;
+			mux-shifts = <2>;
+			mux-widths = <2>;
+			clocks = <&clkgen_mux_miu 0>;
 		};
 
 		clkgen_mux_aesdma_isp: clkgen_mux@1f207184 {
