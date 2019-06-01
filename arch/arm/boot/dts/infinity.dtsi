@@ -51,6 +51,15 @@
 		status = "disabled";
 	};
 
+	aesdma: aesdma@1f224400 {
+		/* maybe 0x1f112220 */
+		reg = <0x1f224400 0x200>;
+		compatible = "mstar,msc313e-aesdma";
+		/*interrupt-parent = <&intc_irq>;
+		interrupts = <37 IRQ_TYPE_LEVEL_HIGH>;*/
+		clocks = <&clkgen_mux_aesdma_isp 0>;
+	};
+
 	emac: emac@1f2a2000 {
 		#address-cells = <1>;
 		#size-cells = <0>;
