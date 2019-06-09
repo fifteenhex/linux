@@ -9,3 +9,7 @@
 &imi {
 	reg = <0xa0000000 0x20000>;
 };
+
+&phy {
+	compatible = "ethernet-phy-idDEAD.B33F";
+};
