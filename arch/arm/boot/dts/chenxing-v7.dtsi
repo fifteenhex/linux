@@ -380,6 +380,26 @@
 			      <0x16002000 0x1000>;
 		};
 
+		intc_fiq: intc@1f201310 {
+			compatible = "mstar,msc313e-intc-fiq";
+			interrupt-controller;
+			reg = <0x1f201310 0x40>;
+			#interrupt-cells = <2>;
+			interrupt-parent = <&gic>;
+			gic-offset = <96>;
+			nr-interrupts = <32>;
+		};
+
+		intc_irq: intc@1f201350 {
+			compatible = "mstar,msc313e-intc-irq";
+			interrupt-controller;
+			reg = <0x1f201350 0x40>;
+			#interrupt-cells = <2>;
+			interrupt-parent = <&gic>;
+			gic-offset = <32>;
+			nr-interrupts = <64>;
+		};
+
 		cpuclk: cpuclk@1f206500 {
 			compatible = "mstar,msc313e-cpuclk";
 			reg = <0x1f206500 0x100>;
