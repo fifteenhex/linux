@@ -363,6 +363,13 @@
 			mask = <0x79>;
 		};
 
+		wdt: wdt@1f006000 {
+			compatible = "mstar,msc313e-wdt";
+			reg = <0x1f006000 0x1f>;
+			clocks = <&xtal12>;
+			interrupts-extended = <&intc_fiq 2 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
 		gic: interrupt-controller@16001000 {
 			compatible = "arm,cortex-a7-gic";
 			#interrupt-cells = <3>;
