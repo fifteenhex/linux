@@ -417,6 +417,14 @@
 					 <&xtal12_div4>;
 			};
 
+			wdt: wdt@6000 {
+				compatible = "mstar,msc313e-wdt";
+				reg = <0x6000 0x1f>;
+				clocks = <&xtal12>;
+				interrupts-extended = <&intc_fiq 2 IRQ_TYPE_LEVEL_HIGH>;
+
+			};
+
 			intc_fiq: interrupt-controller@201310 {
 				compatible = "mstar,mst-intc";
 				reg = <0x201310 0x40>;

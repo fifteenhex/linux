@@ -1017,6 +1017,13 @@ config VISCONTI_WATCHDOG
 	  Say Y here to include support for the watchdog timer in Toshiba
 	  Visconti SoCs.
 
+config MSC313E_WATCHDOG
+	tristate "MStar MSC313e watchdog"
+	depends on ARCH_MSTARV7 && OF
+	select WATCHDOG_CORE
+	help
+	  Say Y here to include support for the msc313e watchdog
+
 # X86 (i386 + ia64 + x86_64) Architecture
 
 config ACQUIRE_WDT
