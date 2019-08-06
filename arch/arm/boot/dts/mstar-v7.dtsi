@@ -413,6 +413,13 @@
 				reg = <0x1c00 0x100>;
 			};
 
+			wdt: wdt@6000 {
+				compatible = "mstar,msc313e-wdt";
+				reg = <0x6000 0x1f>;
+				clocks = <&xtal12>;
+				interrupts-extended = <&intc_fiq 2 IRQ_TYPE_LEVEL_HIGH>;
+			};
+
 			pinctrl: pinctrl@203c00 {
 				reg = <0x203c00 0x200>;
 				pm_uart_pins: pm_uart {
