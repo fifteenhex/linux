@@ -68,9 +68,16 @@ static void __init infinity_barriers_init(void)
 	soc_mb = infinity_mb;
 }
 
+#ifdef CONFIG_SUSPEND
+int __init msc313_pm_init(void);
+#endif
+
 static void __init infinity_init(void)
 {
 	infinity_barriers_init();
+#ifdef CONFIG_SUSPEND
+        msc313_pm_init();
+#endif
 }
 
 DT_MACHINE_START(INFINITY_DT, "MStar Infinity (Device Tree)")
