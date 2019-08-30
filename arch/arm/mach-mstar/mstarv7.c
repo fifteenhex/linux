@@ -118,6 +118,10 @@ struct smp_operations __initdata mstarv7_smp_ops  = {
 };
 #endif
 
+#if defined(CONFIG_SUSPEND) & defined(CONFIG_MACH_INFINITY)
+int __init msc313_pm_init(void);
+#endif
+
 static void __init mstarv7_init(void)
 {
 	struct device_node *np;
@@ -128,6 +132,10 @@ static void __init mstarv7_init(void)
 		soc_mb = mstarv7_mb;
 	else
 		pr_warn("Failed to install memory barrier, DMA will be broken!\n");
+
+#if defined(CONFIG_SUSPEND) & defined(CONFIG_MACH_INFINITY)
+        msc313_pm_init();
+#endif
 }
 
 DT_MACHINE_START(MSTARV7_DT, "MStar/Sigmastar Armv7 (Device Tree)")
