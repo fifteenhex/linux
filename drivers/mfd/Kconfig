@@ -2053,6 +2053,15 @@ config MFD_WCD934X
 	  This driver provides common support WCD934x audio codec and its
 	  associated Pin Controller, Soundwire Controller and Audio codec.
 
+config MFD_IP6XXX
+	tristate "Support for Injoinic IP6XXX series PMICs"
+	depends on I2C
+	depends on OF || COMPILE_TEST
+	select MFD_CORE
+	select REGMAP_I2C
+	help
+	  Support for Injoinic IP6XXX series PMICs.
+
 menu "Multimedia Capabilities Port drivers"
 	depends on ARCH_SA1100
 
