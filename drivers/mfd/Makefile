@@ -303,3 +303,8 @@ obj-$(CONFIG_MFD_RSMU_SPI)	+= rsmu_spi.o rsmu_core.o
 obj-$(CONFIG_MFD_UPBOARD_FPGA)	+= upboard-fpga.o
 
 obj-$(CONFIG_MFD_LOONGSON_SE)	+= loongson-se.o
+rsmu-i2c-objs			:= rsmu_core.o rsmu_i2c.o
+rsmu-spi-objs			:= rsmu_core.o rsmu_spi.o
+obj-$(CONFIG_MFD_RSMU_I2C)	+= rsmu-i2c.o
+obj-$(CONFIG_MFD_RSMU_SPI)	+= rsmu-spi.o
+obj-$(CONFIG_MFD_IP6XXX)	+= ip6xxx.o
