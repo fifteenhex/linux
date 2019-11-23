@@ -695,6 +695,13 @@
 			clocks = <&xtal24>, <&upll0>; /*<&utmi>;*/
 		};
 
+		gpio: gpio@1f207800 {
+			#gpio-cells = <2>;
+			reg = <0x1f207800 0x200>;
+			gpio-controller;
+			status = "disabled";
+		};
+		
 		pinctrl: pinctrl@1f203c00 {
 			reg = <0x1f203c00 0x200>;
 			pm_uart_pins: pm_uart {

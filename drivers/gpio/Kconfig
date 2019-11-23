@@ -708,6 +708,14 @@ config GPIO_AMD_FCH
 	  Note: This driver doesn't registers itself automatically, as it
 	  needs to be provided with platform specific configuration.
 	  (See eg. CONFIG_PCENGINES_APU2.)
+
+config GPIO_MSC313E
+	tristate "MSC313E GPIO support"
+	depends on ARCH_MSTAR
+	select GPIO_GENERIC
+	help
+	  Say Y or M here to support GPIO on MStar MSC313E SoCs.
+
 endmenu
 
 menu "Port-mapped I/O GPIO drivers"
