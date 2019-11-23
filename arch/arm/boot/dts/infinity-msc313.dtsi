@@ -11,3 +11,7 @@
 &pinctrl {
 	compatible = "mstar,msc313-pinctrl";
 };
+
+&gpio_pm {
+	gpio-ranges = <&pinctrl 0 21 1>, <&pinctrl 1 15 1>;
+};

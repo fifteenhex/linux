@@ -17,3 +17,17 @@
 	compatible = "mstar,ssc8336-gpio";
 	status = "okay";
 };
+
+&gpio_pm {
+	compatible = "mstar,ssc8336-gpio-pm";
+	gpio-ranges = <&pinctrl 0 39 1>,
+		      <&pinctrl 1 38 1>,
+		      <&pinctrl 2 37 1>,
+		      <&pinctrl 3 36 1>,
+		      <&pinctrl 4 35 1>,
+		      <&pinctrl 5 34 1>,
+		      <&pinctrl 6 30 1>,
+		      <&pinctrl 7 43 1>;
+	/* <&intc_fiq 23 IRQ_TYPE_LEVEL_HIGH>; */
+	status = "okay";
+};
