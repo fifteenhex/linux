@@ -54,7 +54,8 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 		ranges = <0x16001000 0x16001000 0x00007000>,
-			 <0x1f000000 0x1f000000 0x00400000>;
+			 <0x1f000000 0x1f000000 0x00400000>,
+			 <0xa0000000 0xa0000000 0x20000>;
 
 		reboot {
 			compatible = "syscon-reboot";
@@ -113,6 +114,11 @@
 				clock-frequency = <172000000>;
 				status = "disabled";
 			};
+                };
+
+		sram: sram@a0000000 {
+			compatible = "mmio-sram";
+			reg = <0xa0000000 0x10000>;
 		};
 	};
 };
