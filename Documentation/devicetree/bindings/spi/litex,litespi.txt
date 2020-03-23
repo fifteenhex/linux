@@ -1,0 +1,19 @@
+LiteSPI controller
+
+Required properties:
+- compatible should be "litex,litespi"
+- reg: base address and length of the register set for this device
+- litespi,max-bpw: maximum value of bits per word
+- litespi,sck-frequency: SPI clock frequency
+- litespi,num-cs: number of chip select lines available
+
+Example:
+
+litespi0: spi@f0005800 {
+	compatible = "litex,litespi";
+	reg = <0xf0005800 0x100>;
+
+	litespi,max-bpw = <8>;
+	litespi,sck-frequency = <1000000>;
+	litespi,num-cs = <2>;
+};
