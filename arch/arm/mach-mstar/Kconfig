@@ -4,8 +4,7 @@ menuconfig ARCH_MSTAR
 	select ARM_GIC
 	select ARM_HEAVY_MB
 	select PINCTRL_MSTAR
-	select CONFIG_PM
-	select SIMPLE_PM_BUS
+	select MSTAR_RIU
 	help
 	  Support for MStar/Sigmastar ARMv7 SoCs
 
