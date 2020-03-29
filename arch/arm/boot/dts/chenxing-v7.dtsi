@@ -280,6 +280,21 @@
 		#size-cells = <1>;
 		ranges;
 
+		isp: isp@1f001000 {
+			compatible = "mstar,msc313-isp";
+			reg = <0x1f001000 0x400>,
+			      <0x1f002c00 0x200>,
+			      <0x1f002e00 0x200>,
+			      <0x14000000 0x1000000>;
+			clocks = <&clkgen_mux_aesdma_isp 1>;
+			interrupts-extended = <&intc_irq 5 IRQ_TYPE_LEVEL_HIGH>;
+			dmas = <&bdma 0>, <&bdma 1>;
+			dma-names = "qspi", "qspi";
+			pinctrl-names = "default";
+			pinctrl-0 = <&pm_spi_pins>;
+			status = "disabled";
+		};
+
 		sleepintc: sleepintc@1f001c10 {
 			compatible = "mstar,msc313e-sleep-intc";
 			reg = <0x1f001c10 0x8>;
