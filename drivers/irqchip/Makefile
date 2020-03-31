@@ -106,3 +106,4 @@ obj-$(CONFIG_LS1X_IRQ)			+= irq-ls1x.o
 obj-$(CONFIG_TI_SCI_INTR_IRQCHIP)	+= irq-ti-sci-intr.o
 obj-$(CONFIG_TI_SCI_INTA_IRQCHIP)	+= irq-ti-sci-inta.o
 obj-$(CONFIG_ARCH_MSTAR)		+= irq-msc313e.o
+obj-$(CONFIG_ARCH_MSTAR)		+= irq-msc313e.o irq-msc313e-sleep.o
