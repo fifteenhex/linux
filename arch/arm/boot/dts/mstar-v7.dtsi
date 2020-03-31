@@ -623,6 +623,22 @@
 				#dma-cells = <1>;
 			};
 
+			miu: miu@202200 {
+				compatible = "mstar,msc313-miu";
+				reg = <0x202000 100>,
+				      /*<0x202200 100>,*/
+				      <0x202400 100>;
+				interrupt-parent = <&intc_irq>;
+				interrupts = <49 IRQ_TYPE_LEVEL_HIGH>;
+				clock-names = "miu", "ddr";
+				clocks = <&clkgen_mux_miu 0>, <&clkgen_mux_ddrsyn 0>;
+				/*mstar,rd-timing = <0xB>;*/
+				mstar,trcd = <0x6>;
+				mstar,trp = <0x6>;
+				#clock-cells = <0>;
+				clock-output-names = "ddrpll";
+			};
+
 			l3bridge: l3bridge@204400 {
 				compatible = "mstar,l3bridge";
 				reg = <0x204400 0x200>;
