@@ -507,6 +507,20 @@
 			nr-interrupts = <64>;
 		};
 
+		miu: miu@1f202200 {
+			compatible = "mstar,msc313-miu";
+			reg = <0x1f202000 100>,
+			      /*<0x1f202200 100>,*/
+			      <0x1f202400 100>;
+			interrupt-parent = <&intc_irq>;
+			interrupts = <49 IRQ_TYPE_LEVEL_HIGH>;
+			clock-names = "miu", "ddr";
+			clocks = <&clkgen_mux_miu 0>, <&clkgen_mux_ddrsyn 0>;
+			/*mstar,rd-timing = <0xB>;*/
+			mstar,trcd = <0x6>;
+			mstar,trp = <0x6>;
+		};
+
 		cpuclk: cpuclk@1f206500 {
 			compatible = "mstar,msc313e-cpuclk";
 			reg = <0x1f206500 0x100>;
