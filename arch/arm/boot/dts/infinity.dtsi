@@ -4,6 +4,8 @@
  * Author: Daniel Palmer <daniel@thingy.jp>
  */
 
+#include <dt-bindings/gpio/gpio.h>
+
 #include "chenxing-v7.dtsi"
 
 / {
@@ -243,6 +245,21 @@
 		/*interrupt-parent = <&intc_irq>;
 		interrupts = <37 IRQ_TYPE_LEVEL_HIGH>;*/
 		clocks = <&clkgen_mux_aesdma_isp 0>;
+	};
+
+	sdio: sdio@1f282000 {
+		compatible = "mstar,msc313-sdio";
+		interrupt-parent = <&intc_irq>;
+		interrupts = <19 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&clkgen_mux_sdio 0>;
+		reg = <0x1f282000 0x200>;
+		no-1-8-v;
+		cap-sd-highspeed;
+		bus-width = <4>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&sdio_pins>;
+		cd-gpios = <&gpio_pm 1 GPIO_ACTIVE_LOW>;
+		status = "disabled";
 	};
 
 	emac: emac@1f2a2000 {
