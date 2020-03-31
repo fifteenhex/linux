@@ -8,3 +8,11 @@
 
 / {
 };
+
+&soc {
+};
+
+&cpu0 {
+	operating-points-v2 = <&cpu0_opp_table>;
+};
+
