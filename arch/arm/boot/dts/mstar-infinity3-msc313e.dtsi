@@ -29,3 +29,39 @@
 	};*/
 };
 
+&pinctrl {
+	compatible = "mstar,msc313e-pinctrl";
+	pwm0_fuart_rx_pins: pwm0_fuart_rx {
+		function = "pwm0";
+		groups = "fuart_rx";
+	};
+	pwm1_fuart_tx_pins: pwm1_fuart_tx {
+		function = "pwm1";
+		groups = "fuart_tx";
+	};
+	pwm2_fuart_cts_pins: pwm2_fuart_cts {
+		function = "pwm2";
+		groups = "fuart_cts";
+	};
+	pwm3_fuart_rts_pins: pwm3_fuart_rts {
+		function = "pwm3";
+		groups = "fuart_rts";
+	};
+	pwm4_spi0_cz_pins: pwm4_spi0_cz {
+		function = "pwm4";
+		groups = "spi0_cz";
+	};
+	pwm5_spi0_ck_pins: pwm5_spi0_ck {
+		function = "pwm5";
+		groups = "spi0_ck";
+	};
+	pwm6_spi0_di_pins: pwm6_spi_di {
+		function = "pwm6";
+		groups = "spi0_di";
+	};
+	pwm7_spi0_do_pins: pwm7_spi_do {
+		function = "pwm7";
+		groups = "spi0_do";
+	};
+};
+
