@@ -25,5 +25,5 @@
 };
 
 &pinctrl {
-	compatible = "sstar,ssd202-pinctrl";
+	compatible = "sstar,ssd20xd-pinctrl";
 };

@@ -1,0 +1,144 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Copyright (C) 2019 Daniel Palmer
+ */
+
+#define REG_UARTS		0xc
+#define REG_PWMS		0x1c
+#define REG_SDIO_NAND		0x20
+#define REG_I2CS		0x24
+#define REG_SPIS		0x30
+#define REG_ETH_JTAG		0x3c
+#define REG_SENSOR_CONFIG	0x54
+#define REG_TX_MIPI_UART2	0x58
+#define REG_SDIO_PULLDRIVE	0xc8
+
+/* common group select registers and masks */
+#define REG_FUART	REG_UARTS
+#define MASK_FUART	(BIT(1) | BIT(0))
+#define REG_UART0	REG_UARTS
+#define MASK_UART0	(BIT(5) | BIT(4))
+#define REG_UART1	REG_UARTS
+#define MASK_UART1	(BIT(9) | BIT(8))
+
+#define REG_PWM0	REG_PWMS
+#define MASK_PWM0	(BIT(1) | BIT(0))
+#define REG_PWM1	REG_PWMS
+#define MASK_PWM1	(BIT(3) | BIT(2))
+#define REG_PWM2	REG_PWMS
+#define MASK_PWM2	(BIT(5) | BIT(4))
+#define REG_PWM3	REG_PWMS
+#define MASK_PWM3	(BIT(7) | BIT(6))
+#define REG_PWM4	REG_PWMS
+#define MASK_PWM4	(BIT(9) | BIT(8))
+#define REG_PWM5	REG_PWMS
+#define MASK_PWM5	(BIT(11)| BIT(10))
+#define REG_PWM6	REG_PWMS
+#define MASK_PWM6	(BIT(13)| BIT(11))
+#define REG_PWM7	REG_PWMS
+#define MASK_PWM7	(BIT(15)| BIT(14))
+
+#define REG_SDIO	REG_SDIO_NAND
+#define MASK_SDIO	BIT(8)
+
+#define REG_I2C0	REG_I2CS
+#define MASK_I2C0	(BIT(1) | BIT(0))
+#define REG_I2C1	REG_I2CS
+#define MASK_I2C1	(BIT(5) | BIT(4))
+
+#define REG_SPI0	REG_SPIS
+#define MASK_SPI0	(BIT(1) | BIT(0))
+#define REG_SPI1	REG_SPIS
+#define MASK_SPI1	(BIT(5) | BIT(4))
+
+#define REG_JTAG	REG_ETH_JTAG
+#define MASK_JTAG	BIT(1) | BIT(0)
+
+#define REG_ETH		REG_ETH_JTAG
+#define MASK_ETH	BIT(2)
+
+#define REG_SR0_MIPI	REG_SENSOR_CONFIG
+#define MASK_SR0_MIPI	(BIT(9) | BIT(8))
+
+#define REG_SR1_BT656	REG_SENSOR_CONFIG
+#define MASK_SR1_BT656	BIT(12)
+
+#define REG_SR1_MIPI	REG_SENSOR_CONFIG
+#define MASK_SR1_MIPI	(BIT(15) | BIT(14) | BIT(13))
+
+#define REG_TX_MIPI	REG_TX_MIPI_UART2
+#define MASK_TX_MIPI	(BIT(1) | BIT(0))
+
+/* common pin group names */
+#define GROUPNAME_PM_UART		"pm_uart"
+#define GROUPNAME_PM_SPI		"pm_spi"
+#define GROUPNAME_SD			"sd"
+#define GROUPNAME_SD_D0_D1_D2_D3	"sd_d0_d1_d2_d3"
+#define GROUPNAME_USB			"usb"
+#define GROUPNAME_USB1			"usb1"
+#define GROUPNAME_I2C0			"i2c0"
+#define GROUPNAME_I2C1			"i2c1"
+#define GROUPNAME_FUART			"fuart"
+#define GROUPNAME_FUART_RX		"fuart_rx"
+#define GROUPNAME_FUART_TX		"fuart_tx"
+#define GROUPNAME_FUART_CTS		"fuart_cts"
+#define GROUPNAME_FUART_RTS		"fuart_rts"
+#define GROUPNAME_FUART_RX_TX		"fuart_rx_tx"
+#define GROUPNAME_FUART_RX_TX_RTS	"fuart_rx_tx_rts"
+#define GROUPNAME_FUART_CTS_RTS		"fuart_cts_rts"
+#define GROUPNAME_FUART_CTS		"fuart_cts"
+#define GROUPNAME_UART0			"uart0"
+#define GROUPNAME_UART1			"uart1"
+#define GROUPNAME_ETH			"eth"
+#define GROUPNAME_PWM0			"pwm0"
+#define GROUPNAME_PWM1			"pwm1"
+#define GROUPNAME_PWM2			"pwm2"
+#define GROUPNAME_PWM3			"pwm3"
+#define GROUPNAME_PWM4			"pwm4"
+#define GROUPNAME_PWM5			"pwm5"
+#define GROUPNAME_PWM6			"pwm6"
+#define GROUPNAME_PWM7			"pwm7"
+#define GROUPNAME_SPI0			"spi0"
+#define GROUPNAME_SPI0_CZ		"spi0_cz"
+#define GROUPNAME_SPI0_CK		"spi0_ck"
+#define GROUPNAME_SPI0_DI		"spi0_di"
+#define GROUPNAME_SPI0_DO		"spi0_do"
+#define GROUPNAME_SPI1			"spi1"
+
+#define GROUPNAME_SR0_MIPI_MODE1	"sr0_mipi_mode1"
+#define GROUPNAME_SR0_MIPI_MODE2	"sr0_mipi_mode2"
+#define GROUPNAME_SR1_BT656		"sr1_bt656"
+#define GROUPNAME_SR1_MIPI_MODE4	"sr1_mipi_mode4"
+
+#define GROUPNAME_TX_MIPI_MODE1		"tx_mipi_mode1"
+#define GROUPNAME_TX_MIPI_MODE2		"tx_mipi_mode2"
+
+/* common group function names */
+#define FUNCTIONNAME_PM_UART	GROUPNAME_PM_UART
+#define FUNCTIONNAME_PM_SPI	GROUPNAME_PM_SPI
+#define FUNCTIONNAME_USB	GROUPNAME_USB
+#define FUNCTIONNAME_USB1	GROUPNAME_USB1
+#define FUNCTIONNAME_FUART	GROUPNAME_FUART
+#define FUNCTIONNAME_UART0	GROUPNAME_UART0
+#define FUNCTIONNAME_UART1	GROUPNAME_UART1
+#define FUNCTIONNAME_ETH	GROUPNAME_ETH
+#define FUNCTIONNAME_JTAG	"jtag"
+#define FUNCTIONNAME_PWM0	GROUPNAME_PWM0
+#define FUNCTIONNAME_PWM1	GROUPNAME_PWM1
+#define FUNCTIONNAME_PWM2	GROUPNAME_PWM2
+#define FUNCTIONNAME_PWM3	GROUPNAME_PWM3
+#define FUNCTIONNAME_PWM4	GROUPNAME_PWM4
+#define FUNCTIONNAME_PWM5	GROUPNAME_PWM5
+#define FUNCTIONNAME_PWM6	GROUPNAME_PWM6
+#define FUNCTIONNAME_PWM7	GROUPNAME_PWM7
+#define FUNCTIONNAME_SDIO	"sdio"
+#define FUNCTIONNAME_I2C0	GROUPNAME_I2C0
+#define FUNCTIONNAME_I2C1	GROUPNAME_I2C1
+#define FUNCTIONNAME_SPI0	GROUPNAME_SPI0
+#define FUNCTIONNAME_SPI1	GROUPNAME_SPI1
+
+#define FUNCTIONNAME_SR0_MIPI	"sr0_mipi"
+#define FUNCTIONNAME_SR1_BT656	GROUPNAME_SR1_BT656
+#define FUNCTIONNAME_SR1_MIPI	"sr1_mipi"
+
+#define FUNCTIONNAME_TX_MIPI	"tx_mipi"
