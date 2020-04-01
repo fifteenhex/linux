@@ -719,6 +719,66 @@
 			};
 		};
 
+		usbphy0: usbphy@0 {
+			#phy-cells = <1>;
+			compatible = "mstar,msc313-usb-phy";
+			clocks = <&xtal_div2>;
+			mstar,utmi = <&utmi0>;
+			mstar,usbc = <&usbc0>;
+			interrupts-extended = <&intc_irq GIC_SPI 30 IRQ_TYPE_LEVEL_HIGH>;
+			/*pinctrl-names = "default";
+			pinctrl-0 = <&usb_pins>;*/
+			status = "disabled";
+		};
+
+		utmi0: utmi@1f284200 {
+			compatible = "syscon";
+			reg = <0x1f284200 0x80>;
+		};
+
+		usbc0: usbc@1f284600 {
+			compatible = "syscon";
+			reg = <0x1f284600 0x20>;
+		};
+
+		uhc0: uhc@1f284800 {
+			compatible = "mstar,msc313-ehci";
+			reg = <0x1f284800 0x200>;
+			interrupts-extended = <&intc_irq GIC_SPI 31 IRQ_TYPE_LEVEL_HIGH>;
+			phys = <&usbphy0 0>;
+			phy-names = "usb";
+			mstar,usbc = <&usbc0>;
+			status = "disabled";
+		};
+
+		utmi1: utmi@1f285200 {
+			compatible = "syscon";
+			reg = <0x1f285200 0x80>;
+		};
+
+		usbc1: usbc@1f286200 {
+			compatible = "syscon";
+			reg = <0x1f286200 0x20>;
+		};
+
+		usbphy1: usbphy@1 {
+			#phy-cells = <1>;
+			compatible = "mstar,msc313-usb-phy";
+			clocks = <&xtal_div2>;
+			mstar,utmi = <&utmi1>;
+			mstar,usbc = <&usbc1>;
+		};
+
+		uhc1: uhc@1f286400 {
+			compatible = "mstar,msc313-ehci";
+			reg = <0x1f286400 0x200>;
+			interrupts-extended = <&intc_irq GIC_SPI 55 IRQ_TYPE_LEVEL_HIGH>;
+			phys = <&usbphy1 0>;
+			phy-names = "usb";
+			mstar,usbc = <&usbc1>;
+			status = "disabled";
+		};
+
 		imi: sram@a0000000 {
 			compatible = "mmio-sram";
 			reg = <0xa0000000 0x10000>;
