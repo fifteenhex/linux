@@ -8,3 +8,7 @@
 
 / {
 };
+
+&pinctrl {
+	compatible = "mstar,ssc8336n-pinctrl";
+};

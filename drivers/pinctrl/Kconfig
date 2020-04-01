@@ -439,4 +439,13 @@ config PINCTRL_EQUILIBRIUM
 	  pin functions, configure GPIO attributes for LGM SoC pins. Pinmux and
 	  pinconf settings are retrieved from device tree.
 
+config PINCTRL_MSTAR
+        bool 
+        depends on OF && ARCH_MSTAR
+        select REGMAP_MMIO
+	select GENERIC_PINCTRL_GROUPS
+	select GENERIC_PINMUX_FUNCTIONS
+	select GENERIC_PINCONF
+
 endif
+

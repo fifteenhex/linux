@@ -8,3 +8,6 @@
 /{
 };
 
+&pinctrl {
+	compatible = "mstar,msc313-pinctrl";
+};
