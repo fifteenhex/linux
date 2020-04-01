@@ -856,7 +856,7 @@
 		};
 
 		pm_uart: uart@1f221000 {
-			compatible = "ns16550a";
+			compatible = "mstar,msc313-uart";
 			reg = <0x1f221000 0x100>;
 			reg-shift = <3>;
 			clocks = <&clkgen_mux_uart 0>;
@@ -865,7 +865,16 @@
 			pinctrl-0 = <&pm_uart_pins>;
 			status = "disabled";
 		};
-		
+
+		uart1: uart@1f221200 {
+			compatible = "mstar,msc313-uart";
+			reg = <0x1f221200 0x100>;
+			interrupts-extended = <&intc_irq 35 IRQ_TYPE_LEVEL_HIGH>;
+			reg-shift = <3>;
+			clocks = <&clkgen_mux_uart 1>;
+			status = "disabled";
+		};
+
 		i2c0: i2c0@1f223000 {
 			compatible = "mstar,msc313e-i2c";
 			reg = <0x1f223000 0x200>;

@@ -220,6 +220,22 @@
 		status = "disabled";
 	};
 
+	fuart: uart@1f220400 {
+		compatible = "mstar,msc313-uart";
+		reg = <0x1f220400 0x100>;
+		/* 
+		 * DMA registers
+		 * <0x1f220600 0x100>
+		 */
+		interrupt-parent = <&intc_irq>;
+		interrupts = <47 IRQ_TYPE_LEVEL_HIGH>;
+		reg-shift = <3>;
+		clocks = <&clkgen_mux_fuart 0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&fuart_pins>;
+		status = "disabled";
+	};
+
 	emac: emac@1f2a2000 {
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -256,6 +272,11 @@
 
 &cpu0 {
 	operating-points-v2 = <&cpu0_opp_table>;
+};
+
+&uart1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart1_pins>;
 };
 
 &gpio {
