@@ -34,6 +34,10 @@
 #include <linux/io.h>
 #include <linux/clk.h>
 
+#include <linux/regmap.h>
+#include <linux/usb/mstar_usbc.h>
+#include <linux/mfd/syscon.h>
+
 #include <asm/byteorder.h>
 #include <asm/irq.h>
 #include <asm/unaligned.h>
@@ -733,6 +737,13 @@ static ssize_t fill_registers_buffer(struct debug_buffer *buf)
 	size -= temp;
 	next += temp;
 #endif
+
+	if(fotg210->fusbh200){
+		temp = scnprintf(next, size, "bmcsr %04x\n",
+				fotg210_readl(fotg210, &fotg210->regs->bmcsr));
+		size -= temp;
+		next += temp;
+	}
 
 done:
 	spin_unlock_irqrestore(&fotg210->lock, flags);
@@ -1529,8 +1540,14 @@ static int fotg210_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 			fotg210_writel(fotg210, temp | PORT_CSC, status_reg);
 			break;
 		case USB_PORT_FEAT_C_OVER_CURRENT:
-			fotg210_writel(fotg210, temp | OTGISR_OVC,
-					&fotg210->regs->otgisr);
+			if(fotg210->fusbh200){
+				fotg210_writel(fotg210, temp | BMISR_OVC,
+						&fotg210->regs->bmisr);
+			}
+			else {
+				fotg210_writel(fotg210, temp | OTGISR_OVC,
+						&fotg210->regs->otgisr);
+			}
 			break;
 		case USB_PORT_FEAT_C_RESET:
 			/* GetPortStatus clears reset */
@@ -1562,9 +1579,16 @@ static int fotg210_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 		if (temp & PORT_PEC)
 			status |= USB_PORT_STAT_C_ENABLE << 16;
 
-		temp1 = fotg210_readl(fotg210, &fotg210->regs->otgisr);
-		if (temp1 & OTGISR_OVC)
-			status |= USB_PORT_STAT_C_OVERCURRENT << 16;
+		if(fotg210->fusbh200){
+			temp1 = fotg210_readl(fotg210, &fotg210->regs->bmisr);
+			if (temp1 & BMISR_OVC)
+				status |= USB_PORT_STAT_C_OVERCURRENT << 16;
+		}
+		else {
+			temp1 = fotg210_readl(fotg210, &fotg210->regs->otgisr);
+			if (temp1 & OTGISR_OVC)
+				status |= USB_PORT_STAT_C_OVERCURRENT << 16;
+		}
 
 		/* whoever resumes must GetPortStatus to complete it!! */
 		if (temp & PORT_RESUME) {
@@ -1674,9 +1698,17 @@ static int fotg210_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 				set_bit(wIndex, &fotg210->port_c_suspend);
 		}
 
-		temp1 = fotg210_readl(fotg210, &fotg210->regs->otgisr);
-		if (temp1 & OTGISR_OVC)
-			status |= USB_PORT_STAT_OVERCURRENT;
+		if(fotg210->fusbh200){
+			temp1 = fotg210_readl(fotg210, &fotg210->regs->bmisr);
+			if (temp1 & BMISR_OVC)
+				status |= USB_PORT_STAT_OVERCURRENT;
+		}
+		else {
+			temp1 = fotg210_readl(fotg210, &fotg210->regs->otgisr);
+			if (temp1 & OTGISR_OVC)
+				status |= USB_PORT_STAT_OVERCURRENT;
+		}
+
 		if (temp & PORT_RESET)
 			status |= USB_PORT_STAT_RESET;
 		if (test_bit(wIndex, &fotg210->port_c_suspend))
@@ -1685,6 +1717,7 @@ static int fotg210_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 		if (status & ~0xffff)	/* only if wPortChange is interesting */
 			dbg_port(fotg210, "GetStatus", wIndex + 1, temp);
 		put_unaligned_le32(status, buf);
+
 		break;
 	case SetHubFeature:
 		switch (wValue) {
@@ -3064,6 +3097,10 @@ static int submit_async(struct fotg210_hcd *fotg210, struct urb *urb,
 	 */
 	if (likely(qh->qh_state == QH_STATE_IDLE))
 		qh_link_async(fotg210, qh);
+
+	if(fotg210->mstar)
+		mb();
+
 done:
 	spin_unlock_irqrestore(&fotg210->lock, flags);
 	if (unlikely(qh == NULL))
@@ -3093,6 +3130,9 @@ static void single_unlink_async(struct fotg210_hcd *fotg210,
 	prev->qh_next = qh->qh_next;
 	if (fotg210->qh_scan_next == qh)
 		fotg210->qh_scan_next = qh->qh_next.qh;
+
+	if(fotg210->mstar)
+		mb();
 }
 
 static void start_iaa_cycle(struct fotg210_hcd *fotg210, bool nested)
@@ -3864,6 +3904,9 @@ static int intr_submit(struct fotg210_hcd *fotg210, struct urb *urb,
 	/* ... update usbfs periodic stats */
 	fotg210_to_hcd(fotg210)->self.bandwidth_int_reqs++;
 
+	if(fotg210->mstar)
+		mb();
+
 done:
 	if (unlikely(status))
 		usb_hcd_unlink_urb_from_ep(fotg210_to_hcd(fotg210), urb);
@@ -4603,7 +4646,8 @@ static inline int scan_frame_queue(struct fotg210_hcd *fotg210, unsigned frame,
 			 * frame is current.
 			 */
 			if (frame == now_frame && live) {
-				rmb();
+				if(fotg210->mstar)
+					mb();
 				for (uf = 0; uf < 8; uf++) {
 					if (q.itd->hw_transaction[uf] &
 							ITD_ACTIVE(fotg210))
@@ -4829,6 +4873,9 @@ static void fotg210_shutdown(struct usb_hcd *hcd)
  */
 static void fotg210_work(struct fotg210_hcd *fotg210)
 {
+	if(fotg210->mstar)
+		mb();
+
 	/* another CPU may drop fotg210->lock during a schedule scan while
 	 * it reports urb completions.  this flag guards against bogus
 	 * attempts at re-entrant schedule scanning.
@@ -5122,8 +5169,9 @@ static irqreturn_t fotg210_irq(struct usb_hcd *hcd)
 	struct fotg210_hcd *fotg210 = hcd_to_fotg210(hcd);
 	u32 status, masked_status, pcd_status = 0, cmd;
 	int bh;
+	unsigned long flags;
 
-	spin_lock(&fotg210->lock);
+	spin_lock_irqsave(&fotg210->lock, flags);
 
 	status = fotg210_readl(fotg210, &fotg210->regs->status);
 
@@ -5142,7 +5190,7 @@ static irqreturn_t fotg210_irq(struct usb_hcd *hcd)
 	/* Shared IRQ? */
 	if (!masked_status ||
 			unlikely(fotg210->rh_state == FOTG210_RH_HALTED)) {
-		spin_unlock(&fotg210->lock);
+		spin_unlock_irqrestore(&fotg210->lock, flags);
 		return IRQ_NONE;
 	}
 
@@ -5247,7 +5295,7 @@ dead:
 
 	if (bh)
 		fotg210_work(fotg210);
-	spin_unlock(&fotg210->lock);
+	spin_unlock_irqrestore(&fotg210->lock, flags);
 	if (pcd_status)
 		usb_hcd_poll_rh_status(hcd);
 	return IRQ_HANDLED;
@@ -5549,13 +5597,24 @@ static void fotg210_init(struct fotg210_hcd *fotg210)
 {
 	u32 value;
 
-	iowrite32(GMIR_MDEV_INT | GMIR_MOTG_INT | GMIR_INT_POLARITY,
-			&fotg210->regs->gmir);
+	if(fotg210->fusbh200){
+		printk("need fusbh200 code here %d\n", __LINE__);
+		regmap_update_bits(fotg210->usbc, MSTAR_USBC_REG_RSTCTRL,
+				MSTAR_RSTCTRL_REG_SUSPEND | MSTAR_RSTCTRL_UHC_XIU,
+				MSTAR_RSTCTRL_REG_SUSPEND | MSTAR_RSTCTRL_UHC_XIU);
+		value = fotg210_readl(fotg210, &fotg210->regs->bmcsr);
+		fotg210_writel(fotg210, (value & ~BMCSR_VBUS_OFF) | BMCSR_INT_POLARITY,
+							&fotg210->regs->bmcsr);
+	}
+	else {
+		iowrite32(GMIR_MDEV_INT | GMIR_MOTG_INT | GMIR_INT_POLARITY,
+				&fotg210->regs->gmir);
 
-	value = ioread32(&fotg210->regs->otgcsr);
-	value &= ~OTGCSR_A_BUS_DROP;
-	value |= OTGCSR_A_BUS_REQ;
-	iowrite32(value, &fotg210->regs->otgcsr);
+		value = ioread32(&fotg210->regs->otgcsr);
+		value &= ~OTGCSR_A_BUS_DROP;
+		value |= OTGCSR_A_BUS_REQ;
+		iowrite32(value, &fotg210->regs->otgcsr);
+	}
 }
 
 /**
@@ -5629,6 +5688,15 @@ static int fotg210_hcd_probe(struct platform_device *pdev)
 		goto failed_dis_clk;
 	}
 
+	if (dev->of_node && of_device_is_compatible(dev->of_node,
+			"mstar,msc313-ehci")){
+		fotg210->mstar = 1;
+		fotg210->fusbh200 = 1;
+		fotg210->usbc = syscon_regmap_lookup_by_phandle(dev->of_node, "mstar,usbc");
+		if (IS_ERR(fotg210->usbc))
+			goto failed_dis_clk;
+	}
+
 	retval = fotg210_setup(hcd);
 	if (retval)
 		goto failed_dis_clk;
@@ -5681,6 +5749,7 @@ static int fotg210_hcd_remove(struct platform_device *pdev)
 #ifdef CONFIG_OF
 static const struct of_device_id fotg210_of_match[] = {
 	{ .compatible = "faraday,fotg210" },
+	{ .compatible = "mstar,msc313-ehci" },
 	{},
 };
 MODULE_DEVICE_TABLE(of, fotg210_of_match);
