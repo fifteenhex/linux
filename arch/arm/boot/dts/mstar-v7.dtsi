@@ -616,11 +616,22 @@
 			};
 
 			pm_uart: uart@221000 {
-				compatible = "ns16550a";
+				compatible = "mstar,msc313-uart";
 				reg = <0x221000 0x100>;
 				reg-shift = <3>;
 				interrupts-extended = <&intc_irq GIC_SPI 34 IRQ_TYPE_LEVEL_HIGH>;
-				clock-frequency = <172000000>;
+				clocks = <&clkgen MSC313_CLKGEN_UART0>;
+				pinctrl-names = "default";
+				pinctrl-0 = <&pm_uart_pins>;
+				status = "disabled";
+			};
+
+			uart1: uart@221200 {
+				compatible = "mstar,msc313-uart";
+				reg = <0x221200 0x100>;
+				interrupts-extended = <&intc_irq GIC_SPI 35 IRQ_TYPE_LEVEL_HIGH>;
+				reg-shift = <3>;
+				clocks = <&clkgen MSC313_CLKGEN_UART1>;
 				status = "disabled";
 			};
 
