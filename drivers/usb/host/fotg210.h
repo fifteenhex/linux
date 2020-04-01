@@ -171,6 +171,10 @@ struct fotg210_hcd {			/* one per controller */
 	/* SILICON QUIRKS */
 	unsigned		need_io_watchdog:1;
 	unsigned		fs_i_thresh:1;	/* Intel iso scheduling */
+#ifdef CONFIG_ARCH_MSTARV7
+	unsigned		mstar:1;		/* quirks for MStar register positions */
+#endif
+	unsigned		fusbh200:1;		/* this is actually an fusb200 */
 
 	u8			sbrn;		/* packed release number */
 
@@ -184,6 +188,8 @@ struct fotg210_hcd {			/* one per controller */
 
 	/* silicon clock */
 	struct clk		*pclk;
+
+	struct regmap		*usbc;
 };
 
 /* convert between an HCD pointer and the corresponding FOTG210_HCD */
@@ -280,7 +286,25 @@ struct fotg210_regs {
 #define PORT_CSC	(1<<1)		/* connect status change */
 #define PORT_CONNECT	(1<<0)		/* device connected */
 #define PORT_RWC_BITS   (PORT_CSC | PORT_PEC)
-	u32     reserved2[19];
+
+	u32	reserved2[3];
+
+	/* BMCSR: offset 0x30 */
+	u32	bmcsr; /* Bus Moniter Control/Status Register */
+#define BMCSR_HOST_SPD_TYP	(3<<9)
+#define BMCSR_VBUS_OFF		(1<<4)
+#define BMCSR_INT_POLARITY	(1<<3)
+
+	/* BMISR: offset 0x34 */
+	u32	bmisr; /* Bus Moniter Interrupt Status Register*/
+#define BMISR_OVC		(1<<1)
+
+	/* BMIER: offset 0x38 */
+	u32	bmier; /* Bus Moniter Interrupt Enable Register */
+#define BMIER_OVC_EN		(1<<1)
+#define BMIER_VBUS_ERR_EN	(1<<0)
+
+	u32     reserved3[15];
 
 	/* OTGCSR: offet 0x70 */
 	u32     otgcsr;
@@ -292,7 +316,7 @@ struct fotg210_regs {
 	u32     otgisr;
 #define OTGISR_OVC	(1 << 10)
 
-	u32     reserved3[15];
+	u32     reserved4[15];
 
 	/* GMIR: offset 0xB4 */
 	u32     gmir;
@@ -606,11 +630,18 @@ struct fotg210_fstn {
  * needed (mostly in root hub code).
  */
 
+static inline unsigned int fotg210_readl(const struct fotg210_hcd *fotg210,
+		__u32 __iomem *regs);
+
 static inline unsigned int
 fotg210_get_speed(struct fotg210_hcd *fotg210, unsigned int portsc)
 {
-	return (readl(&fotg210->regs->otgcsr)
-		& OTGCSR_HOST_SPD_TYP) >> 22;
+	if(fotg210->fusbh200)
+		return (fotg210_readl(fotg210, &fotg210->regs->otgcsr)
+				& BMCSR_HOST_SPD_TYP) >> 9;
+	else
+		return (fotg210_readl(fotg210, &fotg210->regs->otgcsr)
+				& OTGCSR_HOST_SPD_TYP) >> 22;
 }
 
 /* Returns the speed of a device attached to a port on the root hub. */
@@ -646,16 +677,56 @@ fotg210_port_speed(struct fotg210_hcd *fotg210, unsigned int portsc)
 #define fotg210_big_endian_mmio(e)	0
 #define fotg210_big_endian_capbase(e)	0
 
+#ifdef CONFIG_ARCH_MSTARV7
+static inline unsigned int mstar_ehci_readl(__u32 __iomem *regs)
+{
+	unsigned int value;
+	u16 l, h;
+	unsigned regsaddr = (unsigned) regs;
+	void *base = (void*)(regsaddr & ~0xff);
+	unsigned offset = (regsaddr & 0xff) * 2;
+	l = readw_relaxed(base + offset);
+	h = readw_relaxed(base + (offset + 4));
+	value = l | (h << 16);
+	//printk("mstar readl - %px, %px %u - 0x%x.. %px %px\n", regs, base, offset, value, base + offset, base + (offset + 4));
+	return value;
+}
+#endif
+
 static inline unsigned int fotg210_readl(const struct fotg210_hcd *fotg210,
 		__u32 __iomem *regs)
 {
-	return readl(regs);
+#ifdef CONFIG_ARCH_MSTARV7
+	if(fotg210->mstar)
+		return mstar_ehci_readl(regs);
+	else
+#endif
+		return readl(regs);
 }
+
+#ifdef CONFIG_ARCH_MSTARV7
+static inline void mstar_ehci_writel(const unsigned int val,
+		volatile __u32 __iomem *regs)
+{
+	unsigned regsaddr = (unsigned) regs;
+	void *base = (void*)(regsaddr & ~0xff);
+	unsigned offset = (regsaddr & 0xff) * 2;
+	u16 l = val & 0xffff, h = (val >> 16) & 0xffff;
+	//printk("mstar writel, %px, %px %u - %x\n", addr, base, offset, val);
+	writew_relaxed(l, base + offset);
+	writew_relaxed(h, base + (offset + 4));
+}
+#endif
 
 static inline void fotg210_writel(const struct fotg210_hcd *fotg210,
 		const unsigned int val, __u32 __iomem *regs)
 {
-	writel(val, regs);
+#ifdef CONFIG_ARCH_MSTARV7
+	if(fotg210->mstar)
+		mstar_ehci_writel(val, regs);
+	else
+#endif
+		writel(val, regs);
 }
 
 /* cpu to fotg210 */
