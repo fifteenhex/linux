@@ -82,6 +82,11 @@
 	operating-points-v2 = <&cpu0_opp_table>;
 };
 
+&uart1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart1_pins>;
+};
+
 &gpio {
 	compatible = "mstar,msc313e-gpio";
 	gpio-ranges = <&pinctrl 0 36 22>,
