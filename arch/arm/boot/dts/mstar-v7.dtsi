@@ -435,6 +435,71 @@
 				mstar,nr-interrupts = <64>;
 			};
 
+			pinctrl: pinctrl@203c00 {
+				reg = <0x203c00 0x200>;
+				pm_uart_pins: pm_uart {
+					function = "pm_uart";
+					groups = "pm_uart";
+				};
+				pm_spi_pins: pm_spi {
+					function = "pm_spi";
+					groups = "pm_spi";
+				};
+				emac_pins: eth {
+					function = "eth";
+					groups = "eth";
+				};
+				fuart_pins: fuart {
+					function = "fuart";
+					groups = "fuart";
+				};
+				fuart_rx_tx_rts_pins: fuart_rx_tx_rts {
+					function = "fuart";
+					groups = "fuart_rx_tx_rts";
+				};
+				uart1_pins: uart1 {
+					function = "uart1";
+					groups = "fuart_cts_rts";
+				};
+				uart1_cts_pins: uart1_cts {
+					function = "uart1";
+					groups = "fuart_cts";
+				};
+				i2c0_pins: i2c0 {
+					function = "i2c0";
+					groups = "i2c0";
+				};
+				i2c1_pins: i2c1 {
+					function = "i2c1";
+					groups = "i2c1";
+				};
+				spi0_spi0_pins: spi0_spi0 {
+					function = "spi0";
+					groups = "spi0";
+				};
+				spi0_fuart_pins: spi0_fuart {
+					function = "spi0";
+					groups = "fuart";
+				};
+				spi1_sd_d0_d1_d2_d3_pins: spi1_sd_d0_d1_d2_d3 {
+					function = "spi1";
+					groups = "sd_d0_d1_d2_d3";
+				};
+				sdio_pins: sdio {
+					function = "sdio";
+					groups = "sd";
+					bias-pull-up;
+				};
+				usb_pins: usb {
+					function = "usb";
+					groups = "usb";
+				};
+				usb1_pins: usb1 {
+					function = "usb1";
+					groups = "usb1";
+				};
+			};
+
 			l3bridge: l3bridge@204400 {
 				compatible = "mstar,l3bridge";
 				reg = <0x204400 0x200>;
