@@ -79,6 +79,14 @@
 		status = "disabled";
 	};
 
+	cmdq: cmdq@1f224000 {
+		reg = <0x1f224000 0x200>;
+		compatible = "mstar,msc313-cmdq";
+		interrupt-parent = <&intc_irq>;
+		interrupts = <17 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&clkgen_mux_miu 0>;
+	};
+
 	/* jpe - jpeg encoder */
 	jpe: jpe@0x1f264000 {
 		reg = <0x1f264000 0x100>;
