@@ -383,7 +383,7 @@
 					 <&xtal12_div4>;
 		};
 
-		pmsleep: syscon@0x1f001cb8 {
+		pmsleep: syscon@0x1f001c00 {
 			/* msc313e notes */
 			/* 0x1f001c00 - wake up source */
 			/*
@@ -398,16 +398,21 @@
 			 * 0x1f001c70  -- set to 0x0c before deep sleep
 			 * 0x1f001c48  -- set to 0xbabe before deep sleep
 			 *
-			 * 1f001cec -- return address after resume
-			 * 1f001cf0
-			 * 1f001cf4 -- clck for timers?
-			 */
-			/*
+			 * 0x1f001cec -- return address after resume
+			 * 0x1f001cf0
+			 * 0x1f001cf4 -- clk for timers?
 			 * 0x1f001cb8 - writing 0x79 triggers a cpu reset
 			 * 0x1f001cbc - bit 3 in here controls something to do with the temp sensor
 			 */
 			compatible = "syscon";
-			reg = <0x1f001cb8 0x8>;
+			reg = <0x1f001c00 0x100>;
+
+			reboot {
+				compatible = "syscon-reboot";
+				regmap = <&pmsleep>;
+				offset = <0xb8>;
+				mask = <0x79>;
+			};
 		};
 
 		gpio_pm: gpio_pm@1f001e00 {
@@ -420,12 +425,7 @@
 			status = "disabled";
 		};
 
-		reboot {
-			compatible = "syscon-reboot";
-			regmap = <&pmsleep>;
-			offset = <0x0>;
-			mask = <0x79>;
-		};
+
 
 		rtc: rtc@1f002400 {
 			compatible = "mstar,msc313e-rtc";
@@ -449,6 +449,7 @@
 					  "sar_gpio3";
 			clock-names = "sar_clk";
 			clocks = <&clkgen_mux_rtc_sar 1>;
+			mstar,pmsleep = <&pmsleep>;
 			status = "disabled";
 			#gpio-cells = <2>;
 			sar0_gpio0_pins: sar0_gpio0 {
@@ -467,6 +468,18 @@
 				function = "sar3";
 				groups = "sar_gpio3";
 			};
+		};
+
+		/*
+		temp_sensor {
+			compatible = "iio-hwmon";
+			io-channels = <&sar 4>;
+		};
+		*/
+
+		efuse: efuse@0x1f004000 {
+			compatible = "mstar,msc313-efuse";
+			reg = <0x1f004000 0x8>;
 		};
 
 		wdt: wdt@1f006000 {
@@ -552,19 +565,61 @@
 			mstar,trp = <0x6>;
 		};
 
+		l3bridge: l3bridge@1f204400 {
+			/*1f204414 - cache flush*/
+			/*1f204440 - status */
+		};
+
 		cpuclk: cpuclk@1f206500 {
 			compatible = "mstar,msc313e-cpuclk";
 			reg = <0x1f206500 0x100>;
 			#clock-cells = <0>;
-			clocks = <&clkgen_pll 6>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_432>;
 		};
 
 		lpll: lpll@1f206600 {
 			compatible = "mstar,lpll";
-			reg = <0x1f206600 0x100>;
+			reg = <0x1f206600 0x200>;
 			#clock-cells = <0>;
 			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_432>;
 		};
+
+		atop: syscon@1f206800 {
+			compatible = "syscon";
+			reg = <0x1f206800 0x600>;
+		};
+
+		/* bach */
+		bach: syscon@1f2a0400 {
+			compatible = "syscon";
+			reg = <0x1f2a0400 0x600>;
+		};
+
+		bach_codec: bach_codec@0 {
+			compatible = "mstar,snd-infinity-codec";
+			mstar,atop = <&atop>;
+			mstar,bach = <&bach>;
+		};
+
+		bach_cpu: bach_cpu@0 {
+			compatible = "mstar,snd-infinity-cpu";
+			mstar,bach = <&bach>;
+		};
+
+		bach_pcm: bach_pcmm@0 {
+			compatible = "mstar,snd-infinity-pcm";
+			mstar,bach = <&bach>;
+		};
+
+		sound: sound@0 {
+			compatible = "mstar,snd-infinity";
+			interrupt-parent = <&intc_irq>;
+			interrupts = <42 IRQ_TYPE_LEVEL_HIGH>;
+			mstar,bach-cpu = <&bach_cpu>;
+			mstar,bach-platform = <&bach_pcm>;
+			mstar,bach-codec = <&bach_codec>;
+		};
+		/* */
 
 		// gating xtali stops interrupts from the
 		// arch timer
@@ -720,6 +775,52 @@
 				 <&xtal12>;
 		};
 
+		clkgen_mux_spi: clkgen_mux@1f2070c8 {
+			compatible = "mstar,msc313e-clkgen-mux";
+			reg = <0x1f2070c8 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "spi"; 
+			shifts = <0>;
+			mux-shifts = <2>;
+			mux-widths = <2>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>,
+				 <&clk_mpll_216_div2>,
+				 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_86>,
+			         <&clk_mpll_288_div4>;
+		};
+
+		clkgen_mux_mspi: clkgen_mux@1f2070cc {
+			compatible = "mstar,msc313e-clkgen-mux";
+			reg = <0x1f2070cc 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "mspi0", "mspi1"; 
+			shifts = <0>, <8>;
+			mux-shifts = <2>, <10>;
+			mux-widths = <2>, <2>;
+			clocks = <&clk_mpll_216_div2>,
+			         <&clk_mpll_216_div4>,
+			         <&xtal12>;
+		};
+
+		clkgen_mux_fuart: clkgen_mux@1f2070d0 {
+			compatible = "mstar,msc313e-clkgen-mux";
+			reg = <0x1f2070d0 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "fuart", "fuart0_synth";
+			shifts = <0>, <4>;
+			mux-shifts = <2>, <6>;
+			mux-widths = <2>, <2>;
+			mux-ranges = <0 5>, <5 2>;
+			clocks = <&clkgen_pll 10>,
+					 <&clk_mpll_216_div2>,
+			         <&clk_mpll_216_div4>,
+			         <&xtal12>,
+			         <&clkgen_mux_fuart 1>,
+			         /* synth*/
+			         <&clkgen_pll MSTAR_MPLL_GATE_MPLL_432>,
+			         <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>;
+		};
+
 		clkgen_mux_miic: clkgen_mux@1f2070dc {
 			compatible = "mstar,msc313e-clkgen-mux";
 			reg = <0x1f2070dc 0x4>;
@@ -781,6 +882,32 @@
 				<&clk_mpll_216_div4>;
 		};
 
+		clkgen_mux_sr_sr_mclk: clkgen_mux@1f207188 {
+			compatible = "mstar,msc313e-clkgen-mux";
+			reg = <0x1f207188 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "sr", "sr_mclk";
+			shifts = <0>, <8>;
+			mux-shifts = <2>, <10>;
+			mux-widths = <2>, <3>;
+			mux-ranges = <0 4>, <4 8>;
+			clocks =
+			/* sr */
+			<&pad2isp_sr_pclk>,
+			<&csi2_mac>,
+			<&clk_utmi_160_div4>,
+			<&clkgen_pll MSTAR_MPLL_GATE_MPLL_86>,
+			/* sr_mclk */
+			<&clk_mpll_216_div8>,
+			<&clk_mpll_86_div4>,
+			<&xtal12>,
+			<&clk_mpll_86_div16>,
+			<&clk_mpll_288_div8>,
+			<&clk_mpll_216_div4>,
+			<&clk_mpll_86_div2>,
+			<&clk_mpll_123_div2>;
+		};
+
 		clkgen_mux_fclk1: clkgen_mux@1f207190 {
 			compatible = "mstar,msc313e-clkgen-mux";
 			reg = <0x1f207190 0x4>;
@@ -828,6 +955,106 @@
 			mux-shifts = <2>;
 			mux-widths = <2>;
 			clocks = <&clkgen_mux_fclk1 0>; // might be incorrect
+		};
+
+		clkgen_mux_emac: clkgen_mux@1f207108 {
+			compatible = "mstar,msc313e-clkgen-mux";
+			reg = <0x1f207108 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "emac_ahb";
+			shifts = <0>;
+			mux-shifts = <2>;
+			mux-widths = <2>;
+			output-flags = <0x800>; /* this marks the clock as critical, gating this clock stops access to the registers */
+			clocks = <&clk_mpll_288_div2>,
+				 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_123>,
+				 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_86>;
+				 /* from lan_atop ? */
+		};
+
+		clkgen_mux_jpe: clkgen_mux@1f2071a8 {
+			compatible = "mstar,msc313e-clkgen-mux";
+			reg = <0x1f2071a8 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "jpe";
+			shifts = <0>;
+			mux-shifts = <2>;
+			mux-widths = <2>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_288>,
+				 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>,
+				 <&clk_mpll_216_div4>,
+				 <&clk_mpll_216_div8>;
+		};
+
+		fuart: uart@1f220400 {
+			compatible = "mstar,msc313-uart";
+			reg = <0x1f220400 0x100>;
+			/*
+			 * DMA registers
+			 * <0x1f220600 0x100>
+			 */
+			interrupt-parent = <&intc_irq>;
+			interrupts = <47 IRQ_TYPE_LEVEL_HIGH>;
+			reg-shift = <3>;
+			clocks = <&clkgen_mux_fuart 0>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&fuart_pins>;
+			status = "disabled";
+		};
+
+		clkgen_special_imi_nm: clkgen_mux@1f226680 {
+			compatible = "mstar,msc313e-clkgen-mux";
+			reg = <0x1f226680 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "imi", "nlm";
+			shifts = <0>, <8>;
+			clocks = <&clkgen_pll 10>; /* this is wrong */
+		};
+
+		clkgen_special_emac_rx: clkgen_special@1f226688 {
+			compatible = "mstar,msc313e-clkgen-mux";
+			reg = <0x1f226688 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "emac_rx", "emac_rx_ref";
+			shifts = <0>, <8>;
+			mux-shifts = <2>, <10>;
+			mux-widths = <2>, <2>;
+			output-flags = <MSTAR_CLKGEN_OUTPUTFLAG_CRITICAL>;
+			clocks = <&emac_phyclk>; /* imcomplete */
+		};
+
+		clkgen_special_emac_tx: clkgen_special@1f22668c {
+			compatible = "mstar,msc313e-clkgen-mux";
+			reg = <0x1f22668c 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "emac_tx", "emac_tx_ref";
+			shifts = <0>, <8>;
+			mux-shifts = <2>, <10>;
+			mux-widths = <2>, <2>;
+			output-flags = <MSTAR_CLKGEN_OUTPUTFLAG_CRITICAL>;
+			clocks = <&emac_phyclk>; /* imcomplete */
+		};
+
+		// gating 216_2digpm stops the system
+		clkgen_mux_digpm: clkgen_gates@1f2071b4 {
+			compatible = "mstar,clkgen-gates";
+			reg = <0x1f2071b4 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "hemcu_216",
+					     "216_2digpm", 
+					     "172_2digpm",
+					     "144_2digpm",
+					     "123_2digpm",
+					     "86_2digpm";
+			shifts = <0>, <1>, <2>, <3>, <4>, <5>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>,
+				 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>,
+				 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_172>,
+				 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_144>,
+				 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_123>,
+				  <&clkgen_pll MSTAR_MPLL_GATE_MPLL_86>;
+			output-flags = <0>, <MSTAR_CLKGEN_OUTPUTFLAG_CRITICAL>,
+				       <0>, <0>, <0>, <0>;
 		};
 
 		/* this should be renamed to clk gates or something */
@@ -984,6 +1211,70 @@
 			pinctrl-names = "default";
 			pinctrl-0 = <&i2c1_pins>;
 			status = "disabled";
+		};
+
+		/* csi - camera interface */
+		csi: csi@1f240800 {
+			reg = <0x1f240800 0x200>;
+			interrupts-extended = <&intc_irq 32 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
+		/* pnl - RGB lcd driver? */
+		/* different address on m5? */
+		pnl: pnl@1f243400 {
+			compatible = "mstar,pnl";
+			reg = <0x1f243400 0x200>;
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+				pnl_in: port@0 {
+					#address-cells = <1>;
+					#size-cells = <0>;
+					reg = <0>;
+
+					pnl_in_gop0: endpoint@0 {
+						reg = <0>;
+						remote-endpoint = <&gop0_out_pnl>;
+					};
+				};
+			};
+		};
+
+		/* gop - framebuffer */
+		gop0: gop@1f246200 {
+			compatible = "mstar,gop";
+			reg = <0x1f246200 0x400>;
+			interrupt-names = "gop";
+			interrupts-extended = <&intc_irq 50 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clkgen_mux_gop 0>;
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+				gop0_out: port@0 {
+					#address-cells = <1>;
+					#size-cells = <0>;
+					reg = <0>;
+		
+					gop0_out_pnl: endpoint@1 {
+						reg = <1>;
+						remote-endpoint = <&pnl_in_gop0>;
+					};
+				};
+			};
+		};
+
+		/*
+		gop1: gop@0x1f246800 {
+		
+		};
+		
+		gop2: gop@0x1f246e00 {
+		
+		};*/
+
+		display@0 {
+			compatible = "mstar,drm";
+			ports = <&gop0_out>;
 		};
 
 		upll0: upll@1f284000 {
