@@ -54,6 +54,7 @@
 #define OFF_SPI_CK	0x64
 #define OFF_SPI_DI	0x68
 #define OFF_SPI_DO	0x6c
+//#define OFF_IR_IN	0xa0
 #define OFF_SPI_HLD	0x114
 #define OFF_SD_CZ	0x11c
 
