@@ -514,6 +514,12 @@
 			interrupts-extended = <&intc_fiq 12 IRQ_TYPE_LEVEL_HIGH>;
 		};
 
+		ir: ir@1f007a00 {
+		 // maybe
+		 	interrupts-extended = <&intc_fiq 3 IRQ_TYPE_LEVEL_HIGH>,
+					      <&intc_fiq 4 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
 		gic: interrupt-controller@16001000 {
 			compatible = "arm,cortex-a7-gic";
 			#interrupt-cells = <3>;
