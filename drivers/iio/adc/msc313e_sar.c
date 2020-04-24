@@ -100,7 +100,8 @@ struct mstar_sar_info {
 #define PIN_MSC313_SAR_GPIO1	11
 #define PIN_MSC313_SAR_GPIO0	12
 
-#define MSC313_PIN(n) PINCTRL_PIN(PIN_MSC313_SAR_GPIO##n, PINNAME_SAR_GPIO##n)
+#define MSC313_PIN(n) \
+	PINCTRL_PIN(PIN_MSC313_SAR_GPIO##n, PINNAME_SAR_GPIO##n)
 
 static struct pinctrl_pin_desc msc313_sar_pins[] = {
 	MSC313_PIN(3),
@@ -109,7 +110,8 @@ static struct pinctrl_pin_desc msc313_sar_pins[] = {
 	MSC313_PIN(0),
 };
 
-#define MSC313_SAR_PINCTRL_GROUP(n) SAR_PINCTRL_GROUP(PINNAME_SAR_GPIO##n, PIN_MSC313_SAR_GPIO##n)
+#define MSC313_SAR_PINCTRL_GROUP(n) \
+	SAR_PINCTRL_GROUP(PINNAME_SAR_GPIO##n, PIN_MSC313_SAR_GPIO##n)
 
 static const struct sar_pinctrl_group msc313_sar_pinctrl_groups[] = {
 	MSC313_SAR_PINCTRL_GROUP(3),
