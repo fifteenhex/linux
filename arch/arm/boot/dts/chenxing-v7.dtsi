@@ -308,6 +308,9 @@
 
 			mailbox: mailbox@1f200800 {
 				reg = <0x1f200800 0x200>;
+				/*
+				 * 0x0 - boot rom writes 0xbabe here right near the start.
+				 */
 			};
 		};
 
@@ -395,6 +398,7 @@
 			 * 0x1f001cc8  -- set to 9fe8 before deep sleep
 			 * 0x1f001ccc  -- set to 9fe8 before deep sleep
 			 * 0x1f001cdc  -- set to 0xa5 before deep sleep
+		         *
 			 * 0x1f001c70  -- set to 0x0c before deep sleep
 			 * 0x1f001c48  -- set to 0xbabe before deep sleep
 			 *
