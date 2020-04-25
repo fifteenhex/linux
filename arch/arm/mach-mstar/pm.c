@@ -2,29 +2,43 @@
 /*
  */
 
-#include <linux/suspend.h>
-#include <linux/io.h>
 #include <asm/suspend.h>
 #include <asm/fncpy.h>
 #include <asm/cacheflush.h>
 
-#define MSTARV7_RESUMEADDR		0x1f001cec
-#define MSTARV7_RESUMEADDR_SZ		8
+#include <linux/suspend.h>
+#include <linux/io.h>
+#include <linux/genalloc.h>
+#include <linux/of.h>
+#include <linux/of_address.h>
+#include <linux/of_platform.h>
 
-extern void msc313_suspend_imi(void);
-static void (*msc313_suspend_imi_fn)(void);
-static void __iomem *suspend_imi_vbase;
+struct mstar_pm_info {
+	u32 pmsleep;
+	u32 pmgpio;
+};
+
+#define MSTARV7_PM_RESUMEADDR		0x1f001cec
+#define MSTARV7_PM_RESUMEADDR_SZ	8
+#define MSTARV7_PM_SIZE			SZ_8K
+#define MSTARV7_PM_CODE_OFFSET		0
+#define MSTARV7_PM_CODE_SIZE		SZ_4K
+#define MSTARV7_PM_INFO_OFFSET		SZ_4K
+#define MSTARV7_PM_INFO_SIZE		SZ_4K
+
+static void __iomem *pm_code;
+static struct mstar_pm_info __iomem *pm_info;
+extern void msc313_suspend_imi(struct mstar_pm_info *pm_info);
+void (*msc313_suspend_imi_fn)(struct mstar_pm_info *pm_info);
 
 static int msc313_suspend_ready(unsigned long ret)
 {
-    msc313_suspend_imi_fn = fncpy(suspend_imi_vbase, (void*)&msc313_suspend_imi, 0x1000);
-
-    //flush cache to ensure memory is updated before self-refresh
-    __cpuc_flush_kern_all();
-    //flush tlb to ensure following translation is all in tlb
-    local_flush_tlb_all();
-    msc313_suspend_imi_fn();
-    return 0;
+	//flush cache to ensure memory is updated before self-refresh
+	__cpuc_flush_kern_all();
+	//flush tlb to ensure following translation is all in tlb
+	local_flush_tlb_all();
+	msc313_suspend_imi_fn(pm_info);
+	return 0;
 }
 
 static int msc313_suspend_enter(suspend_state_t state)
@@ -51,19 +65,67 @@ struct platform_suspend_ops msc313_suspend_ops = {
 	.finish   = msc313_suspend_finish,
 };
 
-
 int __init msc313_pm_init(void)
 {
-    unsigned int resume_pbase = virt_to_phys(cpu_resume);
-    u32* resumeaddr = ioremap(MSTARV7_RESUMEADDR, MSTARV7_RESUMEADDR_SZ);
+	int ret = 0;
+	struct device_node *node;
+	struct platform_device *pdev;
+	struct gen_pool *imi_pool;
+	void __iomem *imi_base;
+	void __iomem *virt;
+	phys_addr_t phys;
+	unsigned int resume_pbase = virt_to_phys(cpu_resume);
+	u32* resumeaddr;
 
-    suspend_imi_vbase = __arm_ioremap_exec(0xA0010000, 0x1000, false);  //put suspend code at IMI offset 64K;
+	node = of_find_compatible_node(NULL, NULL, "mmio-sram");
+	if (!node) {
+		pr_warn("%s: failed to find imi node\n", __func__);
+		return -ENODEV;
+	}
 
-    suspend_set_ops(&msc313_suspend_ops);
+	/*pdev = of_find_device_by_node(node);
+	if (!pdev) {
+		pr_warn("%s: failed to find imi device\n", __func__);
+		ret = -ENODEV;
+		goto put_node;
+	}
 
-    writel_relaxed(resume_pbase & 0xffff, resumeaddr);
-    writel_relaxed((resume_pbase >> 16) & 0xffff, resumeaddr + 1);
+	imi_pool = gen_pool_get(&pdev->dev, NULL);
+	if (!imi_pool) {
+		pr_warn("%s: imi pool unavailable!\n", __func__);
+		ret = -ENODEV;
+		goto put_node;
+	}
 
-    iounmap(resumeaddr);
-    return 0;
+	imi_base = gen_pool_alloc(imi_pool, MSTARV7_PM_SIZE);
+	if (!imi_base) {
+		pr_warn("%s: unable to alloc pm memory in imi!\n", __func__);
+		ret = -ENOMEM;
+		goto put_node;
+	}*/
+
+	phys = 0xa0000000;
+	//phys = gen_pool_virt_to_phys(imi_pool, imi_base);
+	virt = __arm_ioremap_exec(phys, MSTARV7_PM_SIZE, false);
+	pm_code = virt + MSTARV7_PM_CODE_OFFSET;
+	pm_info = (struct mstar_pm_info*) (virt + MSTARV7_PM_INFO_OFFSET);
+
+	pm_info->pmsleep = (u32) ioremap(0x1f001c00, 0x200);
+	pm_info->pmgpio	= (u32) ioremap(0x1f001e00, 0x200);
+
+	/* setup the resume addr for the bootrom */
+	resumeaddr = ioremap(MSTARV7_PM_RESUMEADDR, MSTARV7_PM_RESUMEADDR_SZ);
+	writel_relaxed(resume_pbase & 0xffff, resumeaddr);
+	writel_relaxed((resume_pbase >> 16) & 0xffff, resumeaddr + 1);
+	iounmap(resumeaddr);
+
+	printk("pm code is at %px, pm info is at %px, pmsleep is at %x, pmgpio is at %x\n",
+			pm_code, pm_info, pm_info->pmsleep, pm_info->pmgpio);
+
+	msc313_suspend_imi_fn = fncpy(pm_code, (void*)&msc313_suspend_imi, MSTARV7_PM_CODE_SIZE);
+
+	suspend_set_ops(&msc313_suspend_ops);
+put_node:
+	of_node_put(node);
+	return ret;
 }
