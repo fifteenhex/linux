@@ -388,25 +388,18 @@
 
 		pmsleep: syscon@0x1f001c00 {
 			/* msc313e notes
-			 * 0x1f001c00 - wake up source */
 			 *
 			 * 1f001c24 -- bit 11 disables pm uart rx
 			 * -- bit 15 is set when going into deep sleep
 			 *
-			 * mysteryclk1 1f001cf4
-			 * 0x1f001cc0 -- ??
-			 * 0x1f001cc8  -- set to 9fe8 before deep sleep
-			 * 0x1f001ccc  -- set to 9fe8 before deep sleep
-			 * 0x1f001cdc  -- set to 0xa5 before deep sleep
-		         *
-			 * 0x1f001c48  -- PM_LOCK, set to 0xbabe before deep sleep
-			 * 0x1f001c70  -- set to 0x0c before deep sleep, bit 4 controls if ir_in is a gpio
 			 *
 			 * 0x1f001cec -- return address after resume
 			 * 0x1f001cf0
 			 * 0x1f001cf4 -- clk for timers?
-			 * 0x1f001cb8 - writing 0x79 triggers a cpu reset
-			 * 0x1f001cbc - bit 3 in here controls something to do with the temp sensor
+			 * 0x1f001cc0 -- ??
+			 * 0x1f001cc8  -- set to 9fe8 before deep sleep
+			 * 0x1f001ccc  -- set to 9fe8 before deep sleep
+			 * 0x1f001cdc  -- set to 0xa5 before deep sleep
 			 */
 			compatible = "syscon";
 			reg = <0x1f001c00 0x100>;
