@@ -430,6 +430,7 @@
 			clocks = <&clkgen_mux_rtc_sar 0>;
 			interrupt-parent = <&intc_irq>;
 			interrupts = <44 IRQ_TYPE_LEVEL_HIGH>;
+			wakeup-source;
 		};
 
 		sar: sar@1f002800 {
