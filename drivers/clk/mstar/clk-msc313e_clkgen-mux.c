@@ -18,8 +18,13 @@
  * This driver controls the gates and muxes packed into a single register.
  */
 
-struct msc313e_clkgen_mux {
+struct msc313e_clkgen_muxparent {
 	void __iomem *base;
+	u32 saved;
+};
+
+struct msc313e_clkgen_mux {
+	struct msc313e_clkgen_muxparent *parent;
 	struct clk_hw clk_hw;
 	u8 shift;
 };
@@ -37,8 +42,8 @@ MODULE_DEVICE_TABLE(of, msc313e_clkgen_mux_of_match);
 static int msc313e_clkgen_mux_probe(struct platform_device *pdev)
 {
 	const struct of_device_id *id;
-	struct msc313e_clkgen_mux* clkgen_mux;
-	struct resource *base;
+	struct msc313e_clkgen_muxparent *mux_parent;
+	struct msc313e_clkgen_mux *clkgen_mux;
 	struct clk_gate *gate;
 	struct clk_mux *mux;
 	struct clk* clk;
@@ -69,9 +74,15 @@ static int msc313e_clkgen_mux_probe(struct platform_device *pdev)
 		dev_dbg(&pdev->dev, "no parent clocks, gating only\n");
 	}
 
-	base = of_iomap(pdev->dev.of_node, 0);
-	if (IS_ERR(base)){
-		ret = PTR_ERR(base);
+	mux_parent = devm_kzalloc(&pdev->dev, sizeof(*mux_parent),GFP_KERNEL);
+	if(IS_ERR(mux_parent)){
+		ret = PTR_ERR(mux_parent);
+		goto out;
+	}
+
+	mux_parent->base = of_iomap(pdev->dev.of_node, 0);
+	if (IS_ERR(mux_parent->base)){
+		ret = PTR_ERR(mux_parent->base);
 		goto out;
 	}
 
@@ -129,7 +140,7 @@ static int msc313e_clkgen_mux_probe(struct platform_device *pdev)
 			ret = -ENOMEM;
 			goto out;
 		}
-		clkgen_mux->base = base;
+		clkgen_mux->parent = mux_parent;
 
 		/* there is always a gate */
 		gate = devm_kzalloc(&pdev->dev, sizeof(*gate), GFP_KERNEL);
@@ -137,7 +148,7 @@ static int msc313e_clkgen_mux_probe(struct platform_device *pdev)
 			ret = -ENOMEM;
 			goto out;
 		}
-		gate->reg = base;
+		gate->reg = mux_parent->base;
 		gate->bit_idx = gateshift;
 		gate->flags = CLK_GATE_SET_TO_DISABLE;
 
@@ -163,7 +174,7 @@ static int msc313e_clkgen_mux_probe(struct platform_device *pdev)
 			ret = -ENOMEM;
 			goto out;
 		}
-		mux->reg = base;
+		mux->reg = mux_parent->base;
 		mux->shift = muxshift;
 		mux->mask = ~((~0 >> muxwidth) << muxwidth);
 		mux->flags = CLK_MUX_ROUND_CLOSEST;
@@ -213,6 +224,8 @@ outputflags:
 		clk_data->clks[muxindex] = clk;
 	}
 
+	platform_set_drvdata(pdev, mux_parent);
+
 	ret = of_clk_add_provider(pdev->dev.of_node, of_clk_src_onecell_get, clk_data);
 
 out:
@@ -224,10 +237,31 @@ static int msc313e_clkgen_mux_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static int __maybe_unused msc313e_clkgen_mux_suspend(struct device *dev)
+{
+	struct msc313e_clkgen_muxparent *parent = platform_get_drvdata(to_platform_device(dev));
+	parent->saved = readl_relaxed(parent->base);
+	return 0;
+}
+
+static int __maybe_unused msc313e_clkgen_mux_resume(struct device *dev)
+{
+	struct msc313e_clkgen_muxparent *parent = platform_get_drvdata(to_platform_device(dev));
+	u32 cur = readl_relaxed(parent->base);
+	if(cur != parent->saved){
+		dev_warn(dev, "mux was before %x but is now %x\n", parent->saved, cur);
+	}
+	return 0;
+}
+
+static SIMPLE_DEV_PM_OPS(msc313e_clkgen_mux_pm_ops, msc313e_clkgen_mux_suspend,
+			 msc313e_clkgen_mux_resume);
+
 static struct platform_driver msc313e_clkgen_mux_driver = {
 	.driver = {
 		.name = "msc313e-clkgen-mux",
 		.of_match_table = msc313e_clkgen_mux_of_match,
+		.pm = &msc313e_clkgen_mux_pm_ops,
 	},
 	.probe = msc313e_clkgen_mux_probe,
 	.remove = msc313e_clkgen_mux_remove,
