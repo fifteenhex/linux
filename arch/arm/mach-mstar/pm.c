@@ -14,8 +14,13 @@
 #include <linux/of_platform.h>
 
 struct mstar_pm_info {
-	u32 pmsleep;
-	u32 pmgpio;
+	u32 pmsleep;	// 0x0
+	u32 pmgpio;	// 0x4
+	u32 miu0;	// 0x8
+	u32 miu1;	// 0xc
+	u32 miu2;	// 0x10
+	u32 clkgen;	// 0x14
+	u32 isp;	// 0x18
 };
 
 #define MSTARV7_PM_RESUMEADDR		0x1f001cec
@@ -112,11 +117,18 @@ int __init msc313_pm_init(void)
 
 	pm_info->pmsleep = (u32) ioremap(0x1f001c00, 0x200);
 	pm_info->pmgpio	= (u32) ioremap(0x1f001e00, 0x200);
+	pm_info->miu0	= (u32) ioremap(0x1f202000, 0x200);
+	pm_info->miu1	= (u32) ioremap(0x1f202200, 0x200);
+	pm_info->miu2	= (u32) ioremap(0x1f202400, 0x200);
+	pm_info->clkgen	= (u32) ioremap(0x1f001c80, 0x4);
+	pm_info->isp	= (u32) ioremap(0x1f002e00, 0x200);
 
 	/* setup the resume addr for the bootrom */
 	resumeaddr = ioremap(MSTARV7_PM_RESUMEADDR, MSTARV7_PM_RESUMEADDR_SZ);
-	writel_relaxed(resume_pbase & 0xffff, resumeaddr);
-	writel_relaxed((resume_pbase >> 16) & 0xffff, resumeaddr + 1);
+	/*writel_relaxed(resume_pbase & 0xffff, resumeaddr);
+	writel_relaxed((resume_pbase >> 16) & 0xffff, resumeaddr + 1);*/
+	writel_relaxed(0, resumeaddr);
+	writel_relaxed(0, resumeaddr + 1);
 	iounmap(resumeaddr);
 
 	printk("pm code is at %px, pm info is at %px, pmsleep is at %x, pmgpio is at %x\n",
