@@ -82,15 +82,6 @@ ENTRY(msc313_suspend_imi)
 	bic	r5, r5, #0x1 << 14
 	str	r5, [r4]
 
-	// isp
-	//wriu    0x170e 0x03    //reg_spi_arb_ctrl[1:0]
-	//wriu -w 0x1710 0x007f  //reg_non_pm_ack_timeout_len[15:0]
-	/*ldr	r4, [r0, #0x18]
-	ldr	r5, =0x03
-	strb	r5, [r4, #0x0E << 1]
-	ldr	r5, =0x007F
-	str	r5, [r4, #0x10 << 1]*/
-
     // something new
     //wriu    0x3c24 0x30    //reg_pwoff_rst0_en, reg_pwoff_rst1_en
 //    ldr   r0, =0x30
