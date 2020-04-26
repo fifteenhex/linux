@@ -110,6 +110,9 @@ ENTRY(msc313_suspend_imi)
 	strb	r5, [r4, #0x08 << 1]
 
 	// spin
-	b .
+	nop
+	nop
+	nop
+	nop
 ENDPROC(msc313_suspend_imi)
 .ltorg

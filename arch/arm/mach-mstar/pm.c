@@ -79,7 +79,7 @@ int __init msc313_pm_init(void)
 	void __iomem *imi_base;
 	void __iomem *virt;
 	phys_addr_t phys;
-	unsigned int resume_pbase = virt_to_phys(cpu_resume);
+	unsigned int resume_pbase = __pa_symbol(cpu_resume);
 	u32* resumeaddr;
 
 	node = of_find_compatible_node(NULL, NULL, "mmio-sram");
@@ -125,10 +125,8 @@ int __init msc313_pm_init(void)
 
 	/* setup the resume addr for the bootrom */
 	resumeaddr = ioremap(MSTARV7_PM_RESUMEADDR, MSTARV7_PM_RESUMEADDR_SZ);
-	/*writel_relaxed(resume_pbase & 0xffff, resumeaddr);
-	writel_relaxed((resume_pbase >> 16) & 0xffff, resumeaddr + 1);*/
-	writel_relaxed(0, resumeaddr);
-	writel_relaxed(0, resumeaddr + 1);
+	writel_relaxed(resume_pbase & 0xffff, resumeaddr);
+	writel_relaxed((resume_pbase >> 16) & 0xffff, resumeaddr + 1);
 	iounmap(resumeaddr);
 
 	printk("pm code is at %px, pm info is at %px, pmsleep is at %x, pmgpio is at %x\n",
