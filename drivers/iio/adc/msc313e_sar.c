@@ -554,8 +554,6 @@ static int msc313e_sar_probe(struct platform_device *pdev)
 	regmap_field_write(sar->field_analogpd, 0);
 	regmap_field_write(sar->field_digitalpd, 0);
 
-	/* turn the tempsensor on */
-	regmap_update_bits(sar->pmsleep, REG_PMSLEEP_PD, REG_PMSLEEP_TS_PD, REG_PMSLEEP_TS_PD);
 	/* set the temp sensor to 2.0v */
 	regmap_field_write(sar->field_vref_ts, 0);
 
@@ -567,6 +565,26 @@ static int msc313e_sar_remove(struct platform_device *pdev)
 {
 	return 0;
 }
+
+static int __maybe_unused msc313e_sar_suspend(struct device *dev)
+{
+	struct msc313e_sar *sar = iio_priv(platform_get_drvdata(to_platform_device(dev)));
+	/* turn the tempsensor on */
+	regmap_update_bits(sar->pmsleep, REG_PMSLEEP_PD, REG_PMSLEEP_TS_PD, 0);
+	return 0;
+}
+
+static int __maybe_unused msc313e_sar_resume(struct device *dev)
+{
+	struct msc313e_sar *sar = iio_priv(platform_get_drvdata(to_platform_device(dev)));
+	/* turn the tempsensor on */
+	regmap_update_bits(sar->pmsleep, REG_PMSLEEP_PD, REG_PMSLEEP_TS_PD, REG_PMSLEEP_TS_PD);
+	return 0;
+}
+
+static SIMPLE_DEV_PM_OPS(msc313e_sar_pm_ops, msc313e_sar_suspend,
+			 msc313e_sar_resume);
+
 
 static const struct of_device_id msc313e_sar_dt_ids[] = {
 #ifdef CONFIG_MACH_INFINITY
@@ -591,6 +609,7 @@ static struct platform_driver msc313e_sar_driver = {
 	.driver = {
 		   .name = DRIVER_NAME,
 		   .of_match_table = msc313e_sar_dt_ids,
+		   .pm = &msc313e_sar_pm_ops,
 	},
 };
 
