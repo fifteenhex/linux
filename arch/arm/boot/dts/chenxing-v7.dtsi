@@ -386,7 +386,7 @@
 					 <&xtal12_div4>;
 		};
 
-		pmsleep: syscon@0x1f001c00 {
+		pmsleep: syscon@1f001c00 {
 			/* msc313e notes
 			 *
 			 * 1f001c24 -- bit 11 disables pm uart rx
