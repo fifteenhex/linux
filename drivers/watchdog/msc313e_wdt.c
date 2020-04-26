@@ -179,6 +179,8 @@ static int __maybe_unused msc313e_wdt_suspend(struct device *dev)
 
 static int __maybe_unused msc313e_wdt_resume(struct device *dev)
 {
+	struct msc313e_wdt_priv *priv = dev_get_drvdata(dev);
+	msc313e_wdt_start(&priv->wdev);
 	return 0;
 }
 
