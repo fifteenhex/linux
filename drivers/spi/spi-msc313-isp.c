@@ -459,12 +459,41 @@ static const struct of_device_id msc313_isp_match[] = {
 };
 MODULE_DEVICE_TABLE(of, msc313_isp_match);
 
+static int __maybe_unused msc313_isp_suspend(struct device *dev)
+{
+	struct spi_master *master = dev_get_drvdata(dev);
+	struct msc313_isp *isp = spi_master_get_devdata(master);
+
+	/* the boot rom wants everything to be at reset state otherwise it
+	 * will lock up..
+	 */
+	regmap_field_force_write(isp->nrst, 0);
+	mdelay(1);
+	regmap_field_force_write(isp->nrst, 1);
+	mdelay(1);
+
+	/* reset doesn't clear this, if we don't clear it the boot rom
+	 * can't read the IPL
+	 */
+	writew_relaxed(VAL_PASSWORD_LOCK, isp->base + REG_PASSWORD);
+	return 0;
+}
+
+static int __maybe_unused msc313_isp_resume(struct device *dev)
+{
+	return 0;
+}
+
+static SIMPLE_DEV_PM_OPS(msc313_isp_pm_ops, msc313_isp_suspend,
+			 msc313_isp_resume);
+
 static struct platform_driver msc313_isp_driver = {
 	.probe	= msc313_isp_probe,
 	.remove	= msc313_isp_remove,
 	.driver	= {
 		.name = DRIVER_NAME,
 		.of_match_table = msc313_isp_match,
+		.pm = &msc313_isp_pm_ops
 	},
 };
 module_platform_driver(msc313_isp_driver);
