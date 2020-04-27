@@ -4,6 +4,8 @@
  * Author: Daniel Palmer <daniel@thingy.jp>
  */
 
+#include <dt-bindings/gpio/mstar.h>
+
 / {
 	chosen {
 		stdout-path = "serial0:115200n8";
@@ -42,11 +44,11 @@
 	leds {
 		compatible = "gpio-leds";
 		red {
-			gpios = <&gpio 20 GPIO_ACTIVE_HIGH>;
+			gpios = <&gpio MSC313_SR_IO16 GPIO_ACTIVE_HIGH>;
 			linux,default-trigger = "activity";
 		};
 		yellow {
-			gpios = <&gpio 21 GPIO_ACTIVE_HIGH>;
+			gpios = <&gpio MSC313_SR_IO17 GPIO_ACTIVE_HIGH>;
 			linux,default-trigger = "heartbeat";
 		};
 	};
