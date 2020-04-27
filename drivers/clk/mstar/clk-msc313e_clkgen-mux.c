@@ -249,7 +249,8 @@ static int __maybe_unused msc313e_clkgen_mux_resume(struct device *dev)
 	struct msc313e_clkgen_muxparent *parent = platform_get_drvdata(to_platform_device(dev));
 	u32 cur = readl_relaxed(parent->base);
 	if(cur != parent->saved){
-		dev_warn(dev, "mux was before %x but is now %x\n", parent->saved, cur);
+		dev_warn(dev, "mux was before %x but is now %x, restoring\n", parent->saved, cur);
+		writel_relaxed(parent->saved, parent->base);
 	}
 	return 0;
 }
