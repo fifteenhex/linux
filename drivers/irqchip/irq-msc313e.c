@@ -57,10 +57,12 @@
 #define REGOFF_MASK		0x0
 #define REGOFF_POLARITY		0x10
 #define REGOFF_STATUSCLEAR	0x20
-#define BITOFF(hwirq)		(hwirq % 16)
+#define IRQSPERWORD		16
+#define BITOFF(hwirq)		(hwirq % IRQSPERWORD)
 #define REGOFF(hwirq)		((hwirq >> 4) * 4)
 
 struct msc313e_intc {
+	struct irq_domain *domain;
 	void __iomem *base;
 	u8 gicoff;
 	struct irq_chip *irqchip;
@@ -131,7 +133,8 @@ static struct irq_chip msc313e_intc_spi_chip = {
 	.irq_mask		= msc313e_intc_mask_irq,
 	.irq_unmask		= msc313e_intc_unmask_irq,
 	.irq_eoi		= irq_chip_eoi_parent,
-	.irq_set_type	= msc313e_intc_set_type_irq,
+	.irq_set_type		= msc313e_intc_set_type_irq,
+	.flags			= IRQCHIP_MASK_ON_SUSPEND,
 };
 
 static struct irq_chip msc313e_intc_fiq_chip = {
@@ -139,8 +142,9 @@ static struct irq_chip msc313e_intc_fiq_chip = {
 	.irq_mask		= msc313e_intc_mask_irq,
 	.irq_unmask		= msc313e_intc_unmask_irq,
 	.irq_eoi		= msc313e_intc_irq_eoi,
-	.irq_retrigger	= irq_chip_retrigger_hierarchy,
-	.irq_set_type	= msc313e_intc_set_type_irq,
+	.irq_retrigger		= irq_chip_retrigger_hierarchy,
+	.irq_set_type		= msc313e_intc_set_type_irq,
+	.flags			= IRQCHIP_MASK_ON_SUSPEND,
 };
 
 static int msc313e_intc_domain_translate(struct irq_domain *d,
@@ -185,17 +189,22 @@ static const struct irq_domain_ops msc313e_intc_domain_ops = {
 		.free = irq_domain_free_irqs_common,
 };
 
-static int __init msc313e_intc_of_init(struct device_node *node,
-				   struct device_node *parent, u8 gicoff, u8 numirqs, bool ack,
+static int  msc313e_intc_of_init(struct device_node *node,
+				   struct device_node *parent,
+				   u8 gicoff,
+				   u8 numirqs,
+				   bool ack,
 				   struct irq_chip *irqchip)
 {
-	struct irq_domain *domain, *domain_parent;
+	struct irq_domain *domain_parent;
 	struct msc313e_intc *intc;
+	int ret = 0;
 
 	domain_parent = irq_find_host(parent);
 	if (!domain_parent) {
 		pr_err("msc313e-intc: interrupt-parent not found\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto out;
 	}
 
 	intc = kzalloc(sizeof(*intc), GFP_KERNEL);
@@ -209,14 +218,15 @@ static int __init msc313e_intc_of_init(struct device_node *node,
 	if (IS_ERR(intc->base))
 		return PTR_ERR(intc->base);
 
-	domain = irq_domain_add_hierarchy(domain_parent, 0, numirqs, node,
+	intc->domain = irq_domain_add_hierarchy(domain_parent, 0, numirqs, node,
 			&msc313e_intc_domain_ops, intc);
-	if (!domain) {
+	if (!intc->domain) {
 		pr_err("msc313e-intc: failed to add irq domain\n");
 		return -ENOMEM;
 	}
 
-	return 0;
+out:
+	return ret;
 }
 
 static int __init msc313e_intc_spi_of_init(struct device_node *node,
