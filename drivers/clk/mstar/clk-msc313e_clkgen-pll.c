@@ -11,23 +11,13 @@
 #include <linux/module.h>
 #include <linux/regmap.h>
 
-/*
- * -0x1F2071B4
- *
- * - 0x1c0(0x70) - pll gater lock
- *     1    |     0
- * lock off | lock on
- * - 0x1c4(0x71) - pll force on bits
- * - 0x1c8(0x72) - pll force off bits
- * - 0x1cc(0x73) - pll en rd bits	- seems to always be 0xf40
- *      15   |       14  |     13   |     12   |     11   |     10   |     9    |     8
- *  pll rv1  |  mpll 86  | mpll 124 | mpll 123 | mpll 144 | mpll 172 | mpll 216 | mpll 288
- *      7    |     6     |     5    |     4    |     3    |     2    |     1    |     0
- *  mpll 345 | mpll 432  | utmi 480 | utmi 240 | utmi 192 | utmi 160 | upll 320 | upll 384
-*/
-
-#define REG_FORCEON		0x4
+#define REG_LOCK	0x0
+#define REG_LOCK_OFF	BIT(1)
+#define REG_FORCEON	0x4
 #define REG_FORCEOFF	0x8
+#define REG_ENRD	0xc
+
+static DEFINE_SPINLOCK(msc313e_pllgate_lock);
 
 struct msc313e_clkgen_pll {
 	u16 mask;
@@ -49,26 +39,31 @@ MODULE_DEVICE_TABLE(of, msc313e_clkgen_pll_of_match);
 static	int	msc313_clkgen_pll_enable(struct clk_hw *hw)
 {
 	struct msc313e_clkgen_pll *clkgen_pll = to_clkgen_pll(hw);
-	regmap_update_bits(clkgen_pll->regmap, REG_FORCEON, clkgen_pll->mask, clkgen_pll->mask);
-	regmap_update_bits(clkgen_pll->regmap, REG_FORCEOFF, clkgen_pll->mask, 0);
+	spin_lock(&msc313e_pllgate_lock);
+	regmap_write_bits(clkgen_pll->regmap, REG_FORCEON, clkgen_pll->mask, clkgen_pll->mask);
+	spin_unlock(&msc313e_pllgate_lock);
+
+	//printk("val was -> %x now -> %x\n", valb, vala);
 	return 0;
 }
 
 static void	msc313e_clkgen_pll_disable(struct clk_hw *hw)
 {
 	struct msc313e_clkgen_pll *clkgen_pll = to_clkgen_pll(hw);
-	regmap_update_bits(clkgen_pll->regmap, REG_FORCEOFF, clkgen_pll->mask, clkgen_pll->mask);
-	regmap_update_bits(clkgen_pll->regmap, REG_FORCEON, clkgen_pll->mask, 0);
+	spin_lock(&msc313e_pllgate_lock);
+	/* never force a clock off */
+	regmap_write_bits(clkgen_pll->regmap, REG_FORCEON, clkgen_pll->mask, 0);
+	spin_unlock(&msc313e_pllgate_lock);
 }
 
 static int	msc313e_clkgen_pll_is_enabled(struct clk_hw *hw)
 {
 	struct msc313e_clkgen_pll *clkgen_pll = to_clkgen_pll(hw);
-	unsigned int forcedon, forcedoff;
-	int ret = regmap_read(clkgen_pll->regmap, REG_FORCEON, &forcedon);
-	ret = regmap_read(clkgen_pll->regmap, REG_FORCEOFF, &forcedoff);
-
-	return (forcedon & clkgen_pll->mask) ? 1 : 0;
+	unsigned int val;
+	spin_lock(&msc313e_pllgate_lock);
+	int ret = regmap_read(clkgen_pll->regmap, REG_ENRD, &val);
+	spin_unlock(&msc313e_pllgate_lock);
+	return (val & clkgen_pll->mask) ? 1 : 0;
 }
 
 static unsigned long msc313e_clkgen_pll_recalc_rate(struct clk_hw *hw,
@@ -147,6 +142,13 @@ static int msc313e_clkgen_pll_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "failed to register regmap");
 		return PTR_ERR(regmap);
 	}
+
+	// Clear the force on register so we can actually control the gates
+	regmap_write(regmap, REG_FORCEON, 0x0);
+	// Clear the force off register
+	regmap_write(regmap, REG_FORCEOFF, 0x0);
+	// lock the force off bits
+	regmap_write(regmap, REG_LOCK, REG_LOCK_OFF);
 
 	clk_data = devm_kzalloc(&pdev->dev, sizeof(struct clk_onecell_data), GFP_KERNEL);
 	if (!clk_data)
