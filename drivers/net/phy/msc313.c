@@ -8,50 +8,66 @@
 #include <linux/regmap.h>
 
 #define MSC313_PHY_ID	0xdeadbeef
+#define MSC313E_PHY_ID	0xdeadb33f
 #define MSC313_PHY_MASK 0xffffffff
 
-#define REG_LDO_0	0x3f8
-#define REG_LDO_1	0x3f9
+#define REG_LDO		0x3f8
 
-/*
-	     // power on adc
-	     *(int8_t *)0x1f006741 = 0x80;
-	     // power on bgap
-	     *(int8_t *)0x1f006598 = 0x40;
-	     // power on adcpl
-	     *(int8_t *)0x1f006575 = 0x4;
-	     *(int8_t *)0x1f006674 = 0x0;
-	     // power on lpf_op
-	     *(int8_t *)0x1f0067e1 = 0x0;
-	     */
-
+struct msc313_phy_data;
 
 struct msc313_phy_priv {
 	struct regmap *phyana;
+	const struct msc313_phy_data *data;
 };
 
-static void msc313_phy_powerdown(struct msc313_phy_priv *priv)
+struct msc313_phy_data {
+	void (*powerup)(struct msc313_phy_priv*);
+	void (*powerdown)(struct msc313_phy_priv*);
+};
+
+static void msc313_powerdown(struct msc313_phy_priv *priv)
 {
 	printk("Doing phy power down\n");
-	regmap_write(priv->phyana, REG_LDO_0, 0xffff);
-	regmap_write(priv->phyana, REG_LDO_1, 0xffff);
+	regmap_write(priv->phyana, REG_LDO, 0xffff);
+};
+
+static void msc313_powerup(struct msc313_phy_priv *priv){
+	printk("Doing phy power up\n");
+	regmap_write(priv->phyana, REG_LDO, 0x0);
 }
 
-static void msc313_phy_powerup(struct msc313_phy_priv *priv){
+static const struct msc313_phy_data msc313_data = {
+	.powerup = msc313_powerup,
+	.powerdown = msc313_powerdown,
+};
+
+static void msc313e_powerdown(struct msc313_phy_priv *priv)
+{
+	printk("Doing phy power down\n");
+	regmap_write(priv->phyana, REG_LDO, 0xffff);
+};
+
+static void msc313e_powerup(struct msc313_phy_priv *priv){
 	printk("Doing phy power up\n");
-	regmap_write(priv->phyana, REG_LDO_0, 0x0);
-	regmap_write(priv->phyana, REG_LDO_1, 0x0);
+	regmap_write(priv->phyana, REG_LDO, 0x0);
 }
+
+static const struct msc313_phy_data msc313e_data = {
+	.powerup = msc313e_powerup,
+	.powerdown = msc313e_powerdown,
+};
 
 static int msc313_phy_suspend(struct phy_device *phydev)
 {
-	msc313_phy_powerdown(phydev->priv);
+	struct msc313_phy_priv *priv = phydev->priv;
+	priv->data->powerdown(priv);
 	return 0;
 }
 
 static int msc313_phy_resume(struct phy_device *phydev)
 {
-	msc313_phy_powerup(phydev->priv);
+	struct msc313_phy_priv *priv = phydev->priv;
+	priv->data->powerup(priv);
 	return 0;
 }
 
@@ -75,6 +91,8 @@ static int msc313_phy_probe(struct phy_device *phydev)
 		goto out;
 	}
 
+	priv->data = phydev->drv->driver_data;
+
 	phydev->priv = priv;
 out:
 	return ret;
@@ -84,11 +102,22 @@ struct phy_driver msc313_driver[] = {
 	{
 		.phy_id         = MSC313_PHY_ID,
 		.phy_id_mask    = 0xffffffff,
-		.name           = "MStar 313 phy",
+		.name           = "msc313 phy",
 		.probe		= msc313_phy_probe,
 		.soft_reset	= genphy_no_soft_reset,
 		.suspend	= msc313_phy_suspend,
 		.resume		= msc313_phy_resume,
+		.driver_data	= &msc313_data,
+	},
+	{
+		.phy_id         = MSC313E_PHY_ID,
+		.phy_id_mask    = 0xffffffff,
+		.name           = "msc313e phy",
+		.probe		= msc313_phy_probe,
+		.soft_reset	= genphy_no_soft_reset,
+		.suspend	= msc313_phy_suspend,
+		.resume		= msc313_phy_resume,
+		.driver_data	= &msc313e_data,
 	},
 };
 
@@ -96,6 +125,7 @@ module_phy_driver(msc313_driver);
 
 static struct mdio_device_id __maybe_unused msc313_tbl[] = {
 	{ MSC313_PHY_ID, MSC313_PHY_MASK },
+	{ MSC313E_PHY_ID, MSC313_PHY_MASK },
 	{ }
 };
 

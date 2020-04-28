@@ -8,3 +8,7 @@
 
 / {
 };
+
+&phy {
+	compatible = "ethernet-phy-idDEAD.B33F";
+};
