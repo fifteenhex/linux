@@ -11,7 +11,9 @@
 #define MSC313E_PHY_ID	0xdeadb33f
 #define MSC313_PHY_MASK 0xffffffff
 
-#define REG_LDO		0x3f8
+#define REG_LDO				0x3f8
+#define REG_MSC313E_LPMODE_DAC_OFF	0x5e4
+#define REG_MSC313E_LPMODE_DAC_OFF_VAL	0x0df5
 
 struct msc313_phy_data;
 
@@ -34,6 +36,19 @@ static void msc313_powerdown(struct msc313_phy_priv *priv)
 static void msc313_powerup(struct msc313_phy_priv *priv){
 	printk("Doing phy power up\n");
 	regmap_write(priv->phyana, REG_LDO, 0x0);
+	/*  same - MHal_EMAC_WritReg8(REG_BANK_ALBANY1, 0xfc, 0x00);   // Power-on LDO
+	    same - MHal_EMAC_WritReg8(REG_BANK_ALBANY1, 0xfd, 0x00);
+	    diff - MHal_EMAC_WritReg8(REG_BANK_ALBANY1, 0xb7, 0x17);   // Power-on ADC**
+	    MHal_EMAC_WritReg8(REG_BANK_ALBANY1, 0xcb, 0x11);   // Power-on BGAP
+	    MHal_EMAC_WritReg8(REG_BANK_ALBANY1, 0xcc, 0x20);   // Power-on ADCPL
+	    MHal_EMAC_WritReg8(REG_BANK_ALBANY1, 0xcd, 0xd0);   // Power-on ADCPL
+	    MHal_EMAC_WritReg8(REG_BANK_ALBANY1, 0xd4, 0x00);   // Power-on LPF_OP
+	    MHal_EMAC_WritReg8(REG_BANK_ALBANY1, 0xb9, 0x40);   // Power-on LPF
+	    MHal_EMAC_WritReg8(REG_BANK_ALBANY1, 0xbb, 0x05);   // Power-on REF
+	    MHal_EMAC_WritReg8(REG_BANK_ALBANY2, 0x3a, 0x03);   // PD_TX_IDAC, PD_TX_LD = 0
+	    MHal_EMAC_WritReg8(REG_BANK_ALBANY2, 0x3b, 0x00);*/
+
+
 }
 
 static const struct msc313_phy_data msc313_data = {
@@ -50,6 +65,26 @@ static void msc313e_powerdown(struct msc313_phy_priv *priv)
 static void msc313e_powerup(struct msc313_phy_priv *priv){
 	printk("Doing phy power up\n");
 	regmap_write(priv->phyana, REG_LDO, 0x0);
+	regmap_write(priv->phyana, REG_MSC313E_LPMODE_DAC_OFF, REG_MSC313E_LPMODE_DAC_OFF_VAL);
+
+	/* same - MHal_EMAC_WritReg8(REG_BANK_ALBANY1, 0xfc, 0x00);   // Power-on LDO
+	   same - MHal_EMAC_WritReg8(REG_BANK_ALBANY1, 0xfd, 0x00);
+	   diff	- MHal_EMAC_WritReg8(REG_BANK_ALBANY2, 0xa1, 0x80);   // Power-on SADC
+    	    	  MHal_EMAC_WritReg8(REG_BANK_ALBANY1, 0xcc, 0x40);   // Power-on ADCPL
+                  MHal_EMAC_WritReg8(REG_BANK_ALBANY1, 0xbb, 0x04);   // Power-on REF
+                  MHal_EMAC_WritReg8(REG_BANK_ALBANY2, 0x3a, 0x00);   // Power-on TX
+                  MHal_EMAC_WritReg8(REG_BANK_ALBANY2, 0xf1, 0x00);   // Power-on TX
+
+                  MHal_EMAC_WritReg8(REG_BANK_ALBANY2, 0x8a, 0x01);    // CLKO_ADC_SEL
+                  MHal_EMAC_WritReg8(REG_BANK_ALBANY1, 0x3b, 0x01);   // reg_adc_clk_select
+                  MHal_EMAC_WritReg8(REG_BANK_ALBANY1, 0xc4, 0x44);  // TEST
+                  MHal_EMAC_WritReg8(REG_BANK_ALBANY2, 0x80, 0x30);   // sadc timer
+
+          added   MHal_EMAC_WritReg8(REG_BANK_ALBANY2, 0xf2, 0xf5);  // LP mode, DAC OFF
+          added   MHal_EMAC_WritReg8(REG_BANK_ALBANY2, 0xf3, 0x0d); // DAC off
+
+
+	 */
 }
 
 static const struct msc313_phy_data msc313e_data = {
