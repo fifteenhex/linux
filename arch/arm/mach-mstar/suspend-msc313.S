@@ -7,112 +7,120 @@
 .align 3
 .globl infinity_suspend_imi
 
+.macro delay
+	ldr   r5,=0x10000
+	1:
+	subs  r5, #1
+	bne   1b
+.endm
+
+.macro setbank infooffset
+	ldr	r4, [r0, #\infooffset]
+.endm
+
+.macro setbyte offset value
+	ldr	r5, =\value
+	strb	r5, [r4, #\offset << 1]
+.endm
+
+.macro setword offset value
+	ldr	r5, =\value
+	str	r5, [r4, #\offset << 1]
+.endm
+
+.macro setbits offset bits
+	ldr	r5, [r4, #\offset << 1]
+	orr	r5, r5, #\bits
+	str	r5, [r4, #\offset << 1]
+.endm
+
+.macro clearbits offset bits
+	ldr   r5, [r4, #\offset << 1]
+	bic   r5, r5, #\bits
+	str   r5, [r4, #\offset << 1]
+.endm
+
 //r0 should be a pointer to a struct mstar_pm_info
 //r4 is used to track the base of the block we're poking
 //r5 is used for the value that is being loaded
 
 //This must run in SRAM
 ENTRY(msc313_suspend_imi)
-	// 1. DDR enter self-refresh
-	//wriu -w   0x101246,0xFFFE
-	//wriu -w   0x101266,0xFFFF
-	//wriu -w   0x101286,0xFFFF
-	//wriu -w   0x1012A6,0xFFFF
-	//wriu -w   0x101106,0xFFFF
-	//wriu -w   0x101126,0xFFFF
-
+	// First block all access except one in group 0, cpu?
 	// miu-2
-	ldr	r4, [r0, #0x10]
-	ldr	r5, =0xFFFE
-	str	r5, [r4, #0x46 << 1]
-	ldr	r5, =0xFFFF
-	str	r5, [r4, #0x66 << 1]
-	str	r5, [r4, #0x86 << 1]
-	str	r5, [r4, #0xA6 << 1]
+	setbank 0x10
+	setword 0x46 0xfffe
+	setword 0x66 0xffff
+	setword 0x86 0xffff
+	setword 0xa6 0xffff
 	// miu-1
-	ldr	r4, [r0, #0xc]
-	str	r5, [r4, #0x06 << 1]
-	str	r5, [r4, #0x26 << 1]
+	setbank	0x0c
+	setword	0x00 0xffff
+	setword 0x26 0xffff
+	delay
 
-	//wriu -w 0x101218,0x0400  //reg_mrx
-	//wriu -w 0x101200,0x002f  //Bit[05]reg_auto_ref_off
-	//wriu -w 0x101200,0x052e  //trig precharge all
-	//wriu -w 0x101200,0x002e
-	//wriu -w 0x101200,0x032e
-	//wriu -w 0x101200,0x002e
-	//wriu -w 0x101206,0x1430
-	//wriu -w 0x101246,0xFFFF
-	//wriu -w 0x101200,0x202e
 	// miu-2
-	ldr	r4, [r0, #0x10]
-	ldr	r5, =0x0400
-	str	r5, [r4, #0x18 << 1]
-	ldr	r5, =0x002F
-	str	r5, [r4, #0x00 << 1]
-	ldr	r5, =0x052E
-	str	r5, [r4, #0x00 << 1]
-	ldr	r5, =0x002E
-	str	r5, [r4, #0x00 << 1]
-	ldr	r5, =0x032E
-	str	r5, [r4, #0x00 << 1]
-	ldr	r5, =0x002E
-	str	r5, [r4, #0x00 << 1]
-	ldr	r5, =0x1430
-	str	r5, [r4, #0x06 << 1]
-	ldr	r5, =0xFFFF
-	str	r5, [r4, #0x46 << 1]
-	ldr	r5, =0x202E
-	str	r5, [r4, #0x00 << 1]
+	setbank 0x10
+	.macro miu_clear_single_cmd
+		clearbits 0x00 0x0f00 // clear command issue and rasz, casz, wez bits
+	.endm
+	setword 0x18 0x0400 // single command mode register
+	setword 0x00 0x002F // initial setting?
+	setword 0x00 0x052E // issue command, casz ?
+	miu_clear_single_cmd
+	setbits	0x0 0x0300  // issue command, raz
+	miu_clear_single_cmd
+	setword 0x06 0x1430 // tref, tcke timing, cke always on?
+	delay
+	setword 0x46 0xFFFF // mask all requests
+	setbits 0x00 0x2000 // enter self refresh
+	delay
 
-	// load up pmsleep
-	ldr	r4, [r0, #0x0]
+	// Now that the DDR is doing it's own thing disable
+	// power everything down to save energy
 
-	// set the wake up source
-	ldr   r5, [r4, #0x10 << 1]
-	bic   r5, r5, #0x16      //[1]:SAR, [2]:WOL, [4]:RTC
-	str   r5, [r4, #0x10 << 1]
+    	// miu-2
+    	setbank 0x10
+    	setbits 0x04 0xf000 // mclk delay etc
+	// miu-0
+	setbank 0x8
+	setbits 0x00 0x0018 // set gpio mode, output highz
+	setword 0x54 0xc070 // unknown
+	setword 0x08 0x0000 // clear rx en
+	delay
 
+	// Now prepare our wake up source
+	setbank	0x0
+	clearbits 0x10 0x16 //[1]:SAR, [2]:WOL, [4]:RTC
+
+	// this should be handled in the clkgen gate driver
 	// 4. PM sleep mode
 	// clk gen
 	//wriu -w 0x0e40 0x0000  //reg_ckg_mcu, reg_ckg_spi to xtal
-	ldr	r4, [r0, #0x14]
+	setbank	0x14
 	ldr	r5, [r4]
 	//ldr	r5, =0
 	bic	r5, r5, #0x1 << 7
 	bic	r5, r5, #0x1 << 14
 	str	r5, [r4]
 
-    // something new
-    //wriu    0x3c24 0x30    //reg_pwoff_rst0_en, reg_pwoff_rst1_en
-//    ldr   r0, =0x30
-//    strb  r0, [r2, #0x24 << 1]
+   	// something new
+	//wriu    0x3c24 0x30    //reg_pwoff_rst0_en, reg_pwoff_rst1_en
+	//    ldr   r0, =0x30
+	//    strb  r0, [r2, #0x24 << 1]
 
-	// pmsleep
-	ldr	r4, [r0, #0x0]
-	ldr	r5, =0x0c
-	strb	r5, [r4, #0x38 << 1]
+	// Unlock the power down stuff
+	setbank	0x0
+	setbyte 0x38 0x0c
+	setword 0x24 0xbabe
+	setbyte 0x6e 0xa5
+	delay
 
-	ldr   r5, =0xBABE
-	str   r5, [r4, #0x24 << 1]
-	ldr   r5, =0xA5
-	strb  r5, [r4, #0x6E << 1]
-
-	// from vendor code
-	nop
-	nop
-	nop
-	nop
-
-	//wriu    0x0f08 0x10    //set PM_GPIO_4 oen=0, out=0
-	// pm gpio
-	ldr	r4, [r0, #0x4]
-	ldr	r5, =0x10
-	strb	r5, [r4, #0x08 << 1]
+	// Finally set pm_gpio4 to turn the lights off
+	setbank 0x4
+	setbyte 0x08 0x10
 
 	// spin
-	nop
-	nop
-	nop
-	nop
+	b .
 ENDPROC(msc313_suspend_imi)
 .ltorg
