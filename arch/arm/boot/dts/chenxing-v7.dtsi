@@ -403,13 +403,13 @@
 			 */
 			compatible = "syscon";
 			reg = <0x1f001c00 0x100>;
+		};
 
-			reboot {
-				compatible = "syscon-reboot";
-				regmap = <&pmsleep>;
-				offset = <0xb8>;
-				mask = <0x79>;
-			};
+		reboot {
+			compatible = "syscon-reboot";
+			regmap = <&pmsleep>;
+			offset = <0xb8>;
+			mask = <0x79>;
 		};
 
 		gpio_pm: gpio_pm@1f001e00 {
@@ -1024,7 +1024,7 @@
 			mux-shifts = <2>, <10>;
 			mux-widths = <2>, <2>;
 			output-flags = <MSTAR_CLKGEN_OUTPUTFLAG_CRITICAL>;
-			clocks = <&emac_phyclk>; /* imcomplete */
+			clocks = <&emac_phyclk>; /* incomplete */
 		};
 
 		clkgen_special_emac_tx: clkgen_special@1f22668c {
@@ -1036,7 +1036,7 @@
 			mux-shifts = <2>, <10>;
 			mux-widths = <2>, <2>;
 			output-flags = <MSTAR_CLKGEN_OUTPUTFLAG_CRITICAL>;
-			clocks = <&emac_phyclk>; /* imcomplete */
+			clocks = <&emac_phyclk>; /* incomplete */
 		};
 
 		// gating 216_2digpm stops the system
