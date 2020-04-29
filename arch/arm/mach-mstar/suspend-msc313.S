@@ -89,10 +89,6 @@ ENTRY(msc313_suspend_imi)
 	setword 0x08 0x0000 // clear rx en
 	delay
 
-	// Now prepare our wake up source
-	setbank	0x0
-	clearbits 0x10 0x16 //[1]:SAR, [2]:WOL, [4]:RTC
-
 	// this should be handled in the clkgen gate driver
 	// 4. PM sleep mode
 	// clk gen
@@ -104,16 +100,20 @@ ENTRY(msc313_suspend_imi)
 	bic	r5, r5, #0x1 << 14
 	str	r5, [r4]
 
-   	// something new
+	// Now prepare our wake up source
+	setbank	0x0
+	clearbits 0x10 0x16 //[1]:SAR, [2]:WOL, [4]:RTC
+
+	// not sure what this does. causes the cpu to lock up though
 	//wriu    0x3c24 0x30    //reg_pwoff_rst0_en, reg_pwoff_rst1_en
-	//    ldr   r0, =0x30
-	//    strb  r0, [r2, #0x24 << 1]
+	//ldr r4, =0x1f007800
+	//setbyte 0x24 0x30
 
 	// Unlock the power down stuff
 	setbank	0x0
 	setbyte 0x38 0x0c
 	setword 0x24 0xbabe
-	setbyte 0x6e 0xa5
+	setbyte 0x6e 0xa5 //commented out in new sdk
 	delay
 
 	// Finally set pm_gpio4 to turn the lights off
