@@ -99,6 +99,12 @@ config POWER_RESET_HISI
 	help
 	  Reboot support for Hisilicon boards.
 
+config POWER_RESET_MSTAR
+	bool "MStar power-off driver"
+	depends on ARCH_MSTAR
+	help
+	  Power off and restart support for MStar boards.
+
 config POWER_RESET_MSM
 	bool "Qualcomm MSM power-off driver"
 	depends on ARCH_QCOM
