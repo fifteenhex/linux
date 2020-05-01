@@ -5,11 +5,15 @@
 #include <asm/asm-offsets.h>
 
 .align 3
-.globl infinity_suspend_imi
+
+//r0 should be a pointer to a struct mstar_pm_info
+//r1 will point at the pm_uart for debugging
+//r4 is used to track the base of the block we're poking
+//r5 is used for the value that is being loaded
 
 .macro delay
 	ldr   r5,=0x10000
-	1:
+1:
 	subs  r5, #1
 	bne   1b
 .endm
@@ -40,16 +44,89 @@
 	str   r5, [r4, #\offset << 1]
 .endm
 
-//r0 should be a pointer to a struct mstar_pm_info
-//r4 is used to track the base of the block we're poking
-//r5 is used for the value that is being loaded
+.macro setclearbits offset setbits clearbits
+	ldr   r5, [r4, #\offset << 1]
+	orr	r5, r5, #\setbits
+	bic   r5, r5, #\clearbits
+	str   r5, [r4, #\offset << 1]
+.endm
+
+.macro sendr6
+	str	r6, [r1]
+	delay
+.endm
+
+.macro putch ch
+	ldr	r6, =\ch
+	sendr6
+.endm
+
+.macro newline
+	putch	'\n'
+	putch	'\r'
+.endm
+
+.macro pollbit offset bit
+2:
+	ldr	r5, [r4, #\offset << 1]
+	and	r5, r5, #\bit
+	cmp	r5, #\bit
+	bne	2b
+.endm
+
+.macro checkdigit what ascii
+	ldr	r6, =\ascii
+	cmp	r8, #\what
+	beq	4f
+.endm
+
+.macro printhexdigit
+	checkdigit 0 '0'
+	checkdigit 1 '1'
+	checkdigit 2 '2'
+	checkdigit 3 '3'
+	checkdigit 4 '4'
+	checkdigit 5 '5'
+	checkdigit 6 '6'
+	checkdigit 7 '7'
+	checkdigit 8 '8'
+	checkdigit 9 '9'
+	checkdigit 10 'a'
+	checkdigit 11 'b'
+	checkdigit 12 'c'
+	checkdigit 13 'd'
+	checkdigit 14 'e'
+	checkdigit 15 'f'
+	ldr        r6, ='?'
+4:
+	sendr6
+.endm
+
+.macro printword offset
+	ldr	r9, [r4, #\offset << 1]
+	ldr	r7,=16
+5:
+	subs	r7, #4
+	lsr	r8, r9, r7
+	and	r8, r8, #0xf
+	printhexdigit
+	cmp	r7, #0
+	bne	5b
+	newline
+.endm
 
 //This must run in SRAM
 ENTRY(msc313_suspend_imi)
+	// setup r1 to point to the pm_uart
+	ldr r1, [r0, #0x1c]
+
+	putch 'a'
+	newline
+
 	// First block all access except one in group 0, cpu?
 	// miu-2
 	setbank 0x10
-	setword 0x46 0xfffe
+	setword 0x46 0xffff
 	setword 0x66 0xffff
 	setword 0x86 0xffff
 	setword 0xa6 0xffff
@@ -57,24 +134,45 @@ ENTRY(msc313_suspend_imi)
 	setbank	0x0c
 	setword	0x00 0xffff
 	setword 0x26 0xffff
-	delay
+
+	putch 'b'
+	newline
 
 	// miu-2
 	setbank 0x10
-	.macro miu_clear_single_cmd
-		clearbits 0x00 0x0f00 // clear command issue and rasz, casz, wez bits
-	.endm
-	setword 0x18 0x0400 // single command mode register
-	setword 0x00 0x002F // initial setting?
-	setword 0x00 0x052E // issue command, casz ?
-	miu_clear_single_cmd
-	setbits	0x0 0x0300  // issue command, raz
-	miu_clear_single_cmd
-	setword 0x06 0x1430 // tref, tcke timing, cke always on?
+	setbits   0x00 0x0020 // turn off auto refresh
+
+
+	putch '-'
+	newline
+	printword 0x00
+	printword 0x06
+	putch '-'
+	newline
+
+	// trigger all banks precharge to put the ddr2 back into idle
+	clearbits    0x00 0x0f00 // clear command issue and rasz, casz, wez bits
+	setword      0x18 0x0400 // single command mode register
+	setbits      0x00 0x0500 // a10 H, cas high?, trigger command
+	pollbit      0x00 0x4000 // wait for command to complete
+	clearbits    0x00 0x0f00 // clear command issue and rasz, casz, wez bits
+
+	// enter self refresh
+	clearbits    0x00 0x0010 // disable odt
 	delay
-	setword 0x46 0xFFFF // mask all requests
-	setbits 0x00 0x2000 // enter self refresh
-	delay
+	setclearbits 0x00 0x0300 0x0002	// we# high, disable cke
+	pollbit      0x00 0x4000	// wait for command to complete
+	setclearbits 0x00 0x2000 0x0f00	// clear command issue and rasz, casz, wez bits
+	setword      0x46 0xFFFF	// mask all requests
+
+	putch '<'
+	newline
+
+	printword 0x00
+
+
+	putch 'c'
+	newline
 
 	// Now that the DDR is doing it's own thing disable
 	// power everything down to save energy
@@ -87,18 +185,9 @@ ENTRY(msc313_suspend_imi)
 	setbits 0x00 0x0018 // set gpio mode, output highz
 	setword 0x54 0xc070 // unknown
 	setword 0x08 0x0000 // clear rx en
-	delay
 
-	// this should be handled in the clkgen gate driver
-	// 4. PM sleep mode
-	// clk gen
-	//wriu -w 0x0e40 0x0000  //reg_ckg_mcu, reg_ckg_spi to xtal
-	setbank	0x14
-	ldr	r5, [r4]
-	//ldr	r5, =0
-	bic	r5, r5, #0x1 << 7
-	bic	r5, r5, #0x1 << 14
-	str	r5, [r4]
+	putch 'd'
+	newline
 
 	// Now prepare our wake up source
 	setbank	0x0
@@ -114,13 +203,16 @@ ENTRY(msc313_suspend_imi)
 	setbyte 0x38 0x0c
 	setword 0x24 0xbabe
 	setbyte 0x6e 0xa5 //commented out in new sdk
-	delay
+
+	putch 'e'
+	newline
 
 	// Finally set pm_gpio4 to turn the lights off
 	setbank 0x4
 	setbyte 0x08 0x10
 
-	// spin
-	b .
+	putch '!'
+	newline
+
 ENDPROC(msc313_suspend_imi)
 .ltorg

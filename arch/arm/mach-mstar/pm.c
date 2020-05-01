@@ -21,6 +21,7 @@ struct mstar_pm_info {
 	u32 miu2;	// 0x10
 	u32 clkgen;	// 0x14
 	u32 isp;	// 0x18
+	u32 pmuart;	// 0x1c
 };
 
 #define MSTARV7_PM_RESUMEADDR		0x1f001cec
@@ -122,11 +123,14 @@ int __init msc313_pm_init(void)
 	pm_info->miu2	= (u32) ioremap(0x1f202400, 0x200);
 	pm_info->clkgen	= (u32) ioremap(0x1f001c80, 0x4);
 	pm_info->isp	= (u32) ioremap(0x1f002e00, 0x200);
+	pm_info->pmuart	= (u32) ioremap(0x1f221000, 0x200);
 
 	/* setup the resume addr for the bootrom */
 	resumeaddr = ioremap(MSTARV7_PM_RESUMEADDR, MSTARV7_PM_RESUMEADDR_SZ);
 	writel_relaxed(resume_pbase & 0xffff, resumeaddr);
 	writel_relaxed((resume_pbase >> 16) & 0xffff, resumeaddr + 1);
+	//writel_relaxed(0, resumeaddr);
+	//writel_relaxed(0, resumeaddr + 1);
 	iounmap(resumeaddr);
 
 	printk("pm code is at %px, pm info is at %px, pmsleep is at %x, pmgpio is at %x\n",
