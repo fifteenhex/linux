@@ -5,6 +5,7 @@
  */
 
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/gpio/mstar.h>
 
 #include "chenxing-v7.dtsi"
 
@@ -229,3 +230,8 @@
 	clock-names = "sar_clk";
 };
 
+&powerdown {
+	compatible = "mstar,msc313-poweroff";
+	gpio = <&gpio_pm MSC313_PM_GPI04 GPIO_ACTIVE_LOW>;
+	status = "okay";
+};
