@@ -578,6 +578,10 @@
 			/*1f204440 - status */
 		};
 
+		miupll: miupll@1f206200 {
+			reg = <0x1f206200 0x200>;
+		};
+
 		cpuclk: cpuclk@1f206500 {
 			compatible = "mstar,msc313e-cpuclk";
 			reg = <0x1f206500 0x100>;
