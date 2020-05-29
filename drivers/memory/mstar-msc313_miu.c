@@ -4,6 +4,8 @@
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
 #include <linux/clk.h>
+#include <linux/clk-provider.h>
+#include <linux/clkdev.h>
 
 #define DRIVER_NAME "msc313-miu"
 
@@ -147,9 +149,12 @@ struct msc313_miu {
 	struct device *dev;
 	struct regmap *analog;
 	struct regmap *digital;
-	struct clk *ddrclk;
 	struct clk *miuclk;
 	struct regulator *ddrreg;
+
+	/* ddr pll bits */
+	char const*ddrpllparents[1];
+	struct clk_hw clk_hw;
 };
 
 static const struct of_device_id msc313_miu_dt_ids[] = {
@@ -245,6 +250,42 @@ static int msc313_miu_read_trc(struct msc313_miu *miu){
 	return ret;
 }
 
+static unsigned long mstar_miu_ddrpll_recalc_rate(struct clk_hw *hw, unsigned long parent_rate){
+	return parent_rate; // todo add calculation of DDR calc
+}
+
+static const struct clk_ops mstar_miu_ddrpll_ops = {
+		.recalc_rate = mstar_miu_ddrpll_recalc_rate,
+};
+
+static int msc313_miu_ddrpll_probe(struct platform_device *pdev,
+		struct msc313_miu *miu)
+{
+	struct clk* clk;
+	struct clk_init_data *clk_init;
+
+	clk_init = devm_kzalloc(&pdev->dev, sizeof(*clk_init), GFP_KERNEL);
+	if(!clk_init)
+		return -ENOMEM;
+
+	miu->clk_hw.init = clk_init;
+	of_property_read_string_index(pdev->dev.of_node,
+			"clock-output-names", 0, &clk_init->name);
+	clk_init->ops = &mstar_miu_ddrpll_ops;
+	clk_init->flags = CLK_IS_CRITICAL;
+	clk_init->num_parents = 1;
+	// ffs, the ddr syn mux must come second.. there's no way to get a parent by name
+	// or specify the field for the parents? whaaaa...
+	miu->ddrpllparents[0] = of_clk_get_parent_name(pdev->dev.of_node, 1);
+	clk_init->parent_names = miu->ddrpllparents;
+
+	clk = clk_register(&pdev->dev, &miu->clk_hw);
+	if(IS_ERR(clk)){
+		return -ENOMEM;
+	}
+
+	return of_clk_add_provider(pdev->dev.of_node, of_clk_src_simple_get, clk);
+}
 
 static int msc313_miu_probe(struct platform_device *pdev)
 {
@@ -290,20 +331,14 @@ static int msc313_miu_probe(struct platform_device *pdev)
 	if (IS_ERR(miu->miuclk)) {
 		return PTR_ERR(miu->miuclk);
 	}
-	
-	miu->ddrclk = devm_clk_get(&pdev->dev, "ddr");
-	if (IS_ERR(miu->ddrclk)) {
-			return PTR_ERR(miu->ddrclk);
-	}
-	
+
 	miu->ddrreg = devm_regulator_get_optional(&pdev->dev, "ddr");
 	if (IS_ERR(miu->ddrreg)){
 		return PTR_ERR(miu->ddrreg);
 	}
 
 	clk_prepare_enable(miu->miuclk);
-	clk_prepare_enable(miu->ddrclk);
-	
+
 	regmap_read(miu->digital, REG_CONFIG1, &config1);
 
 	banks = 2  << ((config1 & REG_CONFIG1_BANKS) >> REG_CONFIG1_BANKS_SHIFT);
@@ -339,7 +374,7 @@ static int msc313_miu_probe(struct platform_device *pdev)
 		msc313_miu_write_trp(miu, dtval);
 	}
 
-	return 0;
+	return msc313_miu_ddrpll_probe(pdev, miu);
 }
 
 static int msc313_miu_remove(struct platform_device *pdev)

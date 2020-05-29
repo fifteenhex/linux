@@ -571,6 +571,8 @@
 			/*mstar,rd-timing = <0xB>;*/
 			mstar,trcd = <0x6>;
 			mstar,trp = <0x6>;
+			#clock-cells = <0>;
+			clock-output-names = "ddrpll";
 		};
 
 		l3bridge: l3bridge@1f204400 {
