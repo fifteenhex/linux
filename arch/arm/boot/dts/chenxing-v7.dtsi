@@ -581,6 +581,12 @@
 		mpll: mpll@1f206000 {
 			compatible = "mstar,mpll";
 			reg = <0x1f206000 0x200>;
+			clock-output-names = "mpll_432", "mpll_345", "mpll_288", "mpll_216",
+					     "mpll_172", "mpll_144", "mpll_123", "mpll_124",
+					     "mpll_86";
+                        clock-rates = <432000000>, <345000000>, <288000000>, <216000000>,
+				      <172000000>, <144000000>, <123000000>, <124000000>,
+				      <86000000>;
 			clocks = <&xtal24>;
 		};
 
@@ -1086,10 +1092,10 @@
 			compatible = "mstar,msc313e-clkgen-pll";
 			reg = <0x1f2071c0 0x10>;
 			#clock-cells = <1>;
-			clock-output-names = "upll_384", "upll_320", "utmi_160", "utmi_192",
-					     "utmi_240", "utmi_480", "mpll_432", "mpll_345",
-					     "mpll_288", "mpll_216", "mpll_172", "mpll_144",
-					     "mpll_123", "mpll_124", "mpll_86", "pll_rv1";
+			clock-output-names = "upll_384_gate", "upll_320_gate", "utmi_160_gate", "utmi_192_gate",
+					     "utmi_240_gate", "utmi_480_gate", "mpll_432_gate", "mpll_345_gate",
+					     "mpll_288_gate", "mpll_216_gate", "mpll_172_gate", "mpll_144_gate",
+					     "mpll_123_gate", "mpll_124_gate", "mpll_86_gate", "pll_rv1_gate";
 			clock-rates = <384000000>, <320000000>, <160000000>, <192000000>,
 			              <240000000>, <480000000>, <432000000>, <345000000>,
 			              <288000000>, <216000000>, <172000000>, <144000000>,
