@@ -580,6 +580,7 @@
 
 		mpll: mpll@1f206000 {
 			compatible = "mstar,mpll";
+			#clock-cells = <1>;
 			reg = <0x1f206000 0x200>;
 			clock-output-names = "mpll_432", "mpll_345", "mpll_288", "mpll_216",
 					     "mpll_172", "mpll_144", "mpll_123", "mpll_124",
@@ -1101,10 +1102,21 @@
 			              <288000000>, <216000000>, <172000000>, <144000000>,
 			              <123000000>, <124000000>, <86000000>, <0>;
 			clock-upstreams = <1>, <1>, <0>, <0>,
-					  <0>, <0>, <0>, <0>,
-					  <0>, <0>, <0>, <0>,
-					  <0>, <0>, <0>, <0>;
-			clocks = <&xtal24>, <&upll0>; /*<&utmi>;*/
+					  <0>, <0>, <2>, <3>,
+					  <4>, <5>, <6>, <7>,
+					  <8>, <9>, <10>, <0>;
+
+			clocks = <&xtal24>,
+				<&upll0>, /*<&utmi>;*/
+				<&mpll MSTAR_MPLL_432>,
+				<&mpll MSTAR_MPLL_345>,
+				<&mpll MSTAR_MPLL_288>,
+				<&mpll MSTAR_MPLL_216>,
+				<&mpll MSTAR_MPLL_172>,
+				<&mpll MSTAR_MPLL_144>,
+				<&mpll MSTAR_MPLL_123>,
+				<&mpll MSTAR_MPLL_124>,
+				<&mpll MSTAR_MPLL_86>;
 		};
 
 		gpio: gpio@1f207800 {
