@@ -578,8 +578,16 @@
 			/*1f204440 - status */
 		};
 
+		mpll: mpll@1f206000 {
+			compatible = "mstar,mpll";
+			reg = <0x1f206000 0x200>;
+			clocks = <&xtal24>;
+		};
+
 		miupll: miupll@1f206200 {
+			compatible = "mstar,miupll";
 			reg = <0x1f206200 0x200>;
+			clocks = <&xtal24>;
 		};
 
 		cpuclk: cpuclk@1f206500 {
@@ -722,7 +730,7 @@
 			mux-widths = <2>;
 			mstar,deglitches = <4>;
 			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>,
-				 <&clkgen_mux_ddrsyn 0>;
+				 <&miupll>;
 		};
 
 		clkgen_mux_miu_rec: clkgen_mux@1f207060 {
