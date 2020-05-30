@@ -53,17 +53,17 @@ struct freqregisters {
 	u16 bottom, top;
 };
 
-#define REG_LPF_LOW_L		0x40
-#define REG_LPF_LOW_H		0x44
-#define REG_LPF_HIGH_BOTTOM	0x48
-#define REG_LPF_HIGH_TOP	0x4c
-#define REG_LPF_TOGGLE		0x50
-#define REG_LPF_MYSTERYTWO	0x54
-#define REG_LPF_UPDATE_COUNT	0x5c
-#define REG_LPF_MYSTERYONE	0x60
-#define REG_LPF_TRANSITIONCTRL	0x64
-#define REG_LPF_LOCK		0x74
-#define REG_CURRENT		0x80
+#define REG_LPF_LOW_L		0x140
+#define REG_LPF_LOW_H		0x144
+#define REG_LPF_HIGH_BOTTOM	0x148
+#define REG_LPF_HIGH_TOP	0x14c
+#define REG_LPF_TOGGLE		0x150
+#define REG_LPF_MYSTERYTWO	0x154
+#define REG_LPF_UPDATE_COUNT	0x15c
+#define REG_LPF_MYSTERYONE	0x160
+#define REG_LPF_TRANSITIONCTRL	0x164
+#define REG_LPF_LOCK		0x174
+#define REG_CURRENT		0x180
 
 static u32 msc313_cpuclk_reg_read32(struct msc313e_cpuclk *cpuclk, unsigned reg){
 	u32 value = ioread16(cpuclk->base + reg + 4);
