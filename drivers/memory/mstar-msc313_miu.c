@@ -110,6 +110,9 @@
  * 0x04c - group 5 request mask?
  */
 
+#define REG_ANA_DDFSET_L		0x60
+#define REG_ANA_DDFSET_H		0x64
+
 #define REG_CONFIG1			0x4
 #define REG_CONFIG1_TYPE		(BIT(1) | BIT(0))
 #define REG_CONFIG1_TYPE_SDR		0
@@ -156,6 +159,8 @@ struct msc313_miu {
 	char const*ddrpllparents[1];
 	struct clk_hw clk_hw;
 };
+
+#define to_miu(_hw) container_of(_hw, struct msc313_miu, clk_hw)
 
 static const struct of_device_id msc313_miu_dt_ids[] = {
 	{ .compatible = "mstar,msc313-miu" },
@@ -250,8 +255,23 @@ static int msc313_miu_read_trc(struct msc313_miu *miu){
 	return ret;
 }
 
-static unsigned long mstar_miu_ddrpll_recalc_rate(struct clk_hw *hw, unsigned long parent_rate){
-	return parent_rate; // todo add calculation of DDR calc
+static unsigned long mstar_miu_ddrpll_recalc_rate(struct clk_hw *hw, unsigned long parent_rate)
+{
+	// no idea if this calculation is correct
+	struct msc313_miu *miu = to_miu(hw);
+	unsigned int tmp;
+	u64 freq;
+	u64 base = (((u64)parent_rate * 4 * 4) << 19);
+	u32 ddfset;
+
+	regmap_read(miu->analog, REG_ANA_DDFSET_H, &tmp);
+	ddfset = (tmp & 0xff) << 16;
+	regmap_read(miu->analog, REG_ANA_DDFSET_L, &tmp);
+	ddfset |= tmp;
+
+	freq = div_u64(base, ddfset);
+
+	return freq;
 }
 
 static const struct clk_ops mstar_miu_ddrpll_ops = {
