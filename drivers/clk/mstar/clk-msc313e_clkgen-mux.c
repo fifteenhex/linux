@@ -9,6 +9,7 @@
 #include <linux/clkdev.h>
 #include <linux/of_address.h>
 #include <linux/module.h>
+#include <dt-bindings/clock/mstar.h>
 
 #define DT_MSTAR_DEGLITCHES "mstar,deglitches"
 
@@ -61,6 +62,7 @@ static int msc313e_clkgen_mux_probe(struct platform_device *pdev)
 	int numparents, numshifts, numdeglitches;
 	u32 gateshift, muxshift, muxwidth, muxclockoffset, muxnumclocks, outputflags, deglitch;
 	int ret;
+	u16 tmp;
 
 	if (!pdev->dev.of_node)
 		return -ENODEV;
@@ -150,7 +152,17 @@ static int msc313e_clkgen_mux_probe(struct platform_device *pdev)
 					muxindex, &deglitch);
 			if(ret)
 				goto out;
-			mux_parent->muxes[muxindex].deglitch = BIT(deglitch);
+			if(deglitch != MSTAR_CLKGEN_MUX_NULL){
+				dev_info(&pdev->dev, "deglitch at %d\n", (int) deglitch);
+				mux_parent->muxes[muxindex].deglitch = BIT(deglitch);
+
+				tmp = readw_relaxed(mux_parent->base);
+				if(!(tmp & mux_parent->muxes[muxindex].deglitch)){
+					dev_info(&pdev->dev, "de-deglitching\n");
+					writew_relaxed(tmp | mux_parent->muxes[muxindex].deglitch,
+							mux_parent->base);
+				}
+			}
 		}
 
 		ret = of_property_read_string_index(pdev->dev.of_node, "clock-output-names",

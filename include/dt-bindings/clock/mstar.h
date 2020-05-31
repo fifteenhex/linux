@@ -3,6 +3,9 @@
 #ifndef _DT_BINDINGS_CLOCK_MSTAR_H
 #define _DT_BINDINGS_CLOCK_MSTAR_H
 
+
+#define MSTAR_CLKGEN_MUX_NULL		64
+
 #define MSTAR_MPLL_432			0
 #define MSTAR_MPLL_345			1
 #define MSTAR_MPLL_288			2

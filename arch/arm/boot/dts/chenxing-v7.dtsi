@@ -594,6 +594,7 @@
 		miupll: miupll@1f206200 {
 			compatible = "mstar,miupll";
 			reg = <0x1f206200 0x200>;
+			#clock-cells = <0>;
 			clocks = <&xtal24>;
 		};
 
@@ -670,7 +671,8 @@
 			shifts = <0>, <8>;
 			mux-shifts = <2>, <10>;
 			mux-widths = <2>, <2>;
-			mux-ranges = <0 4 >, <4 1>;
+			mux-ranges = <0 4>, <4 1>;
+			mstar,deglitches = <4>, <MSTAR_CLKGEN_MUX_NULL>;
 			output-flags = <0>, <MSTAR_CLKGEN_OUTPUTFLAG_CRITICAL>;
 			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>,
 				 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_172>,
@@ -735,7 +737,7 @@
 			shifts = <0>;
 			mux-shifts = <2>;
 			mux-widths = <2>;
-			mstar,deglitches = <4>;
+			/*mstar,deglitches = <4>;*/
 			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>,
 				 <&miupll>;
 		};
