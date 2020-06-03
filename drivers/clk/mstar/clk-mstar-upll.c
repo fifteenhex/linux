@@ -10,6 +10,8 @@
 #include <linux/of_address.h>
 #include <linux/module.h>
 
+#include "clk-mstar-pll_common.h"
+
 /*
  * 0x0  - ??
  * write 0x00c0 - enable
@@ -23,14 +25,6 @@
 #define REG_MAGIC	0x0
 #define REG_ENABLED	0x1c
 
-struct msc313_upll {
-	void __iomem *base;
-	struct clk_hw clk_hw;
-	u32 rate;
-};
-
-#define to_upll(_hw) container_of(_hw, struct msc313_upll, clk_hw)
-
 static const struct of_device_id msc313_upll_of_match[] = {
 	{
 		.compatible = "mstar,msc313-upll",
@@ -40,13 +34,13 @@ static const struct of_device_id msc313_upll_of_match[] = {
 MODULE_DEVICE_TABLE(of, msc313_upll_of_match);
 
 static int msc313_upll_is_enabled(struct clk_hw *hw){
-	struct msc313_upll *upll = to_upll(hw);
-	return ioread16(upll->base + REG_ENABLED) & BIT(0);
+	struct mstar_pll_output *output = to_pll_output(hw);
+	return ioread16(output->pll->base + REG_ENABLED) & BIT(0);
 }
 
 static unsigned long msc313_upll_recalc_rate(struct clk_hw *hw, unsigned long parent_rate){
-	struct msc313_upll *upll = to_upll(hw);
-	return 0;
+	struct mstar_pll_output *output = to_pll_output(hw);
+	return output->rate;
 }
 
 static const struct clk_ops msc313_upll_ops = {
@@ -57,13 +51,8 @@ static const struct clk_ops msc313_upll_ops = {
 static int msc313_upll_probe(struct platform_device *pdev)
 {
 	const struct of_device_id *id;
-	struct msc313_upll* upll;
-	struct clk_init_data *clk_init;
-	struct clk* clk;
-	struct resource *mem;
-	const char *parents[16];
-	int numparents;
-	u16 regval;
+	struct mstar_pll *pll;
+	int ret = 0;
 
 	if (!pdev->dev.of_node)
 		return -ENODEV;
@@ -72,42 +61,16 @@ static int msc313_upll_probe(struct platform_device *pdev)
 	if (!id)
 		return -ENODEV;
 
-	upll = devm_kzalloc(&pdev->dev, sizeof(*upll), GFP_KERNEL);
-	if(!upll)
-		return -ENOMEM;
+	ret = mstar_pll_common_probe(pdev, &pll, &msc313_upll_ops);
+	if(ret)
+		goto out;
 
-	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	upll->base = devm_ioremap_resource(&pdev->dev, mem);
-	if (IS_ERR(upll->base))
-		return PTR_ERR(upll->base);
+	iowrite16(0x00c0, pll->base + REG_MAGIC);
+	iowrite8(0x01, pll->base + REG_ENABLED);
 
-	iowrite16(0x00c0, upll->base + REG_MAGIC);
-	iowrite8(0x01, upll->base + REG_ENABLED);
-
-	numparents = of_clk_parent_fill(pdev->dev.of_node, parents, 16);
-	if(numparents <= 0)
-	{
-		dev_info(&pdev->dev, "need some parents");
-		return -EINVAL;
-	}
-
-	clk_init = devm_kzalloc(&pdev->dev, sizeof(*clk_init), GFP_KERNEL);
-	if(!clk_init)
-		return -ENOMEM;
-
-	upll->clk_hw.init = clk_init;
-	clk_init->name = pdev->dev.of_node->name;
-	clk_init->ops = &msc313_upll_ops;
-	clk_init->num_parents = numparents;
-	clk_init->parent_names = parents;
-
-	clk = clk_register(&pdev->dev, &upll->clk_hw);
-	if(IS_ERR(clk)){
-		printk("failed to register clk");
-		return -ENOMEM;
-	}
-
-	return of_clk_add_provider(pdev->dev.of_node, of_clk_src_simple_get, clk);
+	platform_set_drvdata(pdev, pll);
+out:
+	return ret;
 }
 
 static int msc313_upll_remove(struct platform_device *pdev)

@@ -82,7 +82,6 @@ static int mstar_miupll_probe(struct platform_device *pdev)
 	if (IS_ERR(miupll->base))
 		return PTR_ERR(miupll->base);
 
-
 	numparents = of_clk_parent_fill(pdev->dev.of_node, parents, 1);
 	if(numparents <= 0)
 	{
