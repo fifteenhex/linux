@@ -320,7 +320,9 @@
 			      <0x1f002c00 0x200>,
 			      <0x1f002e00 0x200>,
 			      <0x14000000 0x1000000>;
-			clocks = <&clkgen_mux_aesdma_isp 1>;
+			clock-names = "pm_spi", "isp";
+			clocks = <&clkgen_mux_spi_mcu_pm 1>,
+				 <&clkgen_mux_aesdma_isp 1>;
 			interrupts-extended = <&intc_irq 5 IRQ_TYPE_LEVEL_HIGH>;
 			dmas = <&bdma 0>, <&bdma 1>;
 			dma-names = "qspi", "qspi";
@@ -346,9 +348,11 @@
 			mstar,deglitches = <7>, <14>;
 			mux-shifts = <2>, <10>;
 			mux-widths = <4>, <4>;
-			mux-ranges = <0 1>, <1 16>;
+			mux-ranges = <0 2>, <2 17>;
 			clocks = /* mcu_pm */
 				 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>,
+				 /* deglitch */
+				 <&xtal12>,
 				 /* spi_pm */
 				 <&rtc_32k>,
 				 <&clk_mpll_216_div8>,
@@ -365,7 +369,12 @@
 				 <&xtal12_div2>,
 				 <&xtal12_div4>,
 				 <&xtal12>,
-				 <&xtal24>;
+				 <&xtal24>,
+				 /* deglitch */
+				 <&xtal12>;
+			assigned-clocks = <&clkgen_mux_spi_mcu_pm 1>;
+			assigned-clock-parents = <&clk_mpll_216_div4>;
+			assigned-clock-rates = <0>;
 		};
 
 		clkgen_mux_rtc_sar: clkgen_mux@1f001c88 {
@@ -673,14 +682,21 @@
 			shifts = <0>, <8>;
 			mux-shifts = <2>, <10>;
 			mux-widths = <2>, <2>;
-			mux-ranges = <0 4>, <4 1>;
+			mux-ranges = <0 5>, <5 1>;
 			mstar,deglitches = <4>, <MSTAR_CLKGEN_MUX_NULL>;
 			output-flags = <0>, <MSTAR_CLKGEN_OUTPUTFLAG_CRITICAL>;
-			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>,
+			clocks = /* mcu */
+				 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>,
 				 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_172>,
 				 <&clk_mpll_288_div2>,
 				 <&clk_mpll_216_div2>,
+				 /*deglitch */
+				 <&xtal12>,
+				 /* riubrdg */
 				 <&clkgen_mux_mcu_riubrdg 0>;
+			assigned-clocks = <&clkgen_mux_mcu_riubrdg 0>;
+			assigned-clock-parents = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>;
+			assigned-clock-rates = <0>;
 		};
 
 		clkgen_mux_bist: clkgen_mux@1f207008 {
@@ -741,7 +757,9 @@
 			mux-widths = <2>;
 			mstar,deglitches = <4>;
 			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>,
-				 <&miupll>;
+				 <&miupll>,
+				 /* deglitch */
+				 <&xtal12>;
 		};
 
 		clkgen_mux_miu_rec: clkgen_mux@1f207060 {
@@ -820,7 +838,9 @@
 			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>,
 				 <&clk_mpll_216_div2>,
 				 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_86>,
-			         <&clk_mpll_288_div4>;
+			         <&clk_mpll_288_div4>,
+			         /* deglitch */
+			         <&xtal12>;
 		};
 
 		clkgen_mux_mspi: clkgen_mux@1f2070cc {
@@ -918,7 +938,12 @@
 			mux-shifts = <2>;
 			mux-widths = <2>;
 			mstar,deglitches = <4>;
-			clocks = <&clkgen_mux_miu 0>;
+			clocks = <&clkgen_mux_miu 0>,
+				 /* deglitch */
+				 <&xtal12>;
+			/*assigned-clocks = <&clkgen_mux_bdma 0>;
+			assigned-clock-parents = <&clkgen_mux_miu 0>;
+			assigned-clock-rates = <0>;*/
 		};
 
 		clkgen_mux_aesdma_isp: clkgen_mux@1f207184 {
@@ -929,16 +954,20 @@
 			shifts = <0>, <8>;
 			mux-shifts = <2>, <10>;
 			mux-widths = <2>, <2>;
-			mux-ranges = <0 2>, <2 4>;
-			/*mstar,deglitches = <4>;*/
+			mux-ranges = <0 3>, <3 5>;
+			mstar,deglitches = <4>, <12>;
 			clocks = /* aesdma */
 				<&clkgen_pll MSTAR_MPLL_GATE_MPLL_86>,
 				<&clkgen_pll MSTAR_MPLL_GATE_MPLL_172>,
+				/* deglitch */
+				<&xtal12>,
 				/* isp */
 				<&clkgen_pll MSTAR_MPLL_GATE_MPLL_123>,
 				<&clkgen_pll MSTAR_MPLL_GATE_MPLL_86>,
 				<&clk_mpll_288_div4>,
-				<&clk_mpll_216_div4>;
+				<&clk_mpll_216_div4>,
+				/* deglitch */
+				<&xtal12>;
 		};
 
 		clkgen_mux_sr_sr_mclk: clkgen_mux@1f207188 {
@@ -1129,13 +1158,14 @@
 			              <240000000>, <480000000>, <432000000>, <345000000>,
 			              <288000000>, <216000000>, <172000000>, <144000000>,
 			              <123000000>, <124000000>, <86000000>, <0>;
-			clock-upstreams = <1>, <1>, <0>, <0>,
-					  <0>, <0>, <2>, <3>,
-					  <4>, <5>, <6>, <7>,
-					  <8>, <9>, <10>, <0>;
-
+			clock-upstreams = <1>, <2>, <0>, <0>,
+					  <0>, <0>, <3>, <4>,
+					  <5>, <6>, <7>, <8>,
+					  <9>, <10>, <11>, <0>;
 			clocks = <&xtal24>,
-				<&upll0>, /*<&utmi>;*/
+				<&upll 0>,
+				<&upll 1>,
+				 /*<&utmi>;*/
 				<&mpll MSTAR_MPLL_432>,
 				<&mpll MSTAR_MPLL_345>,
 				<&mpll MSTAR_MPLL_288>,
@@ -1347,11 +1377,13 @@
 			ports = <&gop0_out>;
 		};
 
-		upll0: upll@1f284000 {
-			#clock-cells = <0>;
+		upll: upll@1f284000 {
+			#clock-cells = <1>;
 			compatible = "mstar,msc313-upll";
 			reg = <0x1f284000 0x20>;
-			clocks = <&xtal12>;
+			clock-output-names = "upll_384", "upll_320";
+                        clock-rates = <384000000>, <320000000>;
+			clocks = <&xtal24>;
 		};
 
 		usbphy0: usbphy@0 {

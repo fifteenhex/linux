@@ -59,20 +59,22 @@
 		mux-widths = <4>;
 		mstar,deglitches = <6>;
 		clocks = <&xtal12>,
+			 <&clk_utmi_160_div8>,
+			 <&clk_utmi_160_div5>,
+			 <&clk_mpll_288_div8>,
+			 <&clk_utmi_160_div4>,
+			 <&xtal12>,
+			 <&clk_mpll_86_div2>,
 			 <&xtal12>,
 			 <&xtal12>,
 			 <&xtal12>,
 			 <&xtal12>,
 			 <&xtal12>,
 			 <&xtal12>,
+			 <&xtal12_div40>,
 			 <&xtal12>,
-			 <&xtal12>,
-			 <&xtal12>,
-			 <&xtal12>,
-			 <&xtal12>,
-			 <&xtal12>,
-			 <&xtal12>,
-			 <&xtal12>,
+			 <&clk_utmi_192_div4>,
+			 /* deglitch */
 			 <&xtal12>;
 	};
 	/* guess! */
@@ -225,7 +227,7 @@
 	reg = <0xa0000000 0x20000>;
 };
 
-&upll0 {
+&upll {
 	reg = <0x1f004200 0x20>;
 };
 
