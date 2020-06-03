@@ -24,6 +24,7 @@
 struct msc313e_clkgen_mux;
 
 struct msc313e_clkgen_muxparent {
+	struct device *dev;
 	void __iomem *base;
 	struct clk* clk;
 	struct msc313e_clkgen_mux *muxes;
@@ -35,12 +36,14 @@ struct msc313e_clkgen_mux {
 	struct msc313e_clkgen_muxparent *parent;
 	struct clk_hw clk_hw;
 	u8 shift;
-	u16 deglitch;
 	struct clk_gate gate;
 	struct clk_mux mux;
+	u16 deglitch;
+	unsigned deglitchindex;
 };
 
 #define to_clkgen_mux(_hw) container_of(_hw, struct msc313e_clkgen_mux, clk_hw)
+#define mux_to_clkgen_mux(_mux) container_of(_mux, struct msc313e_clkgen_mux, mux)
 
 static const struct of_device_id msc313e_clkgen_mux_of_match[] = {
 	{
@@ -49,6 +52,66 @@ static const struct of_device_id msc313e_clkgen_mux_of_match[] = {
 	{}
 };
 MODULE_DEVICE_TABLE(of, msc313e_clkgen_mux_of_match);
+
+static int mstar_clkgen_mux_mux_set_parent(struct clk_hw *hw, u8 index)
+{
+	struct clk_mux *mux = to_clk_mux(hw);
+	struct msc313e_clkgen_mux *clkgen_mux = mux_to_clkgen_mux(mux);
+	bool havedeglitch = clkgen_mux->deglitch;
+	bool deglitching = havedeglitch & (index == clkgen_mux->deglitchindex);
+	u16 tmp;
+	int ret = 0;
+
+	dev_info(clkgen_mux->parent->dev, "setting clock to parent %d\n", (int) index);
+
+	/* if we are switching to one of the main clock sources
+	 * do that switch
+	 */
+	if(!deglitching)
+		ret = clk_mux_ops.set_parent(hw, index);
+
+	/* if we have a deglitch bit then either clear or set
+	 * it
+	 */
+	if(havedeglitch){
+		tmp = readw_relaxed(clkgen_mux->parent->base);
+		if(deglitching)
+			tmp &= ~clkgen_mux->deglitch;
+		else
+			tmp |= clkgen_mux->deglitch;
+		writew_relaxed(tmp, clkgen_mux->parent->base);
+	}
+
+	return ret;
+}
+
+static u8 mstar_clkgen_mux_mux_get_parent(struct clk_hw *hw)
+{
+	struct clk_mux *mux = to_clk_mux(hw);
+	struct msc313e_clkgen_mux *clkgen_mux = mux_to_clkgen_mux(mux);
+	u16 tmp;
+
+	if(clkgen_mux->deglitch){
+		tmp = readw_relaxed(clkgen_mux->parent->base);
+		if(!(tmp & clkgen_mux->deglitch)){
+			dev_info(clkgen_mux->parent->dev, "deglitch clock is selected\n");
+			return clkgen_mux->deglitchindex;
+		}
+	}
+	return clk_mux_ops.get_parent(hw);
+}
+
+static int mstar_clkgen_mux_mux_determine_rate(struct clk_hw *hw,
+				  struct clk_rate_request *req)
+{
+	return clk_mux_ops.determine_rate(hw, req);
+}
+
+static const struct clk_ops mstar_clkgen_mux_mux_ops = {
+	.set_parent = mstar_clkgen_mux_mux_set_parent,
+	.get_parent = mstar_clkgen_mux_mux_get_parent,
+	.determine_rate = mstar_clkgen_mux_mux_determine_rate,
+};
 
 static int msc313e_clkgen_mux_probe(struct platform_device *pdev)
 {
@@ -62,7 +125,6 @@ static int msc313e_clkgen_mux_probe(struct platform_device *pdev)
 	int numparents, numshifts, numdeglitches;
 	u32 gateshift, muxshift, muxwidth, muxclockoffset, muxnumclocks, outputflags, deglitch;
 	int ret;
-	u16 tmp;
 
 	if (!pdev->dev.of_node)
 		return -ENODEV;
@@ -89,6 +151,7 @@ static int msc313e_clkgen_mux_probe(struct platform_device *pdev)
 		goto out;
 	}
 
+	mux_parent->dev = &pdev->dev;
 	mux_parent->nummuxes = of_property_count_strings(pdev->dev.of_node,
 			"clock-output-names");
 
@@ -155,13 +218,6 @@ static int msc313e_clkgen_mux_probe(struct platform_device *pdev)
 			if(deglitch != MSTAR_CLKGEN_MUX_NULL){
 				dev_info(&pdev->dev, "deglitch at %d\n", (int) deglitch);
 				mux_parent->muxes[muxindex].deglitch = BIT(deglitch);
-
-				tmp = readw_relaxed(mux_parent->base);
-				if(!(tmp & mux_parent->muxes[muxindex].deglitch)){
-					dev_info(&pdev->dev, "de-deglitching\n");
-					writew_relaxed(tmp | mux_parent->muxes[muxindex].deglitch,
-							mux_parent->base);
-				}
 			}
 		}
 
@@ -228,10 +284,12 @@ outputflags:
 					outputflags, muxindex);
 		}
 
+		mux_parent->muxes[muxindex].deglitchindex = muxnumclocks - 1;
+
 		mux_parent[muxindex].clk = clk_register_composite(&pdev->dev, name,
 				muxparents, muxnumclocks,
 				numparents ? &mux_parent->muxes[muxindex].mux.hw : NULL,
-				numparents ? &clk_mux_ops : NULL,
+				numparents ? &mstar_clkgen_mux_mux_ops : NULL,
 				NULL,
 				NULL,
 				&mux_parent->muxes[muxindex].gate.hw,
