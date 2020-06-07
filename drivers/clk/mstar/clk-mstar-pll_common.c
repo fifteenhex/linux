@@ -56,8 +56,6 @@ int mstar_pll_common_probe(struct platform_device *pdev, struct mstar_pll **pll,
 	if (!clk_data->clks)
 		return -ENOMEM;
 
-	printk("here!\n");
-
 	for (pllindex = 0; pllindex < numoutputs; pllindex++) {
 		output = &(*pll)->outputs[pllindex];
 		output->pll = *pll;
