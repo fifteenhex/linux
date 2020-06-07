@@ -3,9 +3,9 @@
 # Makefile for mstar specific clk
 #
 
-obj-y += clk-msc313e_cpuclk.o \
-	 clk-msc313e_clkgen-pll.o \
-	 clk-msc313e_clkgen-mux.o \
+obj-y += clk-mstar-cpupll.o \
+	 clk-mstar-pll-gater.o \
+	 clk-mstar-mux.o \
 	 clk-mstar-upll.o \
 	 clk-mstar_lpll.o \
 	 clk-mstar_clkgen-gates.o \

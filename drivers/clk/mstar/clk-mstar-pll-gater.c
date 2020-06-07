@@ -58,10 +58,13 @@ static void	msc313e_clkgen_pll_disable(struct clk_hw *hw)
 
 static int	msc313e_clkgen_pll_is_enabled(struct clk_hw *hw)
 {
-	struct msc313e_clkgen_pll *clkgen_pll = to_clkgen_pll(hw);
+	struct msc313e_clkgen_pll *clkgen_pll;
 	unsigned int val;
+	int ret;
+
+	clkgen_pll = to_clkgen_pll(hw);
 	spin_lock(&msc313e_pllgate_lock);
-	int ret = regmap_read(clkgen_pll->regmap, REG_ENRD, &val);
+	ret = regmap_read(clkgen_pll->regmap, REG_ENRD, &val);
 	spin_unlock(&msc313e_pllgate_lock);
 	return (val & clkgen_pll->mask) ? 1 : 0;
 }
