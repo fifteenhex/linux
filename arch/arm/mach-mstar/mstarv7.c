@@ -42,7 +42,7 @@ static const char * const mstarv7_board_dt_compat[] __initconst = {
 	NULL,
 };
 
-static const char * const mstarv7_smp_board_dt_compat[] = {
+static const char * const mstarv7_smp_board_dt_compat[] __initconst = {
 	"mstar,infinity2m",
 	NULL,
 };
