@@ -669,6 +669,7 @@
 			l3bridge: l3bridge@204400 {
 				compatible = "mstar,l3bridge";
 				reg = <0x204400 0x200>;
+				status = "disabled";
 			};
 
 			gpio: gpio@207800 {
