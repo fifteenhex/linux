@@ -68,18 +68,12 @@
 		pinctrl-0 = <&emac_pins>;
 		local-mac-address = [00 00 00 00 00 00];
 		status = "disabled";
-		/*
-			albany ethernet phy
-			0x1f006200
-			0x1f006400
-			0x1f006600
-		*/
-		/*reg = <0x1f006200 0x4000>;*/
 		phy-handle = <&phy>;
 		phy: phy@0 {
 			compatible = "ethernet-phy-idDEAD.BEEF";
 			phy-is-integrated;
 			reg = <0>;
+			mstar,phyana = <&phyana>;
 		};
 	};
 };
