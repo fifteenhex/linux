@@ -386,6 +386,13 @@
 				 <&xtal12_div4>;
 		};
 
+		/*
+		temp_sensor {
+			compatible = "iio-hwmon";
+			io-channels = <&sar 4>;
+		};
+		*/
+
 		gic: interrupt-controller@16001000 {
 			compatible = "arm,cortex-a7-gic";
 			reg = <0x16001000 0x1000>,
