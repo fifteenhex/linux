@@ -779,6 +779,42 @@
 			};
 		};
 
+		atop: syscon@1f206800 {
+			compatible = "syscon";
+			reg = <0x1f206800 0x600>;
+		};
+
+		/* bach */
+		bach: syscon@1f2a0400 {
+			compatible = "syscon";
+			reg = <0x1f2a0400 0x600>;
+		};
+
+		bach_codec: bach_codec@0 {
+			compatible = "mstar,snd-infinity-codec";
+			mstar,atop = <&atop>;
+			mstar,bach = <&bach>;
+		};
+
+		bach_cpu: bach_cpu@0 {
+			compatible = "mstar,snd-infinity-cpu";
+			mstar,bach = <&bach>;
+		};
+
+		bach_pcm: bach_pcmm@0 {
+			compatible = "mstar,snd-infinity-pcm";
+			mstar,bach = <&bach>;
+		};
+
+		sound: sound@0 {
+			compatible = "mstar,snd-infinity";
+			interrupt-parent = <&intc_irq>;
+			interrupts = <GIC_SPI 42 IRQ_TYPE_LEVEL_HIGH>;
+			mstar,bach-cpu = <&bach_cpu>;
+			mstar,bach-platform = <&bach_pcm>;
+			mstar,bach-codec = <&bach_codec>;
+		};
+
 		/* csi - camera interface */
 		csi: csi@1f240800 {
 			reg = <0x1f240800 0x200>;
