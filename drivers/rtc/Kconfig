@@ -1925,4 +1925,10 @@ config RTC_DRV_WILCO_EC
 	  This can also be built as a module. If so, the module will
 	  be named "rtc_wilco_ec".
 
+config RTC_DRV_MSC313
+	tristate "MStar MSC313 RTC"
+        depends on ARCH_MSTARV7
+	help
+          Say yes to enable RTC driver for the MStar MSC313.
+
 endif # RTC_CLASS
