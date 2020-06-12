@@ -235,12 +235,23 @@ static void hw_writel_native(struct macb *bp, int offset, u32 value)
 
 static u32 hw_readl(struct macb *bp, int offset)
 {
-	return readl_relaxed(bp->regs + offset);
+	u32 lower, higher;
+	offset *= 2;
+	lower = ioread16(bp->regs + offset) & 0xffff;
+	higher = ioread16(bp->regs + (offset + 4)) & 0xffff;
+	//printk("readl %d\n", offset);
+	return lower | (higher << 16);
 }
 
 static void hw_writel(struct macb *bp, int offset, u32 value)
 {
-	writel_relaxed(value, bp->regs + offset);
+	u32 lower, higher;
+	offset *= 2;
+	lower = value & 0xffff;
+	higher = (value >> 16) & 0xffff;
+	//printk("writel\n");
+	iowrite16(lower, bp->regs + offset);
+	iowrite16(higher, bp->regs + (offset + 4));
 }
 
 /* Find the CPU endianness by using the loopback bit of NCR register. When the
@@ -323,7 +334,6 @@ static void macb_get_hwaddr(struct macb *bp)
 static int macb_mdio_wait_for_idle(struct macb *bp)
 {
 	u32 val;
-
 	return readx_poll_timeout(MACB_READ_NSR, bp, val, val & MACB_BIT(IDLE),
 				  1, MACB_MDIO_TIMEOUT);
 }
@@ -2561,7 +2571,6 @@ static int macb_open(struct net_device *dev)
 		goto reset_hw;
 
 	netif_tx_start_all_queues(dev);
-
 	if (bp->ptp_info)
 		bp->ptp_info->ptp_init(dev);
 
@@ -4311,6 +4320,12 @@ static const struct macb_config zynq_config = {
 	.init = macb_init,
 };
 
+static const struct macb_config msc313_config = {
+	.caps = MACB_CAPS_NEEDS_RSTONUBR | MACB_CAPS_MACB_IS_EMAC,
+	.clk_init = macb_clk_init,
+	.init = at91ether_init,
+};
+
 static const struct of_device_id macb_dt_ids[] = {
 	{ .compatible = "cdns,at32ap7000-macb" },
 	{ .compatible = "cdns,at91sam9260-macb", .data = &at91sam9260_config },
@@ -4328,6 +4343,8 @@ static const struct of_device_id macb_dt_ids[] = {
 	{ .compatible = "cdns,zynqmp-gem", .data = &zynqmp_config},
 	{ .compatible = "cdns,zynq-gem", .data = &zynq_config },
 	{ .compatible = "sifive,fu540-c000-gem", .data = &fu540_c000_config },
+	{ .compatible = "sifive,fu540-macb", .data = &fu540_c000_config },
+	{ .compatible = "cdns,msc313", .data = &msc313_config },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, macb_dt_ids);

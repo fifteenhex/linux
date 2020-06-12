@@ -75,6 +75,11 @@
 #define MACB_TBQPH		0x04C8
 #define MACB_RBQPH		0x04D4
 
+// The MSC313 has some more registers here
+#define MACB_MSC313_JULIAN_100 0x100
+#define MACB_MSC313_JULIAN_104 0x104
+#define MACB_MSC313_JULIAN_108 0x108
+
 /* GEM register offsets. */
 #define GEM_NCFGR		0x0004 /* Network Config */
 #define GEM_USRIO		0x000c /* User IO */
