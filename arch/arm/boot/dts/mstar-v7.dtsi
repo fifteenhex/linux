@@ -420,6 +420,26 @@
 				interrupts-extended = <&intc_fiq 2 IRQ_TYPE_LEVEL_HIGH>;
 			};
 
+			intc_fiq: intc@201310 {
+				compatible = "mstar,msc313e-intc-fiq";
+				interrupt-controller;
+				reg = <0x201310 0x40>;
+				#interrupt-cells = <2>;
+				interrupt-parent = <&gic>;
+				gic-offset = <96>;
+				nr-interrupts = <32>;
+			};
+
+			intc_irq: intc@201350 {
+				compatible = "mstar,msc313e-intc-irq";
+				interrupt-controller;
+				reg = <0x201350 0x40>;
+				#interrupt-cells = <2>;
+				interrupt-parent = <&gic>;
+				gic-offset = <32>;
+				nr-interrupts = <64>;
+			};
+
 			pinctrl: pinctrl@203c00 {
 				reg = <0x203c00 0x200>;
 				pm_uart_pins: pm_uart {
