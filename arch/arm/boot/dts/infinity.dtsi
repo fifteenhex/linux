@@ -192,3 +192,9 @@
 	clocks = <&clkgen_mux_rtc_sar 1>;
 	clock-names = "sar_clk";
 };
+
+&powerdown {
+	compatible = "mstar,msc313-poweroff";
+	gpio = <&gpio_pm MSC313_PM_GPI04 GPIO_ACTIVE_LOW>;
+	status = "okay";
+};
