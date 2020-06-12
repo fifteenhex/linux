@@ -631,6 +631,13 @@
 				#dma-cells = <1>;
 			};
 
+			mailbox: mailbox@200800 {
+				reg = <0x200800 0x200>;
+				/*
+				 * 0x0 - boot rom writes 0xbabe here right near the start.
+				 */
+			};
+
 			miu: miu@202200 {
 				compatible = "mstar,msc313-miu";
 				reg = <0x202000 100>,
