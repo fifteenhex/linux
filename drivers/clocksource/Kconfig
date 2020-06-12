@@ -707,4 +707,11 @@ config MICROCHIP_PIT64B
 	  modes and high resolution. It is used as a clocksource
 	  and a clockevent.
 
+config MSC313E_TIMER
+        bool "MSC313E timer driver"
+        select CLKSRC_MMIO
+        select TIMER_OF
+        help
+          Enables support for the MStar MSC313E timer.
+
 endmenu
