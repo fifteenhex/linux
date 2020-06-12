@@ -7,6 +7,7 @@
 #include "mstar-v7.dtsi"
 
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/gpio/mstar.h>
 
 / {
 	cpu0_opp_table: opp_table0 {
