@@ -42,6 +42,11 @@
 };
 
 &soc {
+        did: did@0x1f007000 {
+			compatible = "mstar,msc313-did";
+			reg = <0x1f007000 0x8>;
+        };
+
 	pm_pwm: pwm@1f001da0 {
 		compatible = "mstar,msc313-pwm";
 		reg = <0x1f001da0 0xc>;
