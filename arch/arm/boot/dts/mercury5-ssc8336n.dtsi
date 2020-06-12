@@ -4,7 +4,7 @@
  * Author: Daniel Palmer <daniel@thingy.jp>
  */
 
-#include "mercury5.dtsi"
+#include "mercury5-ssc8336.dtsi"
 
 / {
 	memory@20000000 {
