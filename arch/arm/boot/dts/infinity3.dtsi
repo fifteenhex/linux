@@ -5,3 +5,6 @@
  */
 
 #include "infinity.dtsi"
+
+/ {
+};

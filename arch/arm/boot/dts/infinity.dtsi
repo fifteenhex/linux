@@ -5,3 +5,6 @@
  */
 
 #include "mstar-v7.dtsi"
+
+/ {
+};
