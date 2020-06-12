@@ -1346,6 +1346,20 @@
 			};
 		};
 
+		/*
+		gop1: gop@0x1f246800 {
+		
+		};
+		
+		gop2: gop@0x1f246e00 {
+		
+		};*/
+
+		display@0 {
+			compatible = "mstar,drm";
+			ports = <&gop0_out>;
+		};
+
 		upll: upll@1f284000 {
 			#clock-cells = <1>;
 			compatible = "mstar,msc313-upll";
