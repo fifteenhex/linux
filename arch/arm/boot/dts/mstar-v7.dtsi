@@ -391,6 +391,11 @@
 			mask = <0x79>;
 		};
 
+		powerdown: powerdown {
+			mstar,pmsleep = <&pmsleep>;
+			status = "disabled";
+		};
+
 		/*
 		temp_sensor {
 			compatible = "iio-hwmon";
