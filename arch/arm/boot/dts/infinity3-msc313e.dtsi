@@ -9,6 +9,7 @@
 
 #include "infinity3.dtsi"
 
+/delete-node/ &pwm0;
 / {
 	memory@20000000 {
 		device_type = "memory";
@@ -30,6 +31,73 @@
 		opp-microvolt = <1000000>;
 		clock-latency-ns = <300000>;
 	};*/
+};
+
+&soc {
+	pwm0: pwm@1f003400 {
+		compatible = "mstar,msc313e-pwm";
+		reg = <0x1f003400 0x20>;
+		#pwm-cells = <2>;
+		clocks = <&xtal12>;
+		status = "disabled";
+	};
+
+	pwm1: pwm@1f003480 {
+		compatible = "mstar,msc313e-pwm";
+		reg = <0x1f003480 0x20>;
+		#pwm-cells = <2>;
+		clocks = <&xtal12>;
+		status = "disabled";
+	};
+
+	pwm2: pwm@1f003500 {
+		compatible = "mstar,msc313e-pwm";
+		reg = <0x1f003500 0x20>;
+		#pwm-cells = <2>;
+		clocks = <&xtal12>;
+		status = "disabled";
+	};
+
+	pwm3: pwm@1f003580 {
+		compatible = "mstar,msc313e-pwm";
+		reg = <0x1f003580 0x20>;
+		#pwm-cells = <2>;
+		clocks = <&xtal12>;
+		status = "disabled";
+	};
+
+	pwm4: pwm@1f003600 {
+		compatible = "mstar,msc313e-pwm";
+		reg = <0x1f003600 0x20>;
+		#pwm-cells = <2>;
+		clocks = <&xtal12>;
+		status = "disabled";
+	};
+
+	pwm5: pwm@1f003680 {
+		compatible = "mstar,msc313e-pwm";
+		reg = <0x1f003680 0x20>;
+		#pwm-cells = <2>;
+		clocks = <&xtal12>;
+		status = "disabled";
+	};
+
+	pwm6: pwm@1f003700 {
+		compatible = "mstar,msc313e-pwm";
+		reg = <0x1f003700 0x20>;
+		#pwm-cells = <2>;
+		clocks = <&xtal12>;
+		status = "disabled";
+	};
+
+	pwm7: pwm@1f003780 {
+		compatible = "mstar,msc313e-pwm";
+		reg = <0x1f003780 0x20>;
+		#pwm-cells = <2>;
+		clocks = <&xtal12>;
+		status = "disabled";
+	};
+
 };
 
 &pinctrl {
