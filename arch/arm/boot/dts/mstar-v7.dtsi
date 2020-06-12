@@ -386,6 +386,11 @@
 				 <&xtal12_div4>;
 		};
 
+		powerdown: powerdown {
+			mstar,pmsleep = <&pmsleep>;
+			status = "disabled";
+		};
+
 		/*
 		temp_sensor {
 			compatible = "iio-hwmon";
