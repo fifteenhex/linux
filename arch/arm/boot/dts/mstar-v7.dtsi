@@ -1296,6 +1296,12 @@
 				<&mpll MSTAR_MPLL_86>;
 		};
 
+		/* csi - camera interface */
+		csi: csi@1f240800 {
+			reg = <0x1f240800 0x200>;
+			interrupts-extended = <&intc_irq 32 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
 		upll: upll@1f284000 {
 			#clock-cells = <1>;
 			compatible = "mstar,msc313-upll";
