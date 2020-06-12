@@ -1348,8 +1348,8 @@ dtb-$(CONFIG_ARCH_MSTARV7) += \
 	infinity3-msc313e-breadbee.dtb \
 	infinity3-msc313e-wiibee.dtb \
 	infinity3-msc313d-mc400l.dtb \
-	mercury5-ssc8336n-midrived08.dtb \
-	mercury5-ssc8336-mirrorcam.dtb
+	mercury5-ssc8336-mirrorcam.dtb \
+	mercury5-ssc8336n-midrived08.dtb
 dtb-$(CONFIG_ARCH_ZX) += zx296702-ad1.dtb
 dtb-$(CONFIG_ARCH_ASPEED) += \
 	aspeed-ast2500-evb.dtb \
