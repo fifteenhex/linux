@@ -93,4 +93,7 @@
 #define SSC8336_PM_SPI_DO	6
 #define SSC8336_PM_SD_SDZ	7
 
+#define PM_GPIO4_IRQ	6
+#define PM_GPIO5_IRQ	7
+
 #endif
