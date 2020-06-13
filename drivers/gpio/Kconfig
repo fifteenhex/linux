@@ -715,7 +715,7 @@ config GPIO_AMD_FCH
 
 config GPIO_MSC313E
 	tristate "MSC313E GPIO support"
-	depends on ARCH_MSTAR
+	depends on ARCH_MSTARV7
 	select GPIO_GENERIC
 	help
 	  Say Y or M here to support GPIO on MStar MSC313E SoCs.
