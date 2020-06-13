@@ -49,3 +49,20 @@
 &imi {
 	reg = <0xa0000000 0x16000>;
 };
+
+&gpio {
+	compatible = "mstar,msc313e-gpio";
+	gpio-ranges = <&pinctrl 0 36 22>,
+		      <&pinctrl 22 63 4>,
+		      <&pinctrl 26 68 6>;
+	interrupt-parent = <&intc_fiq>;
+	interrupt-names = "spi0_cz",
+			  "spi0_ck",
+			  "spi0_di",
+			  "spi0_do";
+	interrupts = <28 IRQ_TYPE_LEVEL_HIGH>,
+		     <29 IRQ_TYPE_LEVEL_HIGH>,
+		     <30 IRQ_TYPE_LEVEL_HIGH>,
+		     <31 IRQ_TYPE_LEVEL_HIGH>;
+	status = "okay";
+};
