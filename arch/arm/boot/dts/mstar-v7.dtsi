@@ -449,6 +449,40 @@
 				status = "disabled";
 			};
 
+			sar: sar@2800 {
+				reg = <0x2800 0x200>;
+				interrupts-extended = <&intc_irq 45 IRQ_TYPE_LEVEL_HIGH>,
+						      <&intc_fiq 24 IRQ_TYPE_LEVEL_HIGH>,
+						      <&intc_fiq 25 IRQ_TYPE_LEVEL_HIGH>,
+						      <&intc_fiq 26 IRQ_TYPE_LEVEL_HIGH>,
+						      <&intc_fiq 27 IRQ_TYPE_LEVEL_HIGH>;
+				interrupt-names = "sar",
+						  "sar_gpio0",
+						  "sar_gpio1",
+						  "sar_gpio2",
+						  "sar_gpio3";
+				clock-names = "sar_clk";
+				clocks = <&clkgen_mux_rtc_sar 1>;
+				status = "disabled";
+				#gpio-cells = <2>;
+				sar0_gpio0_pins: sar0_gpio0 {
+					function = "sar0";
+					groups = "sar_gpio0";
+				};
+				sar1_gpio1_pins: sar1_gpio1 {
+					function = "sar1";
+					groups = "sar_gpio1";
+				};
+				sar2_gpio2_pins: sar2_gpio2 {
+					function = "sar2";
+					groups = "sar_gpio2";
+				};
+				sar3_gpio3_pins: sar3_gpio3 {
+					function = "sar3";
+					groups = "sar_gpio3";
+				};
+			};
+
 			wdt: wdt@6000 {
 				compatible = "mstar,msc313e-wdt";
 				reg = <0x6000 0x1f>;
