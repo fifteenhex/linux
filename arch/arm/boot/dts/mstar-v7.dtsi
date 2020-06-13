@@ -313,6 +313,22 @@
 			 <0x1f000000 0x1f000000 0x00400000>,
 			 <0xa0000000 0xa0000000 0x20000>;
 
+		isp: isp@1f001000 {
+			compatible = "mstar,msc313-isp";
+			reg = <0x1f001000 0x400>,
+			      <0x1f002c00 0x200>,
+			      <0x1f002e00 0x200>,
+			      <0x14000000 0x1000000>;
+			clock-names = "isp";
+			clocks = <&clkgen_mux_spi_mcu_pm 1>;
+			interrupts-extended = <&intc_irq 5 IRQ_TYPE_LEVEL_HIGH>;
+			dmas = <&bdma 0>, <&bdma 1>;
+			dma-names = "qspi", "qspi";
+			pinctrl-names = "default";
+			pinctrl-0 = <&pm_spi_pins>;
+			status = "disabled";
+		};
+
 		clkgen_mux_spi_mcu_pm: clkgen_mux@1f001c80 {
 			compatible = "mstar,msc313e-clkgen-mux";
 			reg = <0x1f001c80 0x4>;
