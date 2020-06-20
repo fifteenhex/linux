@@ -20,6 +20,7 @@
 #include <linux/sh_intc.h>
 #include <linux/io.h>
 #include <linux/notifier.h>
+#include <linux/dma-mapping.h>
 
 #include <asm/suspend.h>
 #include <asm/clock.h>
@@ -273,6 +274,8 @@ static struct platform_device dma0_device = {
 	.num_resources	= ARRAY_SIZE(sh7724_dmae0_resources),
 	.dev		= {
 		.platform_data	= &dma_platform_data,
+		.dma_mask = &dma0_device.dev.coherent_dma_mask,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 };
 
@@ -283,6 +286,8 @@ static struct platform_device dma1_device = {
 	.num_resources	= ARRAY_SIZE(sh7724_dmae1_resources),
 	.dev		= {
 		.platform_data	= &dma_platform_data,
+		.dma_mask = &dma1_device.dev.coherent_dma_mask,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 };
 
@@ -509,6 +514,8 @@ static struct platform_device vpu_device = {
 	.id		= 0,
 	.dev = {
 		.platform_data	= &vpu_platform_data,
+		.dma_mask = &vpu_device.dev.coherent_dma_mask,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 	.resource	= vpu_resources,
 	.num_resources	= ARRAY_SIZE(vpu_resources),
@@ -538,6 +545,8 @@ static struct platform_device veu0_device = {
 	.id		= 1,
 	.dev = {
 		.platform_data	= &veu0_platform_data,
+		.dma_mask = &veu0_device.dev.coherent_dma_mask,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 	.resource	= veu0_resources,
 	.num_resources	= ARRAY_SIZE(veu0_resources),
@@ -567,6 +576,8 @@ static struct platform_device veu1_device = {
 	.id		= 2,
 	.dev = {
 		.platform_data	= &veu1_platform_data,
+		.dma_mask = &veu1_device.dev.coherent_dma_mask,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 	.resource	= veu1_resources,
 	.num_resources	= ARRAY_SIZE(veu1_resources),
@@ -715,6 +726,8 @@ static struct platform_device jpu_device = {
 	.id		= 3,
 	.dev = {
 		.platform_data	= &jpu_platform_data,
+		.dma_mask = &jpu_device.dev.coherent_dma_mask,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 	.resource	= jpu_resources,
 	.num_resources	= ARRAY_SIZE(jpu_resources),
@@ -744,6 +757,8 @@ static struct platform_device spu0_device = {
 	.id		= 4,
 	.dev = {
 		.platform_data	= &spu0_platform_data,
+		.dma_mask = &spu0_device.dev.coherent_dma_mask,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 	.resource	= spu0_resources,
 	.num_resources	= ARRAY_SIZE(spu0_resources),
@@ -773,6 +788,8 @@ static struct platform_device spu1_device = {
 	.id		= 5,
 	.dev = {
 		.platform_data	= &spu1_platform_data,
+		.dma_mask = &spu1_device.dev.coherent_dma_mask,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 	.resource	= spu1_resources,
 	.num_resources	= ARRAY_SIZE(spu1_resources),
