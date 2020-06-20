@@ -744,6 +744,8 @@ static struct platform_device sdhi0_device = {
 	.id             = 0,
 	.dev	= {
 		.platform_data	= &sdhi0_info,
+		.dma_mask = &sdhi0_device.dev.coherent_dma_mask,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 };
 
@@ -785,6 +787,8 @@ static struct platform_device sdhi1_device = {
 	.id             = 1,
 	.dev	= {
 		.platform_data	= &sdhi1_info,
+		.dma_mask = &sdhi1_device.dev.coherent_dma_mask,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 };
 #endif /* CONFIG_MMC_SH_MMCIF */
@@ -1004,6 +1008,8 @@ static struct platform_device sh_mmcif_device = {
 	.id		= 0,
 	.dev		= {
 		.platform_data		= &sh_mmcif_plat,
+		.dma_mask = &sh_mmcif_device.dev.coherent_dma_mask,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 	.num_resources	= ARRAY_SIZE(sh_mmcif_resources),
 	.resource	= sh_mmcif_resources,

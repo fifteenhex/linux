@@ -336,6 +336,8 @@ static struct platform_device sdhi0_cn3_device = {
 	.resource	= sdhi0_cn3_resources,
 	.dev = {
 		.platform_data = &sdhi0_cn3_data,
+		.dma_mask = &sdhi0_cn3_device.dev.coherent_dma_mask,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 };
 
@@ -363,6 +365,8 @@ static struct platform_device sdhi1_cn7_device = {
 	.resource	= sdhi1_cn7_resources,
 	.dev = {
 		.platform_data = &sdhi1_cn7_data,
+		.dma_mask = &sdhi1_cn7_device.dev.coherent_dma_mask,
+		.coherent_dma_mask = DMA_BIT_MASK(32),
 	},
 };
 
