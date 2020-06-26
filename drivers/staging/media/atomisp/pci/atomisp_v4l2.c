@@ -512,7 +512,7 @@ void atomisp_acc_unregister(struct atomisp_acc_pipe *video)
 
 static int atomisp_save_iunit_reg(struct atomisp_device *isp)
 {
-	struct pci_dev *dev = isp->pdev;
+	struct pci_dev *dev = to_pci_dev(isp->dev);
 
 	dev_dbg(isp->dev, "%s\n", __func__);
 
@@ -573,7 +573,7 @@ static int atomisp_save_iunit_reg(struct atomisp_device *isp)
 
 static int __maybe_unused atomisp_restore_iunit_reg(struct atomisp_device *isp)
 {
-	struct pci_dev *dev = isp->pdev;
+	struct pci_dev *dev = to_pci_dev(isp->dev);
 
 	dev_dbg(isp->dev, "%s\n", __func__);
 
@@ -619,7 +619,7 @@ static int __maybe_unused atomisp_restore_iunit_reg(struct atomisp_device *isp)
 
 static int atomisp_mrfld_pre_power_down(struct atomisp_device *isp)
 {
-	struct pci_dev *dev = isp->pdev;
+	struct pci_dev *dev = to_pci_dev(isp->dev);
 	u32 irq;
 	unsigned long flags;
 
@@ -679,7 +679,7 @@ done:
 	irq &= ~(1 << INTR_IER);
 	pci_write_config_dword(dev, PCI_INTERRUPT_CTRL, irq);
 
-	atomisp_msi_irq_uninit(isp, dev);
+	atomisp_msi_irq_uninit(isp);
 	atomisp_freq_scaling(isp, ATOMISP_DFS_MODE_LOW, true);
 	spin_unlock_irqrestore(&isp->lock, flags);
 
@@ -902,6 +902,7 @@ static int __maybe_unused atomisp_resume(struct device *dev)
 
 int atomisp_csi_lane_config(struct atomisp_device *isp)
 {
+	struct pci_dev *pdev = to_pci_dev(isp->dev);
 	static const struct {
 		u8 code;
 		u8 lanes[MRFLD_PORT_NUM];
@@ -1003,7 +1004,7 @@ int atomisp_csi_lane_config(struct atomisp_device *isp)
 		return -EINVAL;
 	}
 
-	pci_read_config_dword(isp->pdev, MRFLD_PCI_CSI_CONTROL, &csi_control);
+	pci_read_config_dword(pdev, MRFLD_PCI_CSI_CONTROL, &csi_control);
 	csi_control &= ~port_config_mask;
 	csi_control |= (portconfigs[i].code << MRFLD_PORT_CONFIGCODE_SHIFT)
 		       | (portconfigs[i].lanes[0] ? 0 : (1 << MRFLD_PORT1_ENABLE_SHIFT))
@@ -1013,7 +1014,7 @@ int atomisp_csi_lane_config(struct atomisp_device *isp)
 		       | (((1 << portconfigs[i].lanes[1]) - 1) << MRFLD_PORT2_LANES_SHIFT)
 		       | (((1 << portconfigs[i].lanes[2]) - 1) << port3_lanes_shift);
 
-	pci_write_config_dword(isp->pdev, MRFLD_PCI_CSI_CONTROL, csi_control);
+	pci_write_config_dword(pdev, MRFLD_PCI_CSI_CONTROL, csi_control);
 
 	dev_dbg(isp->dev,
 		"%s: the portconfig is %d-%d-%d, CSI_CONTROL is 0x%08X\n",
@@ -1587,7 +1588,7 @@ static int atomisp_pci_probe(struct pci_dev *dev,
 		err = -ENOMEM;
 		goto atomisp_dev_alloc_fail;
 	}
-	isp->pdev = dev;
+
 	isp->dev = &dev->dev;
 	isp->sw_contex.power_state = ATOM_ISP_POWER_UP;
 	isp->saved_regs.ispmmadr = start;
@@ -1597,7 +1598,7 @@ static int atomisp_pci_probe(struct pci_dev *dev,
 	spin_lock_init(&isp->lock);
 
 	/* This is not a true PCI device on SoC, so the delay is not needed. */
-	isp->pdev->d3_delay = 0;
+	dev->d3_delay = 0;
 
 	switch (id->device & ATOMISP_PCI_DEVICE_SOC_MASK) {
 	case ATOMISP_PCI_DEVICE_SOC_MRFLD:
@@ -1656,7 +1657,7 @@ static int atomisp_pci_probe(struct pci_dev *dev,
 		 * in power off. Set d3cold_delay to 0 since default 100ms is not
 		 * necessary.
 		 */
-		isp->pdev->d3cold_delay = 0;
+		dev->d3cold_delay = 0;
 		break;
 	case ATOMISP_PCI_DEVICE_SOC_ANN:
 		isp->media_dev.hw_revision = (
@@ -1666,7 +1667,7 @@ static int atomisp_pci_probe(struct pci_dev *dev,
 						 ATOMISP_HW_REVISION_ISP2401_LEGACY
 #endif
 						 << ATOMISP_HW_REVISION_SHIFT);
-		isp->media_dev.hw_revision |= isp->pdev->revision < 2 ?
+		isp->media_dev.hw_revision |= dev->revision < 2 ?
 					      ATOMISP_HW_STEPPING_A0 : ATOMISP_HW_STEPPING_B0;
 		isp->dfs = &dfs_config_merr;
 		isp->hpll_freq = HPLL_FREQ_1600MHZ;
@@ -1679,11 +1680,11 @@ static int atomisp_pci_probe(struct pci_dev *dev,
 						 ATOMISP_HW_REVISION_ISP2401_LEGACY
 #endif
 						 << ATOMISP_HW_REVISION_SHIFT);
-		isp->media_dev.hw_revision |= isp->pdev->revision < 2 ?
+		isp->media_dev.hw_revision |= dev->revision < 2 ?
 					      ATOMISP_HW_STEPPING_A0 : ATOMISP_HW_STEPPING_B0;
 
 		isp->dfs = &dfs_config_cht;
-		isp->pdev->d3cold_delay = 0;
+		dev->d3cold_delay = 0;
 
 		iosf_mbi_read(BT_MBI_UNIT_CCK, MBI_REG_READ, CCK_FUSE_REG_0, &val);
 		switch (val & CCK_FUSE_HPLL_FREQ_MASK) {
@@ -1741,7 +1742,7 @@ static int atomisp_pci_probe(struct pci_dev *dev,
 		goto enable_msi_fail;
 	}
 
-	atomisp_msi_irq_init(isp, dev);
+	atomisp_msi_irq_init(isp);
 
 	cpu_latency_qos_add_request(&isp->pm_qos, PM_QOS_DEFAULT_VALUE);
 
@@ -1856,7 +1857,7 @@ register_entities_fail:
 	atomisp_uninitialize_modules(isp);
 initialize_modules_fail:
 	cpu_latency_qos_remove_request(&isp->pm_qos);
-	atomisp_msi_irq_uninit(isp, dev);
+	atomisp_msi_irq_uninit(isp);
 	pci_disable_msi(dev);
 enable_msi_fail:
 fw_validation_fail:
@@ -1877,7 +1878,7 @@ load_fw_fail:
 	irq &= ~(1 << INTR_IER);
 	pci_write_config_dword(dev, PCI_INTERRUPT_CTRL, irq);
 
-	atomisp_msi_irq_uninit(isp, dev);
+	atomisp_msi_irq_uninit(isp);
 
 	atomisp_ospm_dphy_down(isp);
 
@@ -1910,7 +1911,7 @@ static void atomisp_pci_remove(struct pci_dev *dev)
 	pm_runtime_get_noresume(&dev->dev);
 	cpu_latency_qos_remove_request(&isp->pm_qos);
 
-	atomisp_msi_irq_uninit(isp, dev);
+	atomisp_msi_irq_uninit(isp);
 	atomisp_unregister_entities(isp);
 
 	destroy_workqueue(isp->wdt_work_queue);
