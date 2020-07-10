@@ -12,6 +12,8 @@
 #include <dt-bindings/clock/mstar.h>
 
 #define DT_MSTAR_DEGLITCHES "mstar,deglitches"
+#define DT_MSTAR_OUTPUTFLAGS "output-flags"
+#define DT_MSTAR_MUX_SHIFTS "mux-shifts"
 
 /*
  * The clkgen block controls a bunch of clock gates and muxes
@@ -26,10 +28,10 @@ struct msc313e_clkgen_mux;
 struct msc313e_clkgen_muxparent {
 	struct device *dev;
 	void __iomem *base;
-	struct clk* clk;
 	struct msc313e_clkgen_mux *muxes;
 	unsigned nummuxes;
 	u32 saved;
+	struct clk_onecell_data clk_data;
 };
 
 struct msc313e_clkgen_mux {
@@ -118,11 +120,10 @@ static int msc313e_clkgen_mux_probe(struct platform_device *pdev)
 	const struct of_device_id *id;
 	struct msc313e_clkgen_muxparent *mux_parent;
 	int muxindex, muxrangeoffset;
-	struct clk_onecell_data *clk_data;
 	const char *name;
 	const char *parents[32];
 	const char **muxparents;
-	int numparents, numshifts, numdeglitches;
+	int numparents, numshifts, numdeglitches, numoutputflags;
 	u32 gateshift, muxshift, muxwidth, muxclockoffset, muxnumclocks, outputflags, deglitch;
 	int ret;
 
@@ -194,17 +195,17 @@ static int msc313e_clkgen_mux_probe(struct platform_device *pdev)
 		goto out;
 	}
 
-	clk_data = devm_kzalloc(&pdev->dev, sizeof(struct clk_onecell_data),
-			GFP_KERNEL);
-	if (!clk_data){
-		ret = -ENOMEM;
+	numoutputflags = of_property_count_u32_elems(pdev->dev.of_node, DT_MSTAR_OUTPUTFLAGS);
+	if(numoutputflags > 0 && numoutputflags != mux_parent->nummuxes){
+		dev_info(&pdev->dev, "number of output flags must match the number of outputs\n");
+		ret = -EINVAL;
 		goto out;
 	}
 
-	clk_data->clk_num = mux_parent->nummuxes;
-	clk_data->clks = devm_kcalloc(&pdev->dev, mux_parent->nummuxes,
-			sizeof(struct clk *), GFP_KERNEL);
-	if (!clk_data->clks){
+	mux_parent->clk_data.clk_num = mux_parent->nummuxes;
+	mux_parent->clk_data.clks = devm_kcalloc(&pdev->dev, mux_parent->nummuxes,
+			sizeof(mux_parent->clk_data.clks), GFP_KERNEL);
+	if (!mux_parent->clk_data.clks){
 		ret = -ENOMEM;
 		goto out;
 	}
@@ -239,10 +240,11 @@ static int msc313e_clkgen_mux_probe(struct platform_device *pdev)
 		if(numparents == 0)
 			goto outputflags;
 
-		ret = of_property_read_u32_index(pdev->dev.of_node, "mux-shifts",
-				muxindex, &muxshift);
-		if(ret)
+		ret = of_property_read_u32_index(pdev->dev.of_node,
+				DT_MSTAR_MUX_SHIFTS, muxindex, &muxshift);
+		if(ret){
 			goto out;
+		}
 		ret = of_property_read_u32_index(pdev->dev.of_node, "mux-widths",
 				muxindex, &muxwidth);
 		if(ret)
@@ -286,7 +288,7 @@ outputflags:
 
 		mux_parent->muxes[muxindex].deglitchindex = muxnumclocks - 1;
 
-		mux_parent[muxindex].clk = clk_register_composite(&pdev->dev, name,
+		mux_parent->clk_data.clks[muxindex] = clk_register_composite(&pdev->dev, name,
 				muxparents, muxnumclocks,
 				numparents ? &mux_parent->muxes[muxindex].mux.hw : NULL,
 				numparents ? &mstar_clkgen_mux_mux_ops : NULL,
@@ -295,18 +297,23 @@ outputflags:
 				&mux_parent->muxes[muxindex].gate.hw,
 				&clk_gate_ops,
 				outputflags);
-		if (IS_ERR(mux_parent[muxindex].clk)) {
-			ret = PTR_ERR(mux_parent[muxindex].clk);
+		if (IS_ERR(mux_parent->clk_data.clks[muxindex])) {
+			ret = PTR_ERR(mux_parent->clk_data.clks[muxindex]);
 			goto out;
 		}
-		clk_data->clks[muxindex] = mux_parent[muxindex].clk;
 	}
 
 	platform_set_drvdata(pdev, mux_parent);
 
-	ret = of_clk_add_provider(pdev->dev.of_node, of_clk_src_onecell_get, clk_data);
+	ret = of_clk_add_provider(pdev->dev.of_node, of_clk_src_onecell_get,
+			&mux_parent->clk_data);
 
 out:
+	if(muxindex != mux_parent->nummuxes){
+		for(muxindex = muxindex - 1; muxindex >= 0; muxindex--)
+			clk_unregister_composite(mux_parent->clk_data.clks[muxindex]);
+	}
+
 	return ret;
 }
 
