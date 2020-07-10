@@ -1286,7 +1286,8 @@
 			shifts = <0>, <8>;
 			mux-shifts = <2>, <10>;
 			mux-widths = <2>, <2>;
-			output-flags = <MSTAR_CLKGEN_OUTPUTFLAG_CRITICAL>;
+			output-flags = <MSTAR_CLKGEN_OUTPUTFLAG_CRITICAL>,
+					<MSTAR_CLKGEN_OUTPUTFLAG_CRITICAL>;
 			clocks = <&emac_phyclk>; /* incomplete */
 		};
 
@@ -1298,7 +1299,8 @@
 			shifts = <0>, <8>;
 			mux-shifts = <2>, <10>;
 			mux-widths = <2>, <2>;
-			output-flags = <MSTAR_CLKGEN_OUTPUTFLAG_CRITICAL>;
+			output-flags = <MSTAR_CLKGEN_OUTPUTFLAG_CRITICAL>,
+					<MSTAR_CLKGEN_OUTPUTFLAG_CRITICAL>;
 			clocks = <&emac_phyclk>; /* incomplete */
 		};
 
