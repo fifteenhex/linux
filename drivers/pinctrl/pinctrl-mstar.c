@@ -977,6 +977,10 @@ static const struct of_device_id mstar_pinctrl_of_match[] = {
 		.compatible	= "mstar,msc313e-pinctrl",
 		.data		= &msc313_info,
 	},
+	{
+		.compatible	= "sstar,ssd202-pinctrl",
+		.data		= &msc313_info,
+	},
 #endif
 #ifdef CONFIG_MACH_MERCURY
 	{

@@ -241,4 +241,8 @@
 #define PIN_SSC8336N_LCD_14      123
 #define PIN_SSC8336N_LCD_15      124
 
+/* SSD20X */
+/* Chip pin numbers */
+
+
 #endif
