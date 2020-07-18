@@ -987,6 +987,7 @@
 			#clock-cells = <1>;
 			clock-output-names = "tck";
 			shifts = <0>;
+			clocks = <&xtal12>;
 		};
 
 		clkgen_mux_uart: clkgen_mux@1f2070c4 {
