@@ -535,6 +535,8 @@ patternProperties:
     description: Integrated Device Technologies, Inc.
   "^ifi,.*":
     description: Ingenieurburo Fur Ic-Technologie (I/F/I)
+  "^injoinic,.*":
+    description: Injoinic Technology Co.,Ltd.
   "^ilitek,.*":
     description: ILI Technology Corporation (ILITEK)
   "^img,.*":
