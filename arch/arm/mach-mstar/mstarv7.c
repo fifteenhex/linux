@@ -118,7 +118,7 @@ struct smp_operations __initdata mstarv7_smp_ops  = {
 };
 #endif
 
-#ifdef CONFIG_SUSPEND
+#if defined(CONFIG_SUSPEND) & defined(CONFIG_MACH_INFINITY)
 int __init msc313_pm_init(void);
 #endif
 
@@ -133,7 +133,7 @@ static void __init mstarv7_init(void)
 	else
 		pr_warn("Failed to install memory barrier, DMA will be broken!\n");
 
-#ifdef CONFIG_SUSPEND
+#if defined(CONFIG_SUSPEND) & defined(CONFIG_MACH_INFINITY)
         msc313_pm_init();
 #endif
 }
