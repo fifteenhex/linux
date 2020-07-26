@@ -16,3 +16,12 @@
 		reg = <0x1>;
 	};
 };
+
+&riu {
+	smpctrl@204000 {
+		compatible = "mstar,smpctrl";
+		reg = <0x204000 0x200>;
+		status = "okay";
+	};
+};
+
