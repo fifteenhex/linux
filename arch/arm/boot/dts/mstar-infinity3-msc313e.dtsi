@@ -17,21 +17,7 @@
 	};
 };
 
-&cpu0_opp_table {
-	opp-1000000000 {
-		opp-hz = /bits/ 64 <1000000000>;
-		opp-microvolt = <1000000>;
-		clock-latency-ns = <300000>;
-	};
 
-	/*
-	// 100mhz overclock
-	opp-1100000000 {
-		opp-hz = /bits/ 64 <1100000000>;
-		opp-microvolt = <1000000>;
-		clock-latency-ns = <300000>;
-	};*/
-};
 
 &soc {
 	pwm0: pwm@1f003400 {
