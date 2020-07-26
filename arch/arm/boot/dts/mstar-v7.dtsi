@@ -1479,6 +1479,7 @@
 			clocks = <&xtal12>;
 			mstar,utmi = <&utmi1>;
 			mstar,usbc = <&usbc1>;
+			status = "disabled";
 		};
 
 		uhc1: uhc@1f286400 {
