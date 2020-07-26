@@ -12,6 +12,7 @@
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/io.h>
+#include <linux/delay.h>
 
 /*
  * In the u-boot code the area these registers are in is
@@ -32,6 +33,13 @@
 #define MSTARV7_L3BRIDGE_STATUS_DONE	BIT(12)
 
 static void __iomem *l3bridge;
+
+#ifdef CONFIG_SMP
+#define MSTARV7_CPU1_BOOT_ADDR_HIGH		0x4c
+#define MSTARV7_CPU1_BOOT_ADDR_LOW		0x50
+#define MSTARV7_CPU1_UNLOCK			0x58
+#define MSTARV7_CPU1_UNLOCK_MAGIC		0xbabe
+#endif
 
 static const char * const mstarv7_board_dt_compat[] __initconst = {
 	"mstar,infinity",
@@ -63,6 +71,51 @@ static void mstarv7_mb(void)
 	}
 }
 
+#ifdef CONFIG_SMP
+
+static int mstarv7_boot_secondary(unsigned int cpu, struct task_struct *idle)
+{
+	struct device_node *np;
+	u32 bootaddr = (u32) __pa_symbol(secondary_startup_arm);
+	void __iomem *smpctrl = 0;
+
+	/*
+	 * right now we don't know how to boot anything except
+	 * cpu 1.
+	 */
+	if(cpu != 1)
+		return 0;
+
+	np = of_find_compatible_node(NULL, NULL, "mstar,smpctrl");
+	smpctrl = of_iomap(np, 0);
+
+	if(!smpctrl){
+		printk("don't know where smp control register is\n");
+		return 0;
+	}
+
+	/*
+	 * set the boot address for the second cpu
+	 */
+	writew(bootaddr & 0xffff, smpctrl + MSTARV7_CPU1_BOOT_ADDR_LOW);
+	writew((bootaddr >> 16) & 0xffff, smpctrl + MSTARV7_CPU1_BOOT_ADDR_HIGH);
+
+	/* unlock the second cpu */
+	writew(MSTARV7_CPU1_UNLOCK_MAGIC, smpctrl + MSTARV7_CPU1_UNLOCK);
+
+	/* and away we go...*/
+	arch_send_wakeup_ipi_mask(cpumask_of(cpu));
+
+	iounmap(smpctrl);
+
+	return 0;
+}
+
+struct smp_operations __initdata mstarv7_smp_ops  = {
+	.smp_boot_secondary	= mstarv7_boot_secondary,
+};
+#endif
+
 static void __init mstarv7_init(void)
 {
 	struct device_node *np;
@@ -78,4 +131,7 @@ static void __init mstarv7_init(void)
 DT_MACHINE_START(MSTARV7_DT, "MStar/Sigmastar Armv7 (Device Tree)")
 	.dt_compat	= mstarv7_board_dt_compat,
 	.init_machine	= mstarv7_init,
+#ifdef CONFIG_SMP
+	.smp		= smp_ops(mstarv7_smp_ops),
+#endif
 MACHINE_END
