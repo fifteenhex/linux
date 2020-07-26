@@ -63,3 +63,7 @@
 		status = "disabled";
 	};
 };
+
+&sar {
+	compatible = "sstar,sar-ssd20x";
+};
