@@ -168,7 +168,7 @@
 		compatible = "cdns,msc313";
 		interrupt-parent = <&intc_irq>;
 		interrupts = <26 IRQ_TYPE_LEVEL_HIGH>;
-		reg = <0x1f2a2000 0x4000>;
+		reg = <0x1f2a2000 0x800>;
 		phy-mode = "mii";
 		clock-names = "pclk", "hclk", "tx_clk", "rx_clk";
 		clocks = <&clkgen_mux_emac 0>, 
