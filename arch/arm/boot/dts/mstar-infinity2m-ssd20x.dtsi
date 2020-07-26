@@ -27,3 +27,7 @@
 &pinctrl {
 	compatible = "sstar,ssd20xd-pinctrl";
 };
+
+&sar {
+	compatible = "sstar,sar-ssd20x";
+};
