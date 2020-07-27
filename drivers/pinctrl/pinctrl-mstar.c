@@ -448,6 +448,45 @@ static const struct mstar_configurable_pin msc313_configurable_pins[] = {
 };
 
 MSTAR_PINCTRL_INFO(msc313);
+
+/* ssd20xd */
+
+#define SSD20XD_COMMON_PIN(_pinname) COMMON_PIN(MSC313, _pinname)
+
+/* pinctrl pins */
+static struct pinctrl_pin_desc ssd20xd_pins[] = {
+	SSD20XD_COMMON_PIN(SD_CLK),
+	SSD20XD_COMMON_PIN(SD_CMD),
+	SSD20XD_COMMON_PIN(SD_D0),
+	SSD20XD_COMMON_PIN(SD_D1),
+	SSD20XD_COMMON_PIN(SD_D2),
+	SSD20XD_COMMON_PIN(SD_D3),
+	SSD20XD_COMMON_PIN(USB_DM),
+	SSD20XD_COMMON_PIN(USB_DP),
+};
+
+/* mux pin groupings */
+static int ssd20xd_pm_uart_pins[] = { PIN_SSD20XD_PM_UART_RX, PIN_SSD20XD_PM_UART_TX };
+static int ssd20xd_sd_pins[]	= { PIN_SSD20XD_SD_D1, PIN_SSD20XD_SD_D0,
+				    PIN_SSD20XD_SD_CLK, PIN_SSD20XD_SD_CMD,
+				    PIN_SSD20XD_SD_D3,PIN_SSD20XD_SD_D2 };
+
+#define SSD20XD_PINCTRL_GROUP(_NAME, _name) MSTAR_PINCTRL_GROUP(GROUPNAME_##_NAME, ssd20xd_##_name##_pins)
+
+static const struct mstar_pinctrl_group ssd20xd_pinctrl_groups[] = {
+	SSD20XD_PINCTRL_GROUP(PM_UART, pm_uart),
+	SSD20XD_PINCTRL_GROUP(SD, sd),
+};
+
+static const struct mstar_pinctrl_function ssd20xd_pinctrl_functions[] = {
+	COMMON_FIXED_FUNCTION(PM_UART, pm_uart),
+	COMMON_FUNCTION(SDIO, sdio),
+};
+
+static const struct mstar_configurable_pin ssd20xd_configurable_pins[] = {
+};
+
+MSTAR_PINCTRL_INFO(ssd20xd);
 #endif /* infinity */
 
 #ifdef CONFIG_MACH_MERCURY
@@ -979,8 +1018,8 @@ static const struct of_device_id mstar_pinctrl_of_match[] = {
 		.data		= &msc313_info,
 	},
 	{
-		.compatible	= "sstar,ssd202-pinctrl",
-		.data		= &msc313_info,
+		.compatible	= "sstar,ssd20xd-pinctrl",
+		.data		= &ssd20xd_info,
 	},
 #endif
 #ifdef CONFIG_MACH_MERCURY
