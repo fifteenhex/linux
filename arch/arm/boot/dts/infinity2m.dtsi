@@ -72,4 +72,5 @@
 		     <41 IRQ_TYPE_LEVEL_HIGH>,
 		     <61 IRQ_TYPE_LEVEL_HIGH>,
 		     <62 IRQ_TYPE_LEVEL_HIGH>;
+	dma-channels = <4>;
 };

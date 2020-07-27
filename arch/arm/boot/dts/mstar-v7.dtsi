@@ -638,6 +638,7 @@
 				interrupts = <40 IRQ_TYPE_LEVEL_HIGH>,
 					     <41 IRQ_TYPE_LEVEL_HIGH>;
 				clocks = <&clkgen_mux_bdma 0>;
+				dma-channels = <2>;
 				status = "okay";
 				#dma-cells = <1>;
 			};
