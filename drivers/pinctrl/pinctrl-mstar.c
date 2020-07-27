@@ -447,17 +447,6 @@ static const struct mstar_configurable_pin msc313_configurable_pins[] = {
 	MSTAR_PINCTRL_PIN(PIN_MSC313_SD_CLK, -1, -1, REG_SDIO_PULLDRIVE, 5, sd_drivestrenghts),
 };
 
-#define MSTAR_PINCTRL_INFO(_chip) static const struct mstar_pinctrl_info _chip##_info = { \
-	.pins = _chip##_pins, \
-	.npins = ARRAY_SIZE(_chip##_pins), \
-	.groups = _chip##_pinctrl_groups, \
-	.ngroups = ARRAY_SIZE(_chip##_pinctrl_groups), \
-	.functions = _chip##_pinctrl_functions, \
-	.nfunctions = ARRAY_SIZE(_chip##_pinctrl_functions), \
-	.confpin = _chip##_configurable_pins, \
-	.nconfpins = ARRAY_SIZE(_chip##_configurable_pins),\
-}
-
 MSTAR_PINCTRL_INFO(msc313);
 #endif /* infinity */
 
