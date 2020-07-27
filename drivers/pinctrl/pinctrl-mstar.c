@@ -706,14 +706,10 @@ static const struct mstar_pinctrl_function ssc8336n_pinctrl_functions[] = {
 	COMMON_FIXED_FUNCTION(USB1, usb1)
 };
 
-static const struct mstar_pinctrl_info ssc8336n_info = {
-	.pins = ssc8336n_pins,
-	.npins = ARRAY_SIZE(ssc8336n_pins),
-	.groups  = ssc8336n_pinctrl_groups,
-	.ngroups = ARRAY_SIZE(ssc8336n_pinctrl_groups),
-	.functions = ssc8336n_pinctrl_functions,
-	.nfunctions = ARRAY_SIZE(ssc8336n_pinctrl_functions),
+static const struct mstar_configurable_pin ssc8336n_configurable_pins[] = {
 };
+
+MSTAR_PINCTRL_INFO(ssc8336n);
 #endif /* mercury5 */
 
 static int mstar_dt_node_to_map(struct pinctrl_dev *pctldev,
