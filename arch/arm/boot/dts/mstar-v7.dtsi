@@ -644,6 +644,7 @@
 				interrupts = <GIC_SPI 40 IRQ_TYPE_LEVEL_HIGH>,
 					     <GIC_SPI 41 IRQ_TYPE_LEVEL_HIGH>;
 				clocks = <&clkgen_mux_bdma 0>;
+				dma-channels = <2>;
 				status = "okay";
 				#dma-cells = <1>;
 			};
