@@ -90,7 +90,6 @@
  */
 
 #define DRIVER_NAME "msc313-bdma"
-#define CHANNELS 2
 
 #define REG_CTRL		0x0
 #define REG_STATUS		0x4
@@ -148,7 +147,7 @@ struct msc313_bdma_chan {
 struct msc313_bdma {
 	struct dma_device dma_device;
 	struct clk *clk;
-	unsigned numchans;
+	u32 numchans;
 	struct msc313_bdma_chan *chans;
 };
 
@@ -390,15 +389,21 @@ static int msc313_bdma_probe(struct platform_device *pdev)
 	struct resource *res;
 	void __iomem *base;
 	int i, ret;
+
 	struct regmap_config regmap_config = {
-			.reg_bits = 16,
-			.val_bits = 16,
-			.reg_stride = 4,
+		.reg_bits = 16,
+		.val_bits = 16,
+		.reg_stride = 4,
 	};
 
 	bdma = devm_kzalloc(&pdev->dev, sizeof(*bdma), GFP_KERNEL);
 	if (!bdma)
 		return -ENOMEM;
+
+	ret = of_property_read_u32(pdev->dev.of_node, "dma-channels", &bdma->numchans);
+	if(ret){
+		goto out;
+	}
 
 	platform_set_drvdata(pdev, bdma);
 
@@ -427,8 +432,6 @@ static int msc313_bdma_probe(struct platform_device *pdev)
 	INIT_LIST_HEAD(&bdma->dma_device.channels);
 
 	dma_cap_set(DMA_MEMCPY, bdma->dma_device.cap_mask);
-
-	bdma->numchans = CHANNELS;
 
 	bdma->chans = devm_kzalloc(&pdev->dev, sizeof(*chan) * bdma->numchans, GFP_KERNEL);
 	if (!bdma->chans)
@@ -485,7 +488,7 @@ static int msc313_bdma_probe(struct platform_device *pdev)
 	if (ret)
 		goto out;
 
-	out:
+out:
 	return ret;
 }
 
