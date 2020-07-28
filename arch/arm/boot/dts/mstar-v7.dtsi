@@ -85,6 +85,26 @@
 				mask = <0x79>;
 			};
 
+			intc_fiq: intc@201310 {
+				compatible = "mstar,msc313-intc-fiq";
+				interrupt-controller;
+				reg = <0x201310 0x40>;
+				#interrupt-cells = <2>;
+				interrupt-parent = <&gic>;
+				mstar,gic-offset = <96>;
+				mstar,nr-interrupts = <32>;
+			};
+
+			intc_irq: intc@201350 {
+				compatible = "mstar,msc313-intc-irq";
+				interrupt-controller;
+				reg = <0x201350 0x40>;
+				#interrupt-cells = <2>;
+				interrupt-parent = <&gic>;
+				mstar,gic-offset = <32>;
+				mstar,nr-interrupts = <64>;
+			};
+
 			l3bridge: l3bridge@204400 {
 				compatible = "mstar,l3bridge";
 				reg = <0x204400 0x200>;
