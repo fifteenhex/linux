@@ -1,0 +1,79 @@
+# SPDX-License-Identifier: (GPL-2.0 OR BSD-2-Clause)
+# Copyright 2020 thingy.jp.
+%YAML 1.2
+---
+$id: "http://devicetree.org/schemas/interrupt-controller/mstar,msc313-intc.yaml#"
+$schema: "http://devicetree.org/meta-schemas/core.yaml#"
+
+title: MStar/SigmaStar ARMv7 SoC Interrupt Controller Device Tree Bindings
+
+maintainers:
+  - Daniel Palmer <daniel@thingy.jp>
+
+allOf:
+  - $ref: /schemas/interrupt-controller.yaml#
+
+properties:
+  "#interrupt-cells":
+    const: 2
+
+  compatible:
+    enum:
+      - mstar,msc313-intc-irq
+      - mstar,msc313-intc-fiq
+
+  reg:
+    maxItems: 1
+
+  interrupt-controller: true
+
+  mstar,gic-offset:
+    description:
+      Offset added to the intc irq number to get the parent GIC irq.
+    allOf:
+      - $ref: /schemas/types.yaml#/definitions/uint32
+      - minimum: 0
+        maximum: 255
+
+  mstar,nr-interrupts:
+    description:
+      Number of interrupt lines this intc has.
+    allOf:
+      - $ref: /schemas/types.yaml#/definitions/uint32
+      - minimum: 1
+        maximum: 64
+
+required:
+  - "#interrupt-cells"
+  - compatible
+  - reg
+  - interrupt-controller
+  - mstar,gic-offset
+  - mstar,nr-interrupts
+
+additionalProperties: false
+
+examples:
+  - |
+    intc_fiq: intc@201310 {
+        compatible = "mstar,msc313-intc-fiq";
+        interrupt-controller;
+        reg = <0x201310 0x40>;
+        #interrupt-cells = <2>;
+        interrupt-parent = <&gic>;
+        mstar,gic-offset = <96>;
+        mstar,nr-interrupts = <32>;
+    };
+
+  - |
+    intc_irq: intc@201350 {
+        compatible = "mstar,msc313-intc-irq";
+        interrupt-controller;
+        reg = <0x201350 0x40>;
+        #interrupt-cells = <2>;
+        interrupt-parent = <&gic>;
+        mstar,gic-offset = <32>;
+        mstar,nr-interrupts = <64>;
+    };
+
+...
