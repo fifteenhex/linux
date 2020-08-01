@@ -171,6 +171,7 @@ static int  msc313_intc_of_init(struct device_node *node,
 	intc->irqchip.irq_unmask = msc313_intc_unmask_irq;
 	intc->irqchip.irq_eoi = eoi;
 	intc->irqchip.irq_set_type = msc313_intc_set_type_irq;
+	intc->irqchip.irq_retrigger = irq_chip_retrigger_hierarchy;
 	intc->irqchip.flags = IRQCHIP_MASK_ON_SUSPEND;
 
 	intc->gicoff = gicoffset;
