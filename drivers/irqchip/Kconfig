@@ -613,4 +613,12 @@ config APPLE_AIC
 	  Support for the Apple Interrupt Controller found on Apple Silicon SoCs,
 	  such as the M1.
 
+config MSC313_PM_INTC
+	bool "MStar MSC313 Interrupt Controller"
+	depends on ARCH_MSTARV7 || COMPILE_TEST
+	select IRQ_DOMAIN
+	select IRQ_DOMAIN_HIERARCHY
+	help
+	  Support MStar Interrupt Controller.
+
 endmenu
