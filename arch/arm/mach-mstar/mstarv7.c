@@ -35,13 +35,9 @@ static void __iomem *l3bridge;
 
 static const char * const mstarv7_board_dt_compat[] __initconst = {
 	"mstar,infinity",
+	"mstar,infinity2m",
 	"mstar,infinity3",
 	"mstar,mercury5",
-	NULL,
-};
-
-static const char * const mstarv7_smp_board_dt_compat[] = {
-	"mstar,infinity2m",
 	NULL,
 };
 
@@ -81,10 +77,5 @@ static void __init mstarv7_init(void)
 
 DT_MACHINE_START(MSTARV7_DT, "MStar/Sigmastar Armv7 (Device Tree)")
 	.dt_compat	= mstarv7_board_dt_compat,
-	.init_machine	= mstarv7_init,
-MACHINE_END
-
-DT_MACHINE_START(MSTARV7_SMP_DT, "MStar/Sigmastar ARMv7 SMP (Device Tree)")
-	.dt_compat	= mstarv7_smp_board_dt_compat,
 	.init_machine	= mstarv7_init,
 MACHINE_END
