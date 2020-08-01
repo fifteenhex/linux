@@ -51,6 +51,20 @@
 		interrupt-affinity = <&cpu0>;
 	};
 
+	clocks: clocks {
+		xtal24: xtal24 {
+			#clock-cells = <0>;
+			compatible = "fixed-clock";
+			clock-frequency = <24000000>;
+		};
+
+		rtc_32k: rtc_32k {
+			#clock-cells = <0>;
+			compatible = "fixed-clock";
+			clock-frequency = <32768>;
+		};
+	};
+
 	soc: soc {
 		compatible = "simple-bus";
 		#address-cells = <1>;
