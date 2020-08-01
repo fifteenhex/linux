@@ -628,4 +628,12 @@ config MCHP_EIC
 	help
 	  Support for Microchip External Interrupt Controller.
 
+config MSC313_PM_INTC
+	bool "MStar MSC313 PM Interrupt Controller"
+	depends on ARCH_MSTARV7 || COMPILE_TEST
+	select IRQ_DOMAIN
+	select IRQ_DOMAIN_HIERARCHY
+	help
+	  Support for the MStar/SigmaStar PM domain Interrupt Controller.
+
 endmenu
