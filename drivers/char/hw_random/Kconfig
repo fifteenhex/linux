@@ -487,6 +487,13 @@ config HW_RANDOM_CCTRNG
 	  will be called cctrng.
 	  If unsure, say 'N'.
 
+config HW_RANDOM_MSC313
+	tristate "MStar MSC313 RNG"
+	depends on ARCH_MSTARV7 || COMPILE_TEST
+	help
+	  This driver provides support for the RNG found on
+	  MStar MSC313 and later SoCs.
+
 endif # HW_RANDOM
 
 config UML_RANDOM
