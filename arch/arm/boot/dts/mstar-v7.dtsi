@@ -415,6 +415,14 @@
 				mask = <0x79>;
 			};
 
+			sleepintc: sleepintc@1c10 {
+				compatible = "mstar,msc313e-sleep-intc";
+				reg = <0x1c10 0x8>;
+				interrupts-extended = <&intc_irq 2 IRQ_TYPE_LEVEL_HIGH>;
+				interrupt-controller;
+				#interrupt-cells = <2>;
+			};
+
 			wdt: wdt@6000 {
 				compatible = "mstar,msc313e-wdt";
 				reg = <0x6000 0x1f>;
