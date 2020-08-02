@@ -738,6 +738,15 @@
 				pinctrl-0 = <&i2c1_pins>;
 				status = "disabled";
 			};
+
+			aesdma: aesdma@224400 {
+				/* maybe 0x1f112220 */
+				reg = <0x1f224400 0x200>;
+				compatible = "mstar,msc313e-aesdma";
+				/*interrupt-parent = <&intc_irq>;
+				interrupts = <37 IRQ_TYPE_LEVEL_HIGH>;*/
+				clocks = <&clkgen_mux_aesdma_isp 0>;
+			};
 		};
 
 		mpll: mpll@1f206000 {
