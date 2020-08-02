@@ -15,17 +15,6 @@
 #include <linux/of_irq.h>
 
 /*
- * SHARNG unit
- *
- * 0x20         - ctrl
- *  15   | 11  |    9    |  7  |  6  |   2   |  1
- *manual |  ?  | sha256  | rst | clr | busy  | ready
- * 0x28         - message address, low
- * 0x2c         - message address, high
- * 0x30         - message size, low
- * 0x34         - message size, high
- * 0x3c         - status
- * 0x40 .. 0x80 - output buffer
  *
  * RSA unit
  *

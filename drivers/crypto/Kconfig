@@ -865,4 +865,6 @@ source "drivers/crypto/hisilicon/Kconfig"
 
 source "drivers/crypto/amlogic/Kconfig"
 
+source "drivers/crypto/mstar/Kconfig"
+
 endif # CRYPTO_HW

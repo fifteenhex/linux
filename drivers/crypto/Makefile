@@ -50,4 +50,4 @@ obj-$(CONFIG_CRYPTO_DEV_ARTPEC6) += axis/
 obj-$(CONFIG_CRYPTO_DEV_ZYNQMP_AES) += xilinx/
 obj-y += hisilicon/
 obj-$(CONFIG_CRYPTO_DEV_AMLOGIC_GXL) += amlogic/
-obj-$(CONFIG_ARCH_MSTARV7) += msc313-aesdma.o
+obj-y += mstar/
