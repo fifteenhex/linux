@@ -789,19 +789,19 @@
 			};
 
 			sha@224420 {
-				reg = <0x1f224420 0x200>;
+				reg = <0x224420 0x200>;
 				compatible = "mstar,msc313-sha";
 			};
 
 			rsa@224420 {
-				reg = <0x1f224420 0x200>;
+				reg = <0x224420 0x200>;
 				compatible = "mstar,msc313-rsa";
 				status = "disabled";
 			};
 
 			aesdma: aesdma@224400 {
 				/* maybe 0x1f112220 */
-				reg = <0x1f224400 0x200>;
+				reg = <0x224400 0x200>;
 				compatible = "mstar,msc313e-aesdma";
 				/*interrupt-parent = <&intc_irq>;
 				interrupts = <37 IRQ_TYPE_LEVEL_HIGH>;*/
