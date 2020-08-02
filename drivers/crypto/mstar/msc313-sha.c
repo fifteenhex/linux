@@ -11,11 +11,21 @@
 #include <crypto/internal/hash.h>
 
 #define DRIVER_NAME "msc313-sha"
-
 #define REG_CTRL	0x0
 #define REG_SRC		0x8
 #define REG_LEN		0x10
 #define REG_MIUSEL	0x18
+
+struct msc313_sha_drv {
+	struct list_head dev_list;
+	/* Device list lock */
+	spinlock_t lock;
+};
+
+static struct msc313_sha_drv msc313_sha = {
+	.dev_list = LIST_HEAD_INIT(msc313_sha.dev_list),
+	.lock = __SPIN_LOCK_UNLOCKED(msc313_sha.lock),
+};
 
 static const struct regmap_config msc313_sha_regmap_config = {
 		.name = DRIVER_NAME,
@@ -26,9 +36,38 @@ static const struct regmap_config msc313_sha_regmap_config = {
 
 static struct reg_field ctrl_rst = REG_FIELD(REG_CTRL, 7, 7);
 
+struct msc313_sha {
+	struct list_head sha_list;
+	struct regmap *regmap;
+	struct crypto_engine *engine;
+	struct regmap_field *reset;
+};
+
 struct msc313_sha_sha256_ctx
 {
+	struct msc313_sha *sha;
 };
+
+static struct msc313_sha *msc311_sha_find_dev(struct msc313_sha_sha256_ctx *tctx)
+{
+	struct msc313_sha *sha = NULL;
+	struct msc313_sha *tmp;
+
+	spin_lock_bh(&msc313_sha.lock);
+	if (!tctx->sha) {
+		list_for_each_entry(tmp, &msc313_sha.dev_list, sha_list) {
+			sha = tmp;
+			break;
+		}
+		tctx->sha = sha;
+	} else {
+		sha = tctx->sha;
+	}
+
+	spin_unlock_bh(&msc313_sha.lock);
+
+	return sha;
+}
 
 static int msc313_sha_sha256_init(struct ahash_request *req)
 {
@@ -90,12 +129,6 @@ static struct ahash_alg msc313_algos[] = {
 	},
 };
 
-struct msc313_sha {
-	struct regmap *regmap;
-	struct crypto_engine *engine;
-	struct regmap_field *reset;
-};
-
 static int msc313_sha_probe(struct platform_device *pdev)
 {
 	struct msc313_sha *sha;
@@ -110,6 +143,8 @@ static int msc313_sha_probe(struct platform_device *pdev)
 	}
 
 	platform_set_drvdata(pdev, sha);
+
+	INIT_LIST_HEAD(&sha->sha_list);
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	base = devm_ioremap_resource(&pdev->dev, res);
@@ -134,6 +169,10 @@ static int msc313_sha_probe(struct platform_device *pdev)
 		ret = -ENOMEM;
 		goto out;
 	}
+
+	spin_lock(&msc313_sha.lock);
+	list_add_tail(&sha->sha_list, &msc313_sha.dev_list);
+	spin_unlock(&msc313_sha.lock);
 
 	ret = crypto_engine_start(sha->engine);
 	if (ret)
