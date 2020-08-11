@@ -51,6 +51,8 @@ Accelerometers:
 - st,lis3de
 - st,lis2de12
 - st,lis2hh12
+- silan,sc7a20-accel
+- silan,sc7a30e-accel
 
 Gyroscopes:
 - st,l3g4200d-gyro
