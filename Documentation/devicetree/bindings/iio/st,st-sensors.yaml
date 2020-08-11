@@ -46,6 +46,8 @@ properties:
           - st,lsm330d-accel
           - st,lsm330dl-accel
           - st,lsm330dlc-accel
+          - silan,sc7a20-accel
+          - silan,sc7a30e-accel
       - description: STMicroelectronics Gyroscopes
         enum:
           - st,l3g4200d-gyro
