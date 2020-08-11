@@ -1074,6 +1074,8 @@ patternProperties:
     description: Shiratech Solutions
   "^si-en,.*":
     description: Si-En Technology Ltd.
+  "^silan,.*":
+    description: Hangzhou Silan Microelectronics Co., Ltd.
   "^si-linux,.*":
     description: Silicon Linux Corporation
   "^sifive,.*":
