@@ -377,6 +377,13 @@
 						     "mpll_div_7", "mpll_div_10";
 			};
 
+			miupll: miupll@206200 {
+				compatible = "mstar,miupll";
+				reg = <0x206200 0x200>;
+				#clock-cells = <0>;
+				clocks = <&xtal24>;
+			};
+
 			clkgen_pll: pll-gater@2071c0 {
 				compatible = "mstar,msc313-pll-gater";
 				reg = <0x2071c0 0x10>;
