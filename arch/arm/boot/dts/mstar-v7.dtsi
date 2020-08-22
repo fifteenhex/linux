@@ -208,6 +208,38 @@
 			clock-mult = <1>;
 		};
 
+		clk_utmi_160_div4: clk_utmi_160_div4 {
+			compatible = "fixed-factor-clock";
+			#clock-cells = <0>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_UTMI_160>;
+			clock-div = <4>;
+			clock-mult = <1>;
+		};
+
+		clk_utmi_160_div5: clk_utmi_160_div5 {
+			compatible = "fixed-factor-clock";
+			#clock-cells = <0>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_UTMI_160>;
+			clock-div = <5>;
+			clock-mult = <1>;
+		};
+
+		clk_utmi_160_div8: clk_utmi_160_div8 {
+			compatible = "fixed-factor-clock";
+			#clock-cells = <0>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_UTMI_160>;
+			clock-div = <8>;
+			clock-mult = <1>;
+		};
+
+		clk_utmi_192_div4: clk_utmi_192_div4 {
+			compatible = "fixed-factor-clock";
+			#clock-cells = <0>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_UTMI_192>;
+			clock-div = <4>;
+			clock-mult = <1>;
+		};
+
 		clk_mpll_216_div2: clk_mpll_216_div2 {
 			compatible = "fixed-factor-clock";
 			#clock-cells = <0>;
