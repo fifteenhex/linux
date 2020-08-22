@@ -159,6 +159,19 @@
 			};
 		};
 
+		mpll: mpll@1f206000 {
+			compatible = "mstar,mpll";
+			#clock-cells = <1>;
+			reg = <0x1f206000 0x200>;
+			clock-output-names = "mpll_432", "mpll_345", "mpll_288", "mpll_216",
+					     "mpll_172", "mpll_144", "mpll_123", "mpll_124",
+					     "mpll_86";
+                        clock-rates = <432000000>, <345000000>, <288000000>, <216000000>,
+				      <172000000>, <144000000>, <123000000>, <124000000>,
+				      <86000000>;
+			clocks = <&xtal24>;
+		};
+
 		imi: sram@a0000000 {
 			compatible = "mmio-sram";
 			reg = <0xa0000000 0x10000>;
