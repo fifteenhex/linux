@@ -6,6 +6,7 @@
 #include <linux/clk.h>
 #include <linux/clk-provider.h>
 #include <linux/clkdev.h>
+#include <soc/mstar/miu.h>
 
 #define DRIVER_NAME "msc313-miu"
 
@@ -110,44 +111,6 @@
  * 0x04c - group 5 request mask?
  */
 
-#define REG_ANA_DDFSET_L		0x60
-#define REG_ANA_DDFSET_H		0x64
-
-#define REG_CONFIG1			0x4
-#define REG_CONFIG1_TYPE		(BIT(1) | BIT(0))
-#define REG_CONFIG1_TYPE_SDR		0
-#define REG_CONFIG1_TYPE_DDR		BIT(0)
-#define REG_CONFIG1_TYPE_DDR2		BIT(1)
-#define REG_CONFIG1_TYPE_DDR3		(BIT(1) | BIT(0))
-#define REG_CONFIG1_BUSWIDTH		(BIT(3) | BIT(2))
-#define REG_CONFIG1_BUSWIDTH_SHIFT	2
-#define REG_CONFIG1_BANKS		(BIT(5) | BIT(4))
-#define REG_CONFIG1_BANKS_SHIFT		4
-#define REG_CONFIG1_COLS		(BIT(7) | BIT(6))
-#define REG_CONFIG1_COLS_SHIFT		6
-
-#define REG_CONFIG2			0x8
-#define REG_CONFIG2_RD_TIMING		GENMASK(4,0)
-
-
-#define REG_CONFIG3			0xc
-
-#define REG_CONFIG4			0x10
-#define REG_CONFIG4_TRCD		GENMASK(3,0)
-#define REG_CONFIG4_TRP			GENMASK(7,4)
-#define REG_CONFIG4_TRP_SHIFT		4
-#define REG_CONFIG4_TRAS		GENMASK(13,8)
-#define REG_CONFIG4_TRAS_SHIFT		8
-#define REG_CONFIG4_TRCD_MSB		BIT(14)
-#define REG_CONFIG4_TRP_MSB		BIT(15)
-
-#define REG_CONFIG5			0x14
-#define REG_CONFIG5_TRRD		GENMASK(3,0)
-#define REG_CONFIG5_TRTP		GENMASK(7,4)
-#define REG_CONFIG5_TRTP_SHIFT		4
-#define REG_CONFIG5_TRC			GENMASK(13, 8)
-#define REG_CONFIG5_TRC_SHIFT		8
-
 struct msc313_miu {
 	struct device *dev;
 	struct regmap *analog;
@@ -164,6 +127,7 @@ struct msc313_miu {
 
 static const struct of_device_id msc313_miu_dt_ids[] = {
 	{ .compatible = "mstar,msc313-miu" },
+	{ .compatible = "mstar,ssc8336-miu" },
 	{},
 };
 MODULE_DEVICE_TABLE(of, msc313_miu_dt_ids);

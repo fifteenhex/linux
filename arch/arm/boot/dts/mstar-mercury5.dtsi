@@ -274,3 +274,7 @@
 		groups = "tx_mipi_mode2";
 	};
 };
+
+&miu {
+	compatible = "mstar,ssc8336-miu";
+};
