@@ -28,6 +28,8 @@ struct msc313e_timer {
 	struct clocksource clksrc;
 };
 
+static struct clocksource *sched_clock;
+
 #define to_msc313e_timer(ptr) container_of(ptr, struct msc313e_timer, clksrc)
 
 static int msc313e_timer_clkevt_shutdown(struct clock_event_device *evt)
@@ -132,6 +134,11 @@ static int msc313e_timer_enable(struct clocksource *cs){
 	return 0;
 };
 
+static u64 msc313e_timer_sched_clock_read(void)
+{
+	return msc313e_timer_read(sched_clock);
+}
+
 static void msc313e_timer_disable(struct clocksource *cs){
 	struct msc313e_timer *timer = to_msc313e_timer(cs);
 	u16 reg;
@@ -147,7 +154,7 @@ static int __init msc313e_timer_probe(struct device_node *node)
 {
 	int ret;
 	struct msc313e_timer *timer;
-	bool tick = of_property_read_bool(node, "mstar,schedclk");
+	bool tick = of_property_read_bool(node, "mstar,tick");
 	bool schedclk = of_property_read_bool(node, "mstar,schedclk");
 
 	if(tick){
@@ -173,6 +180,13 @@ static int __init msc313e_timer_probe(struct device_node *node)
 	if (ret)
 		goto out;
 
+	if(schedclk){
+		sched_clock = &timer->clksrc;
+		msc313e_timer_enable(sched_clock);
+		sched_clock_register(msc313e_timer_sched_clock_read, 32, timer_of_rate(&timer->oftimer));
+		goto out;
+	}
+
 	timer->clksrc.name = node->name;
 	timer->clksrc.rating = 200;
 	timer->clksrc.read = msc313e_timer_read;
@@ -182,8 +196,6 @@ static int __init msc313e_timer_probe(struct device_node *node)
 	timer->clksrc.disable =  msc313e_timer_disable;
 
 	ret = clocksource_register_hz(&timer->clksrc, timer_of_rate(&timer->oftimer));
-	if(ret)
-		goto out;
 
 out:
 	return ret;
