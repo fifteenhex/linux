@@ -15,9 +15,14 @@
 #define REG_MSC313E_LPMODE_DAC_OFF	0x5e4
 #define REG_MSC313E_LPMODE_DAC_OFF_VAL	0x0df5
 
+#define REG_PMSLEEP_MYSTERY_A0		0xa0
+#define REG_PMSLEEP_MYSTERY_A0_MASK	0x30
+#define REG_PMSLEEP_MYSTERY_A0_VAL	0x10
+
 struct msc313_phy_data;
 
 struct msc313_phy_priv {
+	struct regmap *pmsleep;
 	struct regmap *phyana;
 	const struct msc313_phy_data *data;
 };
@@ -117,6 +122,12 @@ static int msc313_phy_probe(struct phy_device *phydev)
 	priv = devm_kzalloc(&phydev->mdio.dev, sizeof(*priv), GFP_KERNEL);
 	if(IS_ERR(priv)){
 		ret = PTR_ERR(priv);
+		goto out;
+	}
+
+	priv->pmsleep = syscon_regmap_lookup_by_phandle(of_node, "mstar,pmsleep");
+	if(IS_ERR(priv->pmsleep)){
+		ret = PTR_ERR(priv->pmsleep);
 		goto out;
 	}
 
