@@ -721,6 +721,14 @@ config GPIO_MSC313
 	help
 	  Say Y here to support GPIO on MStar MSC313 and later SoCs.
 
+config GPIO_MSC313_PM
+	bool "MStar MSC313 PM GPIO support"
+	default y if ARCH_MSTARV7
+	depends on ARCH_MSTARV7
+	select GPIO_GENERIC
+	help
+	  Say Y here to support PM GPIO on MStar MSC313 and later SoCs.
+
 endmenu
 
 menu "Port-mapped I/O GPIO drivers"
