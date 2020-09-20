@@ -1,0 +1,123 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Copyright (c) 2019 thingy.jp.
+ * Author: Daniel Palmer <daniel@thingy.jp>
+ */
+
+/ {
+	chosen {
+		stdout-path = "serial0:115200n8";
+		bootargs = "console=ttyS0,115200 root=/dev/mtdblock3 clk_ignore_unused quiet";
+	};
+
+	aliases {
+		console = &pm_uart;
+		ethernet0 = &emac;
+	};
+
+	vcc_core: fixedregulator@0 {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_core";
+		regulator-min-microvolt = <1000000>;
+		regulator-max-microvolt = <1000000>;
+		regulator-boot-on;
+	};
+
+	vcc_dram: fixedregulator@1 {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_dram";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-boot-on;
+	};
+
+	vcc_io: fixedregulator@2 {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_io";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-boot-on;
+	};
+
+	leds {
+		compatible = "gpio-leds";
+		red {
+			gpios = <&gpio 20 GPIO_ACTIVE_HIGH>;
+			linux,default-trigger = "activity";
+		};
+		yellow {
+			gpios = <&gpio 21 GPIO_ACTIVE_HIGH>;
+			linux,default-trigger = "heartbeat";
+		};
+	};
+};
+
+&cpu0 {
+	cpu-supply = <&vcc_core>;
+};
+
+&miu {
+	ddr-supply = <&vcc_dram>;
+};
+
+&pm_uart {
+	status = "okay";
+};
+
+&emac {
+	status = "okay";
+};
+
+&isp {
+	status = "okay";
+	nor: nor@0 {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <40000000>;
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			env@2000 {
+				label = "env";
+				reg = <0x2000 0x2000>;
+			};
+
+			kernel@80000{
+				label = "kernel";
+				reg = <0x80000 0x300000>;
+			};
+
+			rootfs@380000 {
+				label = "rootfs";
+				reg = <0x380000 0x980000>;
+			};
+
+			rescue@d00000 {
+				label = "rescue";
+				reg = <0xd00000 0x2c0000>;
+			};
+
+			rw@fc0000 {
+				label = "rw";
+				reg = <0xfc0000 0x40000>;
+			};
+		};
+	};
+};
+
+&sar {
+	status = "okay";
+};
+
+&sdio {
+	vmmc-supply = <&vcc_io>;
+	vqmmc-supply = <&vcc_io>;
+};
+
+&usbphy0 {
+	status = "okay";
+};
