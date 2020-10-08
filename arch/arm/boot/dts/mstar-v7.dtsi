@@ -617,8 +617,8 @@
 				compatible = "mstar,msc313-bdma";
 				reg = <0x200400 0x80>;
 				interrupt-parent = <&intc_irq>;
-				interrupts = <40 IRQ_TYPE_LEVEL_HIGH>,
-					     <41 IRQ_TYPE_LEVEL_HIGH>;
+				interrupts = <GIC_SPI 40 IRQ_TYPE_LEVEL_HIGH>,
+					     <GIC_SPI 41 IRQ_TYPE_LEVEL_HIGH>;
 				clocks = <&clkgen_mux_bdma 0>;
 				status = "okay";
 				#dma-cells = <1>;
