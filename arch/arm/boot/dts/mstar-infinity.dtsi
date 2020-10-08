@@ -6,6 +6,22 @@
 
 #include "mstar-v7.dtsi"
 
+#include <dt-bindings/gpio/msc313-gpio.h>
+
 &imi {
 	reg = <0xa0000000 0x16000>;
+};
+
+&gpio {
+	compatible = "mstar,msc313-gpio";
+	interrupt-parent = <&intc_fiq>;
+	interrupt-names = MSC313_PINNAME_SPI0_CZ,
+			  MSC313_PINNAME_SPI0_CK,
+			  MSC313_PINNAME_SPI0_DI,
+			  MSC313_PINNAME_SPI0_DO;
+	interrupts = <GIC_SPI 28 IRQ_TYPE_LEVEL_HIGH>,
+		     <GIC_SPI 29 IRQ_TYPE_LEVEL_HIGH>,
+		     <GIC_SPI 30 IRQ_TYPE_LEVEL_HIGH>,
+		     <GIC_SPI 31 IRQ_TYPE_LEVEL_HIGH>;
+	status = "okay";
 };
