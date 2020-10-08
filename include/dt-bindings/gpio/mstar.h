@@ -1,11 +1,14 @@
 #ifndef _DT_BINDINGS_GPIO_MSTAR_H
 #define _DT_BINDINGS_GPIO_MSTAR_H
 
-#define MSC313_FUART_RX		0
-#define MSC313_FUART_TX		1
+
+
+#define MSC313_PM_GPI04		0
+#define MSC313_PM_SD_SDZ	1
 
 #define SSC8336_UNKNOWN_0	0
 #define SSC8333_UNKNOWN_1	1
 #define SSC8336_FUART_RX	2
 #define SSC8333_FUART_TX	3
+
 #endif
