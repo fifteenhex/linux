@@ -744,7 +744,7 @@
 				compatible = "mstar,msc313-spi";
 				reg = <0x222100 0x100>;
 				interrupt-parent = <&intc_irq>;
-				interrupts = <38 IRQ_TYPE_LEVEL_HIGH>;
+				interrupts = <GIC_SPI 38 IRQ_TYPE_LEVEL_HIGH>;
 				status = "disabled";
 			};
 
@@ -752,7 +752,7 @@
 				compatible = "mstar,msc313-spi";
 				reg = <0x222300 0x100>;
 				interrupt-parent = <&intc_irq>;
-				interrupts = <39 IRQ_TYPE_LEVEL_HIGH>;
+				interrupts = <GIC_SPI 39 IRQ_TYPE_LEVEL_HIGH>;
 				status = "disabled";
 			};
 
@@ -760,7 +760,7 @@
 				compatible = "mstar,msc313e-i2c";
 				reg = <0x223000 0x200>;
 				interrupt-parent = <&intc_irq>;
-				interrupts = <36 IRQ_TYPE_LEVEL_HIGH>;
+				interrupts = <GIC_SPI 36 IRQ_TYPE_LEVEL_HIGH>;
 				#address-cells = <1>;
 				#size-cells = <0>;
 				clocks = <&clkgen_mux_miic 0>;
@@ -774,7 +774,7 @@
 				compatible = "mstar,msc313e-i2c";
 				reg = <0x223200 0x200>;
 				interrupt-parent = <&intc_irq>;
-				interrupts = <37 IRQ_TYPE_LEVEL_HIGH>;
+				interrupts = <GIC_SPI 37 IRQ_TYPE_LEVEL_HIGH>;
 				#address-cells = <1>;
 				#size-cells = <0>;
 				clocks = <&clkgen_mux_miic 1>;
@@ -805,7 +805,7 @@
 				reg = <0x1f224400 0x200>;
 				compatible = "mstar,msc313e-aesdma";
 				/*interrupt-parent = <&intc_irq>;
-				interrupts = <37 IRQ_TYPE_LEVEL_HIGH>;*/
+				interrupts = <GIC_SPI 37 IRQ_TYPE_LEVEL_HIGH>;*/
 				clocks = <&clkgen_mux_aesdma_isp 0>;
 				status = "disabled";
 			};
@@ -875,7 +875,7 @@
 		sound: sound@0 {
 			compatible = "mstar,snd-infinity";
 			interrupt-parent = <&intc_irq>;
-			interrupts = <42 IRQ_TYPE_LEVEL_HIGH>;
+			interrupts = <GIC_SPI 42 IRQ_TYPE_LEVEL_HIGH>;
 			mstar,bach-cpu = <&bach_cpu>;
 			mstar,bach-platform = <&bach_pcm>;
 			mstar,bach-codec = <&bach_codec>;
@@ -1263,7 +1263,7 @@
 			 * <0x1f220600 0x100>
 			 */
 			interrupt-parent = <&intc_irq>;
-			interrupts = <47 IRQ_TYPE_LEVEL_HIGH>;
+			interrupts = <GIC_SPI 47 IRQ_TYPE_LEVEL_HIGH>;
 			reg-shift = <3>;
 			clocks = <&clkgen_mux_fuart 0>;
 			pinctrl-names = "default";
@@ -1363,7 +1363,7 @@
 		/* csi - camera interface */
 		csi: csi@1f240800 {
 			reg = <0x1f240800 0x200>;
-			interrupts-extended = <&intc_irq 32 IRQ_TYPE_LEVEL_HIGH>;
+			interrupts-extended = <&intc_irq GIC_SPI 32 IRQ_TYPE_LEVEL_HIGH>;
 		};
 
 		/* pnl - RGB lcd driver? */
@@ -1392,7 +1392,7 @@
 			compatible = "mstar,gop";
 			reg = <0x1f246200 0x400>;
 			interrupt-names = "gop";
-			interrupts-extended = <&intc_irq 50 IRQ_TYPE_LEVEL_HIGH>;
+			interrupts-extended = <&intc_irq GIC_SPI 50 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&clkgen_mux_gop 0>;
 			ports {
 				#address-cells = <1>;
@@ -1439,7 +1439,7 @@
 			clocks = <&xtal12>;
 			mstar,utmi = <&utmi0>;
 			mstar,usbc = <&usbc0>;
-			interrupts-extended = <&intc_irq 30 IRQ_TYPE_LEVEL_HIGH>;
+			interrupts-extended = <&intc_irq GIC_SPI 30 IRQ_TYPE_LEVEL_HIGH>;
 			/*pinctrl-names = "default";
 			pinctrl-0 = <&usb_pins>;*/
 			status = "disabled";
@@ -1458,7 +1458,7 @@
 		uhc0: uhc@1f284800 {
 			compatible = "mstar,msc313-ehci";
 			reg = <0x1f284800 0x200>;
-			interrupts-extended = <&intc_irq 31 IRQ_TYPE_LEVEL_HIGH>;
+			interrupts-extended = <&intc_irq GIC_SPI 31 IRQ_TYPE_LEVEL_HIGH>;
 			phys = <&usbphy0 0>;
 			phy-names = "usb";
 			mstar,usbc = <&usbc0>;
@@ -1487,7 +1487,7 @@
 		uhc1: uhc@1f286400 {
 			compatible = "mstar,msc313-ehci";
 			reg = <0x1f286400 0x200>;
-			interrupts-extended = <&intc_irq 55 IRQ_TYPE_LEVEL_HIGH>;
+			interrupts-extended = <&intc_irq GIC_SPI 55 IRQ_TYPE_LEVEL_HIGH>;
 			phys = <&usbphy1 0>;
 			phy-names = "usb";
 			mstar,usbc = <&usbc1>;
