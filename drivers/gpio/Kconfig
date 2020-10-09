@@ -712,6 +712,15 @@ config GPIO_AMD_FCH
 	  Note: This driver doesn't registers itself automatically, as it
 	  needs to be provided with platform specific configuration.
 	  (See eg. CONFIG_PCENGINES_APU2.)
+
+config GPIO_MSC313
+	bool "MStar MSC313 GPIO support"
+	default y if ARCH_MSTARV7
+	depends on ARCH_MSTARV7
+	select GPIO_GENERIC
+	help
+	  Say Y here to support GPIO on MStar MSC313 and later SoCs.
+
 endmenu
 
 menu "Port-mapped I/O GPIO drivers"
