@@ -29,7 +29,10 @@
  * 0x84 /  The vendor driver uses these to set the initial value of LPF low
  *
  * frequency seems to be calculated like this:
- * (parent clock (432mhz) / register_magic_value) * 12 * 524288
+ * (parent clock (432mhz) / register_magic_value) * 16 * 524288
+ * Only the lower 24 bits of the resulting value will be used. In addition, the
+ * PLL doesn't seem to be able to lock on frequencies lower than 220 MHz, as
+ * divisor 0xfb586f (220 MHz) works but 0xfb7fff locks up.
  *
  * Vendor values:
  *
@@ -97,7 +100,7 @@ static void msc313_cpuclk_setfreq(struct msc313e_cpuclk *cpuclk, u32 reg) {
 }
 
 static unsigned long msc313e_cpuclk_frequencyforreg(u32 reg, unsigned long parent_rate){
-	unsigned long long prescaled = ((unsigned long long)parent_rate) * (12 * 524288);
+	unsigned long long prescaled = ((unsigned long long)parent_rate) * (16 * 524288);
 	unsigned long long scaled;
 	if(prescaled == 0 || reg == 0)
 		return 0;
@@ -107,7 +110,7 @@ static unsigned long msc313e_cpuclk_frequencyforreg(u32 reg, unsigned long paren
 }
 
 static u32 msc313e_cpuclk_regforfrequecy(unsigned long rate, unsigned long parent_rate){
-	unsigned long long prescaled = ((unsigned long long)parent_rate) * (12 * 524288);
+	unsigned long long prescaled = ((unsigned long long)parent_rate) * (16 * 524288);
 	unsigned long long scaler;
 	u32 reg;
 	if(prescaled == 0 || rate == 0)
