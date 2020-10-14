@@ -106,6 +106,7 @@
 			compatible = "ethernet-phy-idDEAD.BEEF";
 			phy-is-integrated;
 			reg = <0>;
+			mstar,pmsleep = <&pmsleep>;
 			mstar,phyana = <&phyana>;
 		};
 	};
