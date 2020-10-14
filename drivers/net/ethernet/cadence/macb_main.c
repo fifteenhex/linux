@@ -35,6 +35,10 @@
 #include <linux/tcp.h>
 #include <linux/iopoll.h>
 #include <linux/pm_runtime.h>
+#ifdef CONFIG_ARCH_MSTARV7
+#include <soc/mstar/riu.h>
+#include <soc/mstar/xiu.h>
+#endif
 #include "macb.h"
 
 /* This structure is only used for MACB on SiFive FU540 devices */
@@ -241,6 +245,29 @@ static void hw_writel(struct macb *bp, int offset, u32 value)
 {
 	writel_relaxed(value, bp->regs + offset);
 }
+
+#ifdef CONFIG_ARCH_MSTARV7
+static u32 hw_readl_riu(struct macb *bp, int offset)
+{
+	return riu_readl(bp->regs, offset);
+}
+
+static void hw_writel_riu(struct macb *bp, int offset, u32 value)
+{
+	riu_writel(bp->regs, offset, value);
+}
+
+static u32 hw_readl_xiu(struct macb *bp, int offset)
+{
+	return xiu_readl(bp->regs, offset);
+}
+
+static void hw_writel_xiu(struct macb *bp, int offset, u32 value)
+{
+	xiu_writel(bp->regs, offset, value);
+}
+#endif
+
 
 /* Find the CPU endianness by using the loopback bit of NCR register. When the
  * CPU is in big endian we need to program swapped mode for management
@@ -4398,6 +4425,20 @@ static const struct macb_config zynq_config = {
 	.init = macb_init,
 };
 
+#ifdef CONFIG_ARCH_MSTARV7
+static const struct macb_config msc313_config = {
+	.caps = MACB_CAPS_NEEDS_RSTONUBR | MACB_CAPS_MACB_IS_EMAC | MACB_CAPS_MSTAR_RIU,
+	.clk_init = macb_clk_init,
+	.init = at91ether_init,
+};
+
+static const struct macb_config msc313e_config = {
+	.caps = MACB_CAPS_NEEDS_RSTONUBR | MACB_CAPS_MACB_IS_EMAC | MACB_CAPS_MSTAR_XIU,
+	.clk_init = macb_clk_init,
+	.init = at91ether_init,
+};
+#endif
+
 static const struct of_device_id macb_dt_ids[] = {
 	{ .compatible = "cdns,at32ap7000-macb" },
 	{ .compatible = "cdns,at91sam9260-macb", .data = &at91sam9260_config },
@@ -4415,6 +4456,11 @@ static const struct of_device_id macb_dt_ids[] = {
 	{ .compatible = "cdns,zynqmp-gem", .data = &zynqmp_config},
 	{ .compatible = "cdns,zynq-gem", .data = &zynq_config },
 	{ .compatible = "sifive,fu540-c000-gem", .data = &fu540_c000_config },
+	{ .compatible = "sifive,fu540-macb", .data = &fu540_c000_config },
+#ifdef CONFIG_ARCH_MSTARV7
+	{ .compatible = "mstar,msc313-emac", .data = &msc313_config },
+	{ .compatible = "mstar,msc313e-emac", .data = &msc313e_config },
+#endif
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, macb_dt_ids);
@@ -4450,11 +4496,6 @@ static int macb_probe(struct platform_device *pdev)
 	struct macb *bp;
 	int err, val;
 
-	regs = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	mem = devm_ioremap_resource(&pdev->dev, regs);
-	if (IS_ERR(mem))
-		return PTR_ERR(mem);
-
 	if (np) {
 		const struct of_device_id *match;
 
@@ -4465,6 +4506,23 @@ static int macb_probe(struct platform_device *pdev)
 			init = macb_config->init;
 		}
 	}
+
+#ifdef CONFIG_ARCH_MSTARV7
+	/* For MStar machines that have a second XIU mapping for the
+	 * emac we want to use that instead of doing the readw, readw, splice
+	 * boogie
+	 */
+	if(macb_config->caps & MACB_CAPS_MSTAR_XIU)
+		regs = platform_get_resource(pdev, IORESOURCE_MEM, 1);
+	else
+		regs = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+#else
+	regs = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+#endif
+
+	mem = devm_ioremap_resource(&pdev->dev, regs);
+	if (IS_ERR(mem))
+		return PTR_ERR(mem);
 
 	err = clk_init(pdev, &pclk, &hclk, &tx_clk, &rx_clk, &tsu_clk);
 	if (err)
@@ -4500,6 +4558,18 @@ static int macb_probe(struct platform_device *pdev)
 		bp->macb_reg_readl = hw_readl;
 		bp->macb_reg_writel = hw_writel;
 	}
+
+#ifdef CONFIG_ARCH_MSTARV7
+	if(macb_config->caps & MACB_CAPS_MSTAR_RIU){
+		bp->macb_reg_readl = hw_readl_riu;
+		bp->macb_reg_writel = hw_writel_riu;
+	}
+	else if(macb_config->caps & MACB_CAPS_MSTAR_XIU){
+		bp->macb_reg_readl = hw_readl_xiu;
+		bp->macb_reg_writel = hw_writel_xiu;
+	}
+#endif
+
 	bp->num_queues = num_queues;
 	bp->queue_mask = queue_mask;
 	if (macb_config)

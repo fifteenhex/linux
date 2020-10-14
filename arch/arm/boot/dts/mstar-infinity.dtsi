@@ -83,3 +83,30 @@
 &sar {
 	compatible = "mstar,msc313e-sar";
 };
+
+&riu {
+	emac: emac@2a2000 {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		compatible = "mstar,msc313-emac";
+		interrupts-extended = <&intc_irq GIC_SPI 26 IRQ_TYPE_LEVEL_HIGH>;
+		reg = <0x2a2000 0x800>;
+		phy-mode = "mii";
+		clock-names = "pclk", "hclk", "tx_clk", "rx_clk";
+		clocks = <&clkgen_mux_emac 0>,
+			 <&clkgen_mux_emac 0>,
+			 <&clkgen_special_emac_tx 0>,
+			 <&clkgen_special_emac_rx 0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&emac_pins>;
+		local-mac-address = [00 00 00 00 00 00];
+		status = "disabled";
+		phy-handle = <&phy>;
+		phy: phy@0 {
+			compatible = "ethernet-phy-idDEAD.BEEF";
+			phy-is-integrated;
+			reg = <0>;
+			mstar,phyana = <&phyana>;
+		};
+	};
+};
