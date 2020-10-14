@@ -524,6 +524,13 @@ config HW_RANDOM_XIPHERA
 	  To compile this driver as a module, choose M here: the
 	  module will be called xiphera-trng.
 
+config HW_RANDOM_MSC313
+	tristate "MStar MSC313 RNG"
+	depends on ARCH_MSTARV7 || COMPILE_TEST
+	help
+	  This driver provides support for the RNG found on
+	  MStar MSC313 and later SoCs.
+
 endif # HW_RANDOM
 
 config UML_RANDOM
