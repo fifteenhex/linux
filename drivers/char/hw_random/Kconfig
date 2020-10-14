@@ -538,6 +538,13 @@ config HW_RANDOM_ARM_SMCCC_TRNG
 	  To compile this driver as a module, choose M here: the
 	  module will be called arm_smccc_trng.
 
+config HW_RANDOM_MSC313
+	tristate "MStar MSC313 RNG"
+	depends on ARCH_MSTARV7 || COMPILE_TEST
+	help
+	  This driver provides support for the RNG found on
+	  the MStar MSC313 and later MStar and SigmaStar SoCs.
+
 endif # HW_RANDOM
 
 config UML_RANDOM
