@@ -61,6 +61,8 @@ properties:
           - microchip,sama7g5-emac    # Microchip SAMA7G5 ethernet interface
           - microchip,sama7g5-gem     # Microchip SAMA7G5 gigabit ethernet interface
           - mobileye,eyeq5-gem        # Mobileye EyeQ5 SoCs
+          - mstar,msc313              # MStar infinity
+          - mstar,msc313e             # MStar infinity3 and other SoCs that have XIU register access.
           - raspberrypi,rp1-gem       # Raspberry Pi RP1 gigabit ethernet interface
           - sifive,fu540-c000-gem     # SiFive FU540-C000 SoC
 
