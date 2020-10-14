@@ -17,10 +17,14 @@ Required properties:
   Use "sifive,fu540-c000-gem" for SiFive FU540-C000 SoC.
   Use "microchip,sama7g5-emac" for Microchip SAMA7G5 ethernet interface.
   Use "microchip,sama7g5-gem" for Microchip SAMA7G5 gigabit ethernet interface.
+  Use "mstar,msc313" for MStar infinity SoCs.
+  Use "mstar,msc313e" for MStar infinity3 and other SoCs that have XIU register access.
   Or the generic form: "cdns,emac".
 - reg: Address and length of the register set for the device
 	For "sifive,fu540-c000-gem", second range is required to specify the
 	address and length of the registers for GEMGXL Management block.
+	For "mstar,msc313e", second range is required to specify where the
+	XIU window to the registers is.
 - interrupts: Should contain macb interrupt
 - phy-mode: See ethernet.txt file in the same directory.
 - clock-names: Tuple listing input clock names.
