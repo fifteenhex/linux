@@ -5,6 +5,7 @@ menuconfig ARCH_MSTARV7
 	select ARM_HEAVY_MB
 	select MST_IRQ
 	select MSTAR_MSC313_MPLL
+	select MSC313_PM_INTC
 	select PINCTRL_MSTAR
 	help
 	  Support for newer MStar/Sigmastar SoC families that are
