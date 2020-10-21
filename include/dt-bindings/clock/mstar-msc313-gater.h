@@ -23,4 +23,10 @@
 
 #define MSTAR_CLKGEN_OUTPUTFLAG_CRITICAL 0x800
 
+#define MSTAR_CLKGEN_MUX_OUTPUT_NAMES	"clock-output-names"
+#define MSTAR_CLKGEN_MUX_GATE_SHIFTS	"shifts"
+#define MSTAR_CLKGEN_MUX_MUX_SHIFTS	"mux-shifts"
+#define MSTAR_CLKGEN_MUX_MUX_WIDTHS	"mux-widths"
+#define MSTAR_CLKGEN_MUX_DEGLITCHES		"mstar,deglitches"
+
 #endif
