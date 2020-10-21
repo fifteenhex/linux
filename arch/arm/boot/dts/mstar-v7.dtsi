@@ -761,7 +761,12 @@
 				shifts = <0>;
 				mux-shifts = <2>;
 				mux-widths = <2>;
-				clocks = <&clkgen_mux_ddrsyn 0>;
+				mstar,deglitches = <4>;
+				clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>, 
+					 <&miupll>,
+					 <&unknownclk>,
+					 <&unknownclk>,
+					 <&xtal12>;
 			};
 	
 			clkgen_mux_miu_rec: clkgen_mux@207060 {
