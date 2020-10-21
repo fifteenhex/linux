@@ -4,13 +4,17 @@
 #include <linux/bitops.h>
 #include <linux/kernel.h>
 #include <linux/io.h>
+#include <linux/gpio/driver.h>
+#include <linux/irq.h>
+#include <linux/irqdomain.h>
+#include <linux/irqchip.h>
 #include <linux/of.h>
 #include <linux/of_irq.h>
-#include <linux/gpio/driver.h>
-#include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/property.h>
 #include <linux/types.h>
+#include <linux/pm.h>
+#include <linux/module.h>
 
 #include <dt-bindings/gpio/msc313-gpio.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
