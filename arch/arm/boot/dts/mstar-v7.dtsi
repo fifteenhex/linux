@@ -545,6 +545,20 @@
 			};
 		};
 
+		// gating xtali stops interrupts from the
+		// arch timer
+		clkgen_mux_xtali: clkgen_mux@1f207000 {
+			compatible = "mstar,msc313e-clkgen-mux";
+			reg = <0x1f207000 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "xtali", "xtali_sc_gp", "live";
+			output-flags = <MSTAR_CLKGEN_OUTPUTFLAG_CRITICAL>, <0x0>, <0x0>;
+			shifts = <0>, <4>, <8>;
+			mux-shifts = <2>, <6>, <10>;
+			mux-widths = <2>, <2>, <2>;
+			clocks = <&xtal12>;
+		};
+
 		imi: sram@a0000000 {
 			compatible = "mmio-sram";
 			reg = <0xa0000000 0x10000>;
