@@ -736,6 +736,19 @@
 					 <&xtal12>;
 			};
 
+			clkgen_mux_mspi: clkgen_mux@2070cc {
+				compatible = "mstar,msc313e-clkgen-mux";
+				reg = <0x2070cc 0x4>;
+				#clock-cells = <1>;
+				clock-output-names = "mspi0", "mspi1"; 
+				shifts = <0>, <8>;
+				mux-shifts = <2>, <10>;
+				mux-widths = <2>, <2>;
+				clocks = <&clk_mpll_216_div2>,
+				         <&clk_mpll_216_div4>,
+				         <&xtal12>;
+			};
+
 			clkgen_mux_miic: clkgen_mux@2070dc {
 				compatible = "mstar,msc313e-clkgen-mux";
 				reg = <0x2070dc 0x4>;
