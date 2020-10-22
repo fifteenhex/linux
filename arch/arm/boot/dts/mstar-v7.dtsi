@@ -7,6 +7,7 @@
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/clock/mstar-msc313-mpll.h>
+#include <dt-bindings/clock/mstar-msc313-gater.h>
 
 / {
 	#address-cells = <1>;
@@ -153,6 +154,32 @@
 						     "mpll_div_3", "mpll_div_4",
 						     "mpll_div_5", "mpll_div_6",
 						     "mpll_div_7", "mpll_div_10";
+			};
+
+			clkgen_pll: pll-gater@2071c0 {
+				compatible = "mstar,msc313-pll-gater";
+				reg = <0x2071c0 0x10>;
+				#clock-cells = <1>;
+				clock-output-names = "upll_384_gate", "upll_320_gate", "utmi_160_gate", "utmi_192_gate",
+						     "utmi_240_gate", "utmi_480_gate", "mpll_432_gate", "mpll_345_gate",
+						     "mpll_288_gate", "mpll_216_gate", "mpll_172_gate", "mpll_144_gate",
+						     "mpll_123_gate", "mpll_124_gate", "mpll_86_gate", "pll_rv1_gate";
+				clocks = <&upll 0>,
+					 <&upll 1>,
+					 <&unknownclk>,
+					 <&unknownclk>,
+					 <&unknownclk>,
+					 <&unknownclk>,
+					 <&mpll MSTAR_MSC313_MPLL_DIV2>,
+					 <&unknownclk>,
+					 <&mpll MSTAR_MSC313_MPLL_DIV3>,
+					 <&mpll MSTAR_MSC313_MPLL_DIV4>,
+					 <&mpll MSTAR_MSC313_MPLL_DIV5>,
+					 <&mpll MSTAR_MSC313_MPLL_DIV6>,
+					 <&mpll MSTAR_MSC313_MPLL_DIV7>,
+					 <&unknownclk>,
+					 <&mpll MSTAR_MSC313_MPLL_DIV10>,
+					 <&unknownclk>;
 			};
 
 			gpio: gpio@207800 {
