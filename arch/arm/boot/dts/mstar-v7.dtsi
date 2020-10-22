@@ -459,6 +459,13 @@
 				clocks = <&xtal24>;
 			};
 
+			lpll: lpll@206600 {
+				compatible = "mstar,lpll";
+				reg = <0x206600 0x200>;
+				#clock-cells = <0>;
+				clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_432>;
+			};
+
 			clkgen_pll: pll-gater@2071c0 {
 				compatible = "mstar,msc313-pll-gater";
 				reg = <0x2071c0 0x10>;
