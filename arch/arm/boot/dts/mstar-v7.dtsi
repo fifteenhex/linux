@@ -521,6 +521,20 @@
 					 <&xtal12_div128>;
 			};
 
+			clkgen_mux_ddrsyn: clkgen_mux@207064 {
+				compatible = "mstar,msc313e-clkgen-mux";
+				reg = <0x207064 0x4>;
+				#clock-cells = <1>;
+				clock-output-names = "ddrsyn";
+				output-flags = <MSTAR_CLKGEN_OUTPUTFLAG_CRITICAL>;
+				shifts = <0>;
+				mux-shifts = <2>;
+				mux-widths = <2>;
+				clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_432>,
+					 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>,
+					 <&xtal12>;
+			};
+
 			pm_uart: uart@221000 {
 				compatible = "ns16550a";
 				reg = <0x221000 0x100>;
