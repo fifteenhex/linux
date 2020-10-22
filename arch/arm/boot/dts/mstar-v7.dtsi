@@ -801,6 +801,19 @@
 				status = "disabled";
 			};
 
+			clkgen_special_emac_rx: clkgen_special@226688 {
+				compatible = "mstar,msc313e-clkgen-mux";
+				reg = <0x226688 0x4>;
+				#clock-cells = <1>;
+				clock-output-names = "emac_rx", "emac_rx_ref";
+				shifts = <0>, <8>;
+				mux-shifts = <2>, <10>;
+				mux-widths = <2>, <2>;
+				output-flags = <MSTAR_CLKGEN_OUTPUTFLAG_CRITICAL>,
+						<MSTAR_CLKGEN_OUTPUTFLAG_CRITICAL>;
+				clocks = <&emac_phyclk>; /* incomplete */
+			};
+
 			upll: upll@284000 {
 				#clock-cells = <1>;
 				compatible = "mstar,msc313-upll";
