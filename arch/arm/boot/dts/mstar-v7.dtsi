@@ -745,6 +745,32 @@
 				 <&xtal12_div40>;
 		};
 
+		/* pretty sure this clock has nothing to do with the
+		 * flash isp and this is for the camera isp */
+		clkgen_mux_aesdma_isp: clkgen_mux@1f207184 {
+			compatible = "mstar,msc313e-clkgen-mux";
+			reg = <0x1f207184 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "aesdma", "isp";
+			shifts = <0>, <8>;
+			mux-shifts = <2>, <10>;
+			mux-widths = <2>, <2>;
+			mux-ranges = <0 3>, <3 5>;
+			mstar,deglitches = <4>, <12>;
+			clocks = /* aesdma */
+				<&clkgen_pll MSTAR_MPLL_GATE_MPLL_86>,
+				<&clkgen_pll MSTAR_MPLL_GATE_MPLL_172>,
+				/* deglitch */
+				<&xtal12>,
+				/* isp */
+				<&clkgen_pll MSTAR_MPLL_GATE_MPLL_123>,
+				<&clkgen_pll MSTAR_MPLL_GATE_MPLL_86>,
+				<&clk_mpll_288_div4>,
+				<&clk_mpll_216_div4>,
+				/* deglitch */
+				<&xtal12>;
+		};
+
 		imi: sram@a0000000 {
 			compatible = "mmio-sram";
 			reg = <0xa0000000 0x10000>;
