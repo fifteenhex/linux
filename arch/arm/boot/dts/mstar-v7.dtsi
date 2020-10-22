@@ -459,6 +459,13 @@
 				clocks = <&xtal>;
 			};
 
+			cpuclk: cpuclk@206400 {
+				compatible = "mstar,msc313e-cpuclk";
+				reg = <0x206400 0x200>;
+				#clock-cells = <0>;
+				clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_432>;
+			};
+
 			lpll: lpll@206600 {
 				compatible = "mstar,lpll";
 				reg = <0x206600 0x200>;
