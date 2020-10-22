@@ -643,6 +643,18 @@
 				 <&clkgen_mux_miu 0>;
 		};
 
+		/* This seems important as the ipl turns it on at boot.
+		 * Maybe tck == test clock? for JTAG?
+		 */
+		clkgen_mux_tck: clkgen_mux@1f2070c0 {
+			compatible = "mstar,msc313e-clkgen-mux";
+			reg = <0x1f2070c0 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "tck";
+			shifts = <0>;
+			clocks = <&xtal12>;
+		};
+
 		imi: sram@a0000000 {
 			compatible = "mmio-sram";
 			reg = <0xa0000000 0x10000>;
