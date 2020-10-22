@@ -655,6 +655,19 @@
 			clocks = <&xtal12>;
 		};
 
+		clkgen_mux_uart: clkgen_mux@1f2070c4 {
+			compatible = "mstar,msc313e-clkgen-mux";
+			reg = <0x1f2070c4 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "uart0", "uart1";
+			shifts = <0>, <8>;
+			mux-shifts = <2>, <10>;
+			mux-widths = <2>, <2>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_172>,
+				 <&clk_mpll_288_div2>,
+				 <&xtal12>;
+		};
+
 		imi: sram@a0000000 {
 			compatible = "mmio-sram";
 			reg = <0xa0000000 0x10000>;
