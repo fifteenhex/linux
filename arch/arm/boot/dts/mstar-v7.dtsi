@@ -869,6 +869,28 @@
 			clocks = <&clkgen_pll 10>; /* this is wrong */
 		};
 
+		// gating 216_2digpm stops the system
+		clkgen_mux_digpm: clkgen_gates@1f2071b4 {
+			compatible = "mstar,clkgen-gates";
+			reg = <0x1f2071b4 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "hemcu_216",
+					     "216_2digpm", 
+					     "172_2digpm",
+					     "144_2digpm",
+					     "123_2digpm",
+					     "86_2digpm";
+			shifts = <0>, <1>, <2>, <3>, <4>, <5>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>,
+				 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>,
+				 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_172>,
+				 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_144>,
+				 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_123>,
+				  <&clkgen_pll MSTAR_MPLL_GATE_MPLL_86>;
+			output-flags = <0>, <MSTAR_CLKGEN_OUTPUTFLAG_CRITICAL>,
+				       <0>, <0>, <0>, <0>;
+		};
+
 		imi: sram@a0000000 {
 			compatible = "mmio-sram";
 			reg = <0xa0000000 0x10000>;
