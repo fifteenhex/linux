@@ -612,6 +612,12 @@
 				 <&xtal12>;
 		};
 
+		/* can't write on i3, i6 only? */
+		clkgen_mux_pwr_ctl: clkgen_mux@1f207010 {
+			// pwr_ctrl
+			// 
+		};
+
 		imi: sram@a0000000 {
 			compatible = "mmio-sram";
 			reg = <0xa0000000 0x10000>;
