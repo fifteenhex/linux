@@ -20,6 +20,7 @@ struct msc313_phy_priv {
 	struct regmap *phyana;
 	const struct msc313_phy_data *data;
 	struct msc313e_fields msc313e_fields;
+	bool poweredup;
 };
 
 struct msc313_phy_data {
@@ -46,6 +47,9 @@ static const struct msc313_phy_data msc313_data = {
 	regmap_update_bits(_phy->phyana, _reg, 0xff, _val)
 
 static void msc313e_powerup(struct msc313_phy_priv *priv){
+	if(priv->poweredup)
+		return;
+
 	printk("Doing phy power up\n");
 
 	regmap_field_write(priv->msc313e_fields.anarst, 1);
@@ -73,10 +77,15 @@ static void msc313e_powerup(struct msc313_phy_priv *priv){
 	regmap_field_write(priv->msc313e_fields.hundredgat, 0);
 	/* "200gat" */
 	regmap_field_write(priv->msc313e_fields.twohundredgat, 0);
+
+	priv->poweredup = true;
 }
 
 static void msc313e_powerdown(struct msc313_phy_priv *priv)
 {
+	if(!priv->poweredup)
+		return;
+
 	printk("Doing phy power down\n");
 	regmap_field_write(priv->msc313e_fields.anarst, 1);
 	/* "Power-on LDO" */
@@ -91,6 +100,8 @@ static void msc313e_powerdown(struct msc313_phy_priv *priv)
 	regmap_field_write(priv->msc313e_fields.txpd1, ~0);
         /* "Power-on TX" */
 	regmap_field_write(priv->msc313e_fields.txpd2, ~0);
+
+	priv->poweredup = false;
 };
 
 static const struct msc313_phy_data msc313e_data = {
