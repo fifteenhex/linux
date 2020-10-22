@@ -559,6 +559,31 @@
 			clocks = <&xtal12>;
 		};
 
+		clkgen_mux_mcu_riubrdg: clkgen_mux@1f207004 {
+			compatible = "mstar,msc313e-clkgen-mux";
+			reg = <0x1f207004 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "mcu", "riubrdg";
+			shifts = <0>, <8>;
+			mux-shifts = <2>, <10>;
+			mux-widths = <2>, <2>;
+			mux-ranges = <0 5>, <5 1>;
+			mstar,deglitches = <4>, <MSTAR_CLKGEN_MUX_NULL>;
+			output-flags = <0>, <MSTAR_CLKGEN_OUTPUTFLAG_CRITICAL>;
+			clocks = /* mcu */
+				 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>,
+				 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_172>,
+				 <&clk_mpll_288_div2>,
+				 <&clk_mpll_216_div2>,
+				 /*deglitch */
+				 <&xtal12>,
+				 /* riubrdg */
+				 <&clkgen_mux_mcu_riubrdg 0>;
+			assigned-clocks = <&clkgen_mux_mcu_riubrdg 0>;
+			assigned-clock-parents = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>;
+			assigned-clock-rates = <0>;
+		};
+
 		imi: sram@a0000000 {
 			compatible = "mmio-sram";
 			reg = <0xa0000000 0x10000>;
