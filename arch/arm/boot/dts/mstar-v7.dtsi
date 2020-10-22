@@ -835,6 +835,17 @@
 				 <&lpll>;
 		};
 
+		clkgen_mux_gop: clkgen_mux@1f20719c {
+			compatible = "mstar,msc313e-clkgen-mux";
+			reg = <0x1f20719c 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "gop";
+			shifts = <0>;
+			mux-shifts = <2>;
+			mux-widths = <2>;
+			clocks = <&clkgen_mux_fclk1 0>; // might be incorrect
+		};
+
 		imi: sram@a0000000 {
 			compatible = "mmio-sram";
 			reg = <0xa0000000 0x10000>;
