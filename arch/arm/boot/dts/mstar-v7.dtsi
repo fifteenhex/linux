@@ -727,6 +727,24 @@
 				 <&xtal12_div40>;
 		};
 
+		clkgen_mux_sdio: clkgen_mux@1f207114 {
+			compatible = "mstar,msc313e-clkgen-mux";
+			reg = <0x1f207114 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "sdio";
+			shifts = <0>;
+			mux-shifts = <2>;
+			mux-widths = <3>;
+			clocks = <&clk_utmi_192_div4>,
+				 <&clk_mpll_86_div2>,
+				 <&clk_utmi_160_div4>,
+				 <&clk_mpll_288_div8>,
+				 <&clk_utmi_160_div5>,
+				 <&clk_utmi_160_div8>,
+				 <&xtal12>,
+				 <&xtal12_div40>;
+		};
+
 		imi: sram@a0000000 {
 			compatible = "mmio-sram";
 			reg = <0xa0000000 0x10000>;
