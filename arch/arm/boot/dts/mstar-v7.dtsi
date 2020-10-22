@@ -631,6 +631,18 @@
 			clocks = <&xtal12>;
 		};
 
+		clkgen_mux_miu_boot: clkgen_mux@1f207080 {
+			compatible = "mstar,msc313e-clkgen-mux";
+			reg = <0x1f207080 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "miu_boot";
+			shifts = <0>;
+			mux-shifts = <2>;
+			mux-widths = <2>;
+			clocks = <&xtal12>,
+				 <&clkgen_mux_miu 0>;
+		};
+
 		imi: sram@a0000000 {
 			compatible = "mmio-sram";
 			reg = <0xa0000000 0x10000>;
