@@ -507,6 +507,20 @@
 				clocks = <&clkgen_mux_ddrsyn 0>;
 			};
 	
+			clkgen_mux_miu_rec: clkgen_mux@207060 {
+				compatible = "mstar,msc313e-clkgen-mux";
+				reg = <0x207060 0x4>;
+				#clock-cells = <1>;
+				clock-output-names = "miu_rec";
+				shifts = <0>;
+				mux-shifts = <2>;
+				mux-widths = <2>;
+				clocks = <&xtal12_div8>,
+					 <&xtal12_div16>,
+					 <&xtal12_div64>,
+					 <&xtal12_div128>;
+			};
+
 			pm_uart: uart@221000 {
 				compatible = "ns16550a";
 				reg = <0x221000 0x100>;
