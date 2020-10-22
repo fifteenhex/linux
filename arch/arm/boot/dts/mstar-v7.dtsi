@@ -495,6 +495,18 @@
 				status = "disabled";
 			};
 
+			clkgen_mux_miu: clkgen_mux@20705c {
+				compatible = "mstar,msc313e-clkgen-mux";
+				reg = <0x20705c 0x4>;
+				#clock-cells = <1>;
+				clock-output-names = "miu";
+				output-flags = <MSTAR_CLKGEN_OUTPUTFLAG_CRITICAL>;
+				shifts = <0>;
+				mux-shifts = <2>;
+				mux-widths = <2>;
+				clocks = <&clkgen_mux_ddrsyn 0>;
+			};
+	
 			pm_uart: uart@221000 {
 				compatible = "ns16550a";
 				reg = <0x221000 0x100>;
