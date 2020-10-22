@@ -846,6 +846,20 @@
 			clocks = <&clkgen_mux_fclk1 0>; // might be incorrect
 		};
 
+		clkgen_mux_jpe: clkgen_mux@1f2071a8 {
+			compatible = "mstar,msc313e-clkgen-mux";
+			reg = <0x1f2071a8 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "jpe";
+			shifts = <0>;
+			mux-shifts = <2>;
+			mux-widths = <2>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_288>,
+				 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>,
+				 <&clk_mpll_216_div4>,
+				 <&clk_mpll_216_div8>;
+		};
+
 		imi: sram@a0000000 {
 			compatible = "mmio-sram";
 			reg = <0xa0000000 0x10000>;
