@@ -860,6 +860,15 @@
 				 <&clk_mpll_216_div8>;
 		};
 
+		clkgen_special_imi_nm: clkgen_mux@1f226680 {
+			compatible = "mstar,msc313e-clkgen-mux";
+			reg = <0x1f226680 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "imi", "nlm";
+			shifts = <0>, <8>;
+			clocks = <&clkgen_pll 10>; /* this is wrong */
+		};
+
 		imi: sram@a0000000 {
 			compatible = "mmio-sram";
 			reg = <0xa0000000 0x10000>;
