@@ -736,6 +736,19 @@
 					 <&xtal12>;
 			};
 
+			clkgen_mux_miic: clkgen_mux@2070dc {
+				compatible = "mstar,msc313e-clkgen-mux";
+				reg = <0x2070dc 0x4>;
+				#clock-cells = <1>;
+				clock-output-names = "miic0", "miic1";
+				shifts = <0>, <8>;
+				mux-shifts = <2>, <10>;
+				mux-widths = <2>, <2>;
+				clocks = <&clk_mpll_288_div4>,
+					 <&clk_mpll_216_div4>,
+					 <&xtal12>;
+			};
+
 			pm_uart: uart@221000 {
 				compatible = "ns16550a";
 				reg = <0x221000 0x100>;
