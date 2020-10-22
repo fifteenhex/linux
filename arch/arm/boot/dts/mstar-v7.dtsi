@@ -814,6 +814,19 @@
 				clocks = <&emac_phyclk>; /* incomplete */
 			};
 
+			clkgen_special_emac_tx: clkgen_special@22668c {
+				compatible = "mstar,msc313e-clkgen-mux";
+				reg = <0x22668c 0x4>;
+				#clock-cells = <1>;
+				clock-output-names = "emac_tx", "emac_tx_ref";
+				shifts = <0>, <8>;
+				mux-shifts = <2>, <10>;
+				mux-widths = <2>, <2>;
+				output-flags = <MSTAR_CLKGEN_OUTPUTFLAG_CRITICAL>,
+						<MSTAR_CLKGEN_OUTPUTFLAG_CRITICAL>;
+				clocks = <&emac_phyclk>; /* incomplete */
+			};
+
 			upll: upll@284000 {
 				#clock-cells = <1>;
 				compatible = "mstar,msc313-upll";
