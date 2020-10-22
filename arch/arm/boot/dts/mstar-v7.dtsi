@@ -809,6 +809,18 @@
 				 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_86>;
 		};
 
+		clkgen_mux_fclk2: clkgen_mux@1f207194 {
+			compatible = "mstar,msc313e-clkgen-mux";
+			reg = <0x1f207194 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "fclk2";
+			shifts = <0>;
+			mux-shifts = <2>;
+			mux-widths = <2>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_172>,
+				 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_86>;
+		};
+
 		imi: sram@a0000000 {
 			compatible = "mmio-sram";
 			reg = <0xa0000000 0x10000>;
