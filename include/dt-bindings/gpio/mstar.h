@@ -11,4 +11,7 @@
 #define SSC8336_FUART_RX	2
 #define SSC8333_FUART_TX	3
 
+#define PM_GPIO4_IRQ	6
+#define PM_GPIO5_IRQ	7
+
 #endif
