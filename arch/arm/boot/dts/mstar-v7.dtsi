@@ -685,6 +685,25 @@
 			         <&xtal12>;
 		};
 
+		clkgen_mux_fuart: clkgen_mux@1f2070d0 {
+			compatible = "mstar,msc313e-clkgen-mux";
+			reg = <0x1f2070d0 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "fuart", "fuart0_synth";
+			shifts = <0>, <4>;
+			mux-shifts = <2>, <6>;
+			mux-widths = <2>, <2>;
+			mux-ranges = <0 5>, <5 2>;
+			clocks = <&clkgen_pll 10>,
+				 <&clk_mpll_216_div2>,
+			         <&clk_mpll_216_div4>,
+			         <&xtal12>,
+			         <&clkgen_mux_fuart 1>,
+			         /* synth*/
+			         <&clkgen_pll MSTAR_MPLL_GATE_MPLL_432>,
+			         <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>;
+		};
+
 		imi: sram@a0000000 {
 			compatible = "mmio-sram";
 			reg = <0xa0000000 0x10000>;
