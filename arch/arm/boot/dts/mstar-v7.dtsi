@@ -598,6 +598,20 @@
 				 <&xtal12>;
 		};
 
+		clkgen_mux_bist_sc_gp: clkgen_mux@1f20700c {
+			compatible = "mstar,msc313e-clkgen-mux";
+			reg = <0x1f20700c 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "bist_sc_gp";
+			shifts = <0>;
+			mux-shifts = <2>;
+			mux-widths = <2>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_172>,
+				 <&clk_mpll_216_div2>,
+				 <&clk_mpll_216_div4>,
+				 <&xtal12>;
+		};
+
 		imi: sram@a0000000 {
 			compatible = "mmio-sram";
 			reg = <0xa0000000 0x10000>;
