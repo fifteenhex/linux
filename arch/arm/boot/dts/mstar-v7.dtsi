@@ -788,6 +788,23 @@
 					 /* from lan_atop ? */
 			};
 
+			clkgen_mux_bdma: clkgen_mux@207180 {
+				compatible = "mstar,msc313e-clkgen-mux";
+				reg = <0x207180 0x4>;
+				#clock-cells = <1>;
+				clock-output-names = "bdma";
+				shifts = <0>;
+				mux-shifts = <2>;
+				mux-widths = <2>;
+				mstar,deglitches = <4>;
+				clocks = <&clkgen_mux_miu 0>,
+					 /* deglitch */
+					 <&xtal12>;
+				/*assigned-clocks = <&clkgen_mux_bdma 0>;
+				assigned-clock-parents = <&clkgen_mux_miu 0>;
+				assigned-clock-rates = <0>;*/
+			};
+
 			fuart: uart@220400 {
 				compatible = "mstar,msc313-uart";
 				reg = <0x220400 0x100>;
