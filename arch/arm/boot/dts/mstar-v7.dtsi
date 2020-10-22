@@ -821,6 +821,20 @@
 				 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_86>;
 		};
 
+		clkgen_mux_odclk: clkgen_mux@1f207198 {
+			compatible = "mstar,msc313e-clkgen-mux";
+			reg = <0x1f207198 0x4>;
+			#clock-cells = <1>;
+			clock-output-names = "odclk";
+			shifts = <0>;
+			mux-shifts = <2>;
+			mux-widths = <2>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_86>,
+				 <&clk_mpll_86_div2>,
+				 <&clk_mpll_86_div4>,
+				 <&lpll>;
+		};
+
 		imi: sram@a0000000 {
 			compatible = "mmio-sram";
 			reg = <0xa0000000 0x10000>;
