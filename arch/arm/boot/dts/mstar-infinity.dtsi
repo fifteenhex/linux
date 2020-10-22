@@ -8,6 +8,10 @@
 
 #include <dt-bindings/gpio/msc313-gpio.h>
 
+&cpu0 {
+	operating-points-v2 = <&cpu0_opp_table>;
+};
+
 &imi {
 	reg = <0xa0000000 0x16000>;
 };
