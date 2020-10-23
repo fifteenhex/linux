@@ -66,6 +66,102 @@
 			clock-frequency = <32768>;
 			status = "disabled";
 		};
+
+		clk_mpll_86_div2: clk_mpll_86_div2 {
+			compatible = "fixed-factor-clock";
+			#clock-cells = <0>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_86>;
+			clock-div = <2>;
+			clock-mult = <1>;
+		};
+
+		clk_mpll_86_div4: clk_mpll_86_div4 {
+			compatible = "fixed-factor-clock";
+			#clock-cells = <0>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_86>;
+			clock-div = <4>;
+			clock-mult = <1>;
+		};
+
+		clk_mpll_86_div16: clk_mpll_86_div16 {
+			compatible = "fixed-factor-clock";
+			#clock-cells = <0>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_86>;
+			clock-div = <16>;
+			clock-mult = <1>;
+		};
+
+		clk_mpll_123_div2: clk_mpll_123_div2 {
+			compatible = "fixed-factor-clock";
+			#clock-cells = <0>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_123>;
+			clock-div = <2>;
+			clock-mult = <1>;
+		};
+
+		clk_mpll_144_div2: clk_mpll_144_div2 {
+			compatible = "fixed-factor-clock";
+			#clock-cells = <0>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_144>;
+			clock-div = <2>;
+			clock-mult = <1>;
+		};
+
+		clk_mpll_144_div4: clk_mpll_144_div4 {
+			compatible = "fixed-factor-clock";
+			#clock-cells = <0>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_144>;
+			clock-div = <4>;
+			clock-mult = <1>;
+		};
+
+		clk_mpll_216_div2: clk_mpll_216_div2 {
+			compatible = "fixed-factor-clock";
+			#clock-cells = <0>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>;
+			clock-div = <2>;
+			clock-mult = <1>;
+		};
+
+		clk_mpll_216_div4: clk_mpll_216_div4 {
+			compatible = "fixed-factor-clock";
+			#clock-cells = <0>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>;
+			clock-div = <4>;
+			clock-mult = <1>;
+		};
+
+		clk_mpll_216_div8: clk_mpll_216_div8 {
+			compatible = "fixed-factor-clock";
+			#clock-cells = <0>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>;
+			clock-div = <8>;
+			clock-mult = <1>;
+		};
+
+		clk_mpll_288_div2: clk_mpll_288_div2 {
+			compatible = "fixed-factor-clock";
+			#clock-cells = <0>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_288>;
+			clock-div = <2>;
+			clock-mult = <1>;
+		};
+
+		clk_mpll_288_div4: clk_mpll_288_div4 {
+			compatible = "fixed-factor-clock";
+			#clock-cells = <0>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_288>;
+			clock-div = <4>;
+			clock-mult = <1>;
+		};
+
+		clk_mpll_288_div8: clk_mpll_288_div8 {
+			compatible = "fixed-factor-clock";
+			#clock-cells = <0>;
+			clocks = <&clkgen_pll MSTAR_MPLL_GATE_MPLL_288>;
+			clock-div = <8>;
+			clock-mult = <1>;
+		};
 	};
 
 	soc: soc {
