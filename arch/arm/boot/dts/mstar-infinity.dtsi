@@ -146,7 +146,7 @@
 		compatible = "mstar,msc313-musb";
 		reg = <0x1f284a00 0x200>;
 		interrupt-names = "mc";
-		interrupts-extended = <&intc_irq 32 IRQ_TYPE_LEVEL_HIGH>;
+		interrupts-extended = <&intc_irq GIC_SPI 32 IRQ_TYPE_LEVEL_HIGH>;
 		phys = <&fakephy0>;
 		mstar,usbc = <&usbc0>;
 		clock-names = "udc";
