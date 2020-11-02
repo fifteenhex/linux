@@ -1023,7 +1023,7 @@
 		sound: sound@0 {
 			compatible = "mstar,snd-infinity";
 			interrupt-parent = <&intc_irq>;
-			interrupts = <42 IRQ_TYPE_LEVEL_HIGH>;
+			interrupts = <GIC_SPI 42 IRQ_TYPE_LEVEL_HIGH>;
 			mstar,bach-cpu = <&bach_cpu>;
 			mstar,bach-platform = <&bach_pcm>;
 			mstar,bach-codec = <&bach_codec>;
