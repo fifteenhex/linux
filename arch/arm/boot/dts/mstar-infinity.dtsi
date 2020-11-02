@@ -115,7 +115,7 @@
 	};
 
 	emmc: emmc@1f280400 {
-		interrupts = <18 IRQ_TYPE_LEVEL_HIGH>;
+		interrupts = <GIC_SPI 18 IRQ_TYPE_LEVEL_HIGH>;
 	};
 
 	sdio: sdio@1f282000 {
