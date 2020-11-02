@@ -9,4 +9,5 @@ obj-y += clk-msc313-pll-gater.o \
 	 clk-mstar_clkgen-gates.o \
 	 clk-mstar-upll.o \
 	 clk-mstar_lpll.o \
-	 clk-mstar_miupll.o
+	 clk-mstar_miupll.o \
+	 clk-mstar-pll_common.o
