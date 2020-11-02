@@ -1465,7 +1465,7 @@
 		uhc0: uhc@1f284800 {
 			compatible = "mstar,msc313-ehci";
 			reg = <0x1f284800 0x200>;
-			interrupts-extended = <&intc_irq 31 IRQ_TYPE_LEVEL_HIGH>;
+			interrupts-extended = <&intc_irq GIC_SPI 31 IRQ_TYPE_LEVEL_HIGH>;
 			phys = <&usbphy0 0>;
 			phy-names = "usb";
 			mstar,usbc = <&usbc0>;
