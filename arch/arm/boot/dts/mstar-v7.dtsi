@@ -950,7 +950,7 @@
 			rsa@224480 {
 				reg = <0x224480 0xc0>;
 				compatible = "mstar,msc313-rsa";
-				status = "disabled";
+				clocks = <&clkgen_mux_aesdma_isp 0>;
 			};
 
 			aesdma: aesdma@224540 {
