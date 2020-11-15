@@ -398,6 +398,25 @@
 				assigned-clock-rates = <0>;
 			};
 
+			clkgen_mux_rtc_sar: clkgen_mux@1c88 {
+				compatible = "mstar,msc313e-clkgen-mux";
+				reg = <0x1c88 0x4>;
+				#clock-cells = <1>;
+				clock-output-names = "rtc", "sar", "pm_sleep";
+				shifts = <0>, <5>, <10>;
+				mux-shifts = <2>, <7>, <12>;
+				mux-widths = <2>, <3>, <3>;
+				mux-ranges = <0 2>, <0 8>, <0 8>;
+				clocks = <&xtal12>,
+					 <&rtc_xtal>,
+					 <&xtal12_div8>,
+					 <&xtal12_div12>,
+					 <&rtc32k_div4>,
+					 <&xtal12_div16>,
+					 <&xtal12_div2>,
+					 <&xtal12_div4>;
+			};
+
 			intc_fiq: interrupt-controller@201310 {
 				compatible = "mstar,mst-intc";
 				reg = <0x201310 0x40>;
