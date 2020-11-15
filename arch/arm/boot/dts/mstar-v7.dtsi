@@ -360,6 +360,44 @@
 				mask = <0x79>;
 			};
 
+			clkgen_mux_spi_mcu_pm: clkgen_mux@1c80 {
+				compatible = "mstar,msc313e-clkgen-mux";
+				reg = <0x1f001c80 0x4>;
+				#clock-cells = <1>;
+				clock-output-names = "mcu_pm", "spi_pm";
+				shifts = <0>, <8>;
+				mstar,deglitches = <7>, <14>;
+				mux-shifts = <2>, <10>;
+				mux-widths = <4>, <4>;
+				mux-ranges = <0 2>, <2 17>;
+				clocks = /* mcu_pm */
+					 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_216>,
+					 /* deglitch */
+					 <&xtal12>,
+					 /* spi_pm */
+					 <&rtc_xtal>,
+					 <&clk_mpll_216_div8>,
+					 <&clk_mpll_144_div4>,
+					 <&clk_mpll_86_div2>,
+					 <&clk_mpll_216_div4>,
+					 <&clk_mpll_144_div2>,
+					 <&clkgen_pll MSTAR_MPLL_GATE_MPLL_86>,
+					 <&clk_mpll_216_div2>,
+					 <&xtal12_div8>,
+					 <&xtal12_div12>,
+					 <&rtc32k_div4>,
+					 <&xtal12_div16>,
+					 <&xtal12_div2>,
+					 <&xtal12_div4>,
+					 <&xtal12>,
+					 <&xtal>,
+					 /* deglitch */
+					 <&xtal12>;
+				assigned-clocks = <&clkgen_mux_spi_mcu_pm 1>;
+				assigned-clock-parents = <&clk_mpll_216_div4>;
+				assigned-clock-rates = <0>;
+			};
+
 			intc_fiq: interrupt-controller@201310 {
 				compatible = "mstar,mst-intc";
 				reg = <0x201310 0x40>;
