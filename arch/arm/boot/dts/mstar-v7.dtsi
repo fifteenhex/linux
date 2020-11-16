@@ -330,6 +330,8 @@
 			pinctrl-names = "default";
 			pinctrl-0 = <&pm_spi_pins>;
 			status = "disabled";
+			interconnects = <&miu 0>;
+			interconnect-names = "dma-mem";
 		};
 
 		/*
