@@ -8,6 +8,7 @@
 #include <crypto/sha.h>
 #include <soc/mstar/riu.h>
 #include <linux/clk.h>
+#include <linux/dma-mapping.h>
 
 #include <crypto/internal/hash.h>
 
@@ -45,6 +46,7 @@ static struct reg_field ctrl_inithash = REG_FIELD(REG_CTRL, 13, 13);
 static struct reg_field status_ready = REG_FIELD(REG_STATUS, 0, 0);
 
 struct msc313_sha {
+	struct device *dev;
 	struct list_head sha_list;
 	struct crypto_engine *engine;
 	struct clk *clk;
@@ -149,10 +151,14 @@ static u8 testdata[128] = {0};
 
 static void msc313_sha_test(struct msc313_sha *sha)
 {
-	u32 src = virt_to_phys(testdata) - 0x20000000;
 	u32 len = sizeof(testdata);
 	unsigned ready, res[16];
 	int i;
+	dma_addr_t dmaaddr = 0;
+
+	dmaaddr = dma_map_single(sha->dev, testdata, len, DMA_TO_DEVICE);
+	if (dma_mapping_error(sha->dev, dmaaddr))
+		return;
 
 	regmap_field_write(sha->reset, 1);
 	clk_prepare_enable(sha->clk);
@@ -163,8 +169,8 @@ static void msc313_sha_test(struct msc313_sha *sha)
 	//regmap_field_write(sha->inithash, 1);
 	regmap_field_write(sha->disablesg, 1);
 
-	regmap_write(sha->regmap, REG_SRC, src);
-	regmap_write(sha->regmap, REG_SRC + 4, src >> 16);
+	regmap_write(sha->regmap, REG_SRC, dmaaddr);
+	regmap_write(sha->regmap, REG_SRC + 4, dmaaddr >> 16);
 
 	regmap_write(sha->regmap, REG_LEN, len);
 	regmap_write(sha->regmap, REG_LEN + 4, len >> 16);
@@ -183,6 +189,8 @@ static void msc313_sha_test(struct msc313_sha *sha)
 	regmap_field_write(sha->fire, 0);
 	regmap_field_write(sha->clear, 1);
 	//clk_disable_unprepare(sha->clk);
+
+	dma_unmap_single(sha->dev, dmaaddr, len, DMA_TO_DEVICE);
 }
 
 static int msc313_sha_probe(struct platform_device *pdev)
@@ -197,6 +205,7 @@ static int msc313_sha_probe(struct platform_device *pdev)
 		goto out;
 	}
 
+	sha->dev = &pdev->dev;
 	sha->clk = devm_clk_get(&pdev->dev, NULL);
 	if (IS_ERR(sha->clk))
 		return PTR_ERR(sha->clk);
