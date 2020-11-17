@@ -953,6 +953,8 @@
 				reg = <0x224480 0xc0>;
 				compatible = "mstar,msc313-rsa";
 				clocks = <&clkgen_mux_aesdma_isp 0>;
+				interconnects = <&miu 0>;
+				interconnect-names = "dma-mem";
 			};
 
 			aesdma: aesdma@224540 {
