@@ -964,6 +964,8 @@
 				/*interrupt-parent = <&intc_irq>;
 				interrupts = <GIC_SPI 37 IRQ_TYPE_LEVEL_HIGH>;*/
 				clocks = <&clkgen_mux_aesdma_isp 0>;
+				interconnects = <&miu 0>;
+				interconnect-names = "dma-mem";
 			};
 
 			clkgen_special_emac_rx: clkgen_special@226688 {
