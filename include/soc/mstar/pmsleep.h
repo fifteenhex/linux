@@ -16,5 +16,6 @@
 #define MSTAR_PMSLEEP_REGC8_MAGIC		0x9f8e
 #define MSTAR_PMSLEEP_REGCC			0xcc
 #define MSTAR_PMSLEEP_REGCC_MAGIC		0x9f8e
+#define MSTARV7_PM_RESUMEADDR			0xec
 
 #endif
