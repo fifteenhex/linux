@@ -114,5 +114,5 @@ obj-$(CONFIG_LOONGSON_PCH_PIC)		+= irq-loongson-pch-pic.o
 obj-$(CONFIG_LOONGSON_PCH_MSI)		+= irq-loongson-pch-msi.o
 obj-$(CONFIG_MST_IRQ)			+= irq-mst-intc.o
 obj-$(CONFIG_SL28CPLD_INTC)		+= irq-sl28cpld.o
-obj-$(CONFIG_MSC313_PM_INTC)		+= irq-msc313-pm-intc.o
+obj-$(CONFIG_MSC313_PM_INTC)		+= irq-msc313-pm-intc.o irq-msc313-pm-wakeup.o
 
