@@ -136,4 +136,4 @@ obj-$(CONFIG_MCHP_EIC)			+= irq-mchp-eic.o
 obj-$(CONFIG_SOPHGO_SG2042_MSI)		+= irq-sg2042-msi.o
 obj-$(CONFIG_SUNPLUS_SP7021_INTC)	+= irq-sp7021-intc.o
 obj-$(CONFIG_SSD20XD_GPI)		+= irq-ssd20xd-gpi.o
-obj-$(CONFIG_MSC313_PM_INTC)		+= irq-msc313-pm-intc.o
+obj-$(CONFIG_MSC313_PM_INTC)		+= irq-msc313-pm-intc.o irq-msc313-pm-wakeup.o
