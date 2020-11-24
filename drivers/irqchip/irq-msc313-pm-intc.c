@@ -14,6 +14,8 @@
 #include <linux/regmap.h>
 #include <linux/interrupt.h>
 
+#include <soc/mstar/pmsleep.h>
+
 #define NUM_IRQ		32
 #define REG_STATUS	0x0
 
@@ -69,9 +71,9 @@ static irqreturn_t msc313_sleep_intc_chainedhandler(int irq, void *data){
 	u32 status;
 	unsigned int hwirq, virq, tmp;
 
-	regmap_read(intc->pmsleep, 0x10 + 4, &tmp);
+	regmap_read(intc->pmsleep, MSTAR_PMSLEEP_INTSTATUS + 4, &tmp);
 	status = tmp << 16;
-	regmap_read(intc->pmsleep, 0x10 , &tmp);
+	regmap_read(intc->pmsleep, MSTAR_PMSLEEP_INTSTATUS, &tmp);
 	status |= tmp;
 
 	while (status) {
