@@ -395,7 +395,7 @@
 				reg = <0x6040 0x40>;
 				clocks = <&xtal_div2>;
 				interrupts-extended = <&intc_fiq GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>;
-				mstar,schedclk;
+				//mstar,schedclk;
 			};
 	
 			timer1: timer@6080 {
@@ -403,7 +403,7 @@
 				reg = <0x6080 0x40>;
 				clocks = <&xtal_div2>;
 				interrupts-extended = <&intc_fiq GIC_SPI 1 IRQ_TYPE_LEVEL_HIGH>;
-				mstar,tick;
+				//mstar,tick;
 			};
 	
 			timer2: timer@60c0 {
