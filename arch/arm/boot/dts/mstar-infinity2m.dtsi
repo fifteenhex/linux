@@ -174,3 +174,7 @@
 &gpio {
 	interrupt-parent = <&gpi>;
 };
+
+&uhc0 {
+	interrupts-extended = <&intc_irq GIC_SPI 55 IRQ_TYPE_LEVEL_HIGH>;
+};
