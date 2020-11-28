@@ -103,3 +103,7 @@
 		     <GIC_SPI 62 IRQ_TYPE_LEVEL_HIGH>;
 	dma-channels = <4>;
 };
+
+&uhc0 {
+	interrupts-extended = <&intc_irq GIC_SPI 54 IRQ_TYPE_LEVEL_HIGH>;
+};
