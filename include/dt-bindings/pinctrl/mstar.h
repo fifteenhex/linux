@@ -18,6 +18,7 @@
 #define PINNAME_PM_SPI_DO	"pm_spi_do"
 #define PINNAME_PM_SPI_CK	"pm_spi_ck"
 #define PINNAME_PM_SPI_HOLD	"pm_spi_hold"
+#define PINNAME_PM_SPI_HLD	PINNAME_PM_SPI_HOLD
 #define PINNAME_FUART_TX	"fuart_tx"
 #define PINNAME_FUART_RX	"fuart_rx"
 #define	PINNAME_FUART_CTS	"fuart_cts"
