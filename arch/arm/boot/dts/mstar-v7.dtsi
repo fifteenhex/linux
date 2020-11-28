@@ -455,7 +455,25 @@
 				assigned-clock-parents = <&clk_mpll_216_div4>;
 				assigned-clock-rates = <0>;
 			};
-	
+
+			clkgen_mux_ir: clkgen_mux@1c84 {
+				compatible = "mstar,msc313e-clkgen-mux";
+				reg = <0x1c84 0x4>;
+				#clock-cells = <1>;
+				clock-output-names = "ir";
+				shifts = <5>;
+				mux-shifts = <7>;
+				mux-widths = <3>;
+				clocks = <&xtal12>,
+					 <&rtc_xtal>,
+					 <&xtal12_div8>,
+					 <&xtal12_div12>,
+					 <&rtc32k_div4>,
+					 <&xtal12_div16>,
+					 <&xtal12_div2>,
+					 <&xtal12_div4>;
+			};
+
 			clkgen_mux_rtc_sar: clkgen_mux@1c88 {
 				compatible = "mstar,msc313e-clkgen-mux";
 				reg = <0x1c88 0x4>;
