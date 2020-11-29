@@ -10,6 +10,7 @@
 #include <linux/mmc/mmc.h>
 #include <linux/mmc/sdio.h>
 #include <linux/mmc/slot-gpio.h>
+#include <linux/regulator/consumer.h>
 
 #include "mstar-fcie.h"
 
@@ -514,10 +515,53 @@ tfr_err:
 	mmc_request_done(mmc, mrq);
 }
 
+static void mstar_fcie_card_power(struct mmc_host *mmc,
+				 struct mmc_ios *ios)
+{
+	int ret;
+
+	switch (ios->power_mode) {
+	case MMC_POWER_UP:
+		dev_dbg(mmc_dev(mmc), "Powering card up\n");
+
+		if (!IS_ERR(mmc->supply.vmmc)) {
+			ret = mmc_regulator_set_ocr(mmc, mmc->supply.vmmc, ios->vdd);
+			if (ret)
+				return;
+		}
+
+		if (!IS_ERR(mmc->supply.vqmmc)) {
+			ret = regulator_enable(mmc->supply.vqmmc);
+			if (ret) {
+				dev_err(mmc_dev(mmc),
+					"failed to enable vqmmc\n");
+				return;
+			}
+		}
+		break;
+
+	case MMC_POWER_OFF:
+		dev_dbg(mmc_dev(mmc), "Powering card off\n");
+
+		if (!IS_ERR(mmc->supply.vmmc))
+			mmc_regulator_set_ocr(mmc, mmc->supply.vmmc, 0);
+
+		if (!IS_ERR(mmc->supply.vqmmc))
+			regulator_disable(mmc->supply.vqmmc);
+		break;
+
+	default:
+		dev_dbg(mmc_dev(mmc), "Ignoring unknown card power state\n");
+		break;
+	}
+}
+
 static void mstar_fcie_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 {
 	struct msc313_fcie *fcie = mmc_priv(mmc);
 	unsigned int bw;
+
+	mstar_fcie_card_power(mmc, ios);
 
 	// setup the bus width
 	switch(ios->bus_width){
@@ -597,6 +641,10 @@ static int msc313_fcie_probe(struct platform_device *pdev)
 	if (!mmc) {
 		return -ENOMEM;
 	}
+
+	ret = mmc_regulator_get_supply(mmc);
+	if(ret)
+		return ret;
 
 	mmc->ops = &mstar_fcie_ops;
 
