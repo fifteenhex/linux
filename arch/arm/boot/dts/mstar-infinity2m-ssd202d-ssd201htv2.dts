@@ -34,14 +34,20 @@
 };
 
 &i2c0 {
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
 	status = "okay";
 };
 
 &i2c1 {
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
 	status = "okay";
 	ts@5d {
 		compatible = "goodix,gt911";
 		reg = <0x5d>;
+		reset-gpios = <&gpio SSD20XD_GPIO_GPIO1 0>;
+		irq-gpios = <&gpio SSD20XD_GPIO_GPIO13 0>;
 	};
 };
 
