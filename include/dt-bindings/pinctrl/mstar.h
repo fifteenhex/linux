@@ -67,6 +67,8 @@
 #define PINNAME_LCD_13		"lcd_13"
 #define PINNAME_LCD_14		"lcd_14"
 #define PINNAME_LCD_15		"lcd_15"
+#define PINNAME_UART1_TX	"uart1_tx"
+#define PINNAME_UART1_RX	"uart1_rx"
 
 /*
  * for later parts with more sensor interfaces
@@ -319,8 +321,8 @@
 #define PIN_SSD20XD_ETH_RP		108
 #define PIN_SSD20XD_ETH_TN		109
 #define PIN_SSD20XD_ETH_TP		110
-#define PIN_SSD20XD_DP_P2		111
-#define PIN_SSD20XD_DM_P2		112
+#define PIN_SSD20XD_USB1_DP		111
+#define PIN_SSD20XD_USB1_DM		112
 #define PIN_SSD20XD_AUD_LINEOUT_R0	115
 #define PIN_SSD20XD_AUD_LINEOUT_L0	116
 #define PIN_SSD20XD_AUD_MICCM0		117
