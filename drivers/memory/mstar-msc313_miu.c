@@ -332,8 +332,8 @@ static int msc313_miu_probe(struct platform_device *pdev)
 	if (!irq)
 		return -EINVAL;
 
-	 devm_request_irq(&pdev->dev, irq, msc313_miu_irq, IRQF_SHARED,
-			 dev_name(&pdev->dev), miu);
+	//devm_request_irq(&pdev->dev, irq, msc313_miu_irq, IRQF_SHARED,
+	//		dev_name(&pdev->dev), miu);
 
 
 	clk_prepare_enable(miu->miuclk);
@@ -358,20 +358,20 @@ static int msc313_miu_probe(struct platform_device *pdev)
 	dev_info(miu->dev, "trcd: %d, trp: %d, tras: %d, trrd: %d, trtp: %d, trc: %d",
 			trcd, trp, tras, trrd, trtp, trc);
 
-	if(!of_property_read_u32(pdev->dev.of_node, "mstar,rd-timing", &dtval)) {
-		dev_info(&pdev->dev, "Setting read back data delay to %d", (int) dtval);
+	//if(!of_property_read_u32(pdev->dev.of_node, "mstar,rd-timing", &dtval)) {
+	//	dev_info(&pdev->dev, "Setting read back data delay to %d", (int) dtval);
 		//regmap_update_bits(miu->digital, REG_CONFIG2, REG_CONFIG2_RD_TIMING, rd_timing);
-	}
+	//}
 
-	if(!of_property_read_u32(pdev->dev.of_node, "mstar,trcd", &dtval)) {
-		dev_info(&pdev->dev, "setting trcd to %d", (int) dtval);
-		msc313_miu_write_trcd(miu, dtval);
-	}
+	//if(!of_property_read_u32(pdev->dev.of_node, "mstar,trcd", &dtval)) {
+	//	dev_info(&pdev->dev, "setting trcd to %d", (int) dtval);
+	//	msc313_miu_write_trcd(miu, dtval);
+	//}
 
-	if(!of_property_read_u32(pdev->dev.of_node, "mstar,trp", &dtval)) {
-		dev_info(&pdev->dev, "setting trp to %d", (int) dtval);
-		msc313_miu_write_trp(miu, dtval);
-	}
+	//if(!of_property_read_u32(pdev->dev.of_node, "mstar,trp", &dtval)) {
+	//	dev_info(&pdev->dev, "setting trp to %d", (int) dtval);
+	//	msc313_miu_write_trp(miu, dtval);
+	//}
 
 	return msc313_miu_ddrpll_probe(pdev, miu);
 }
