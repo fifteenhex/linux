@@ -19,12 +19,13 @@
 
 &gpio {
 	compatible = "sstar,ssd20xd-gpio";
+	/delete-property/ gpio-ranges;
 	status = "okay";
 };
 
 &gpio_pm {
 	compatible = "mstar,ssd20xd-gpio-pm";
-	gpio-ranges = <&pinctrl MSC313_PM_SD_SDZ PIN_MSC313_PM_SD_CDZ 1>;
+	//gpio-ranges = <&pinctrl MSC313_PM_SD_SDZ PIN_MSC313_PM_SD_CDZ 1>;
 	interrupts-extended = <&intc_fiq GIC_SPI 23 IRQ_TYPE_LEVEL_HIGH>;
 	status = "okay";
 };
