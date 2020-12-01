@@ -19,6 +19,7 @@
 
 &gpio {
 	compatible = "sstar,ssd20xd-gpio";
+	/delete-property/ gpio-ranges;
 	status = "okay";
 };
 
