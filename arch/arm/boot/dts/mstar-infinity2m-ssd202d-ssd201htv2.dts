@@ -106,7 +106,7 @@
 
 &sdio {
 	vmmc-supply = <&sd_vdd>;
-	//status = "okay";
+	status = "okay";
 };
 
 &miu {
