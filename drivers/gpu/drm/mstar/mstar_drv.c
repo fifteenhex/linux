@@ -39,7 +39,7 @@ static struct drm_driver mstar_drv_driver = {
 	.major = 1,
 	.minor = 0,
 
-	DRM_GEM_CMA_VMAP_DRIVER_OPS,
+	DRM_GEM_CMA_DRIVER_OPS,
 };
 
 static int mstar_drv_bind(struct device *dev)

@@ -5,12 +5,14 @@
 #include <linux/platform_device.h>
 #include <linux/of_device.h>
 #include <linux/regmap.h>
+#include <linux/clk.h>
 
 #define DRIVER_NAME "mstar-pnl"
 
 struct mstar_pnl {
 	struct device *dev;
 	struct regmap *regmap;
+	struct clk *lpll;
 };
 
 static const struct regmap_config mstar_pnl_regmap_config = {
@@ -47,6 +49,10 @@ static int mstar_pnl_bind(struct device *dev, struct device *master,
 	pnl->regmap = devm_regmap_init_mmio(dev, regs, &mstar_pnl_regmap_config);
 	if(IS_ERR(pnl->regmap))
 		return PTR_ERR(pnl->regmap);
+
+	pnl->lpll = devm_clk_get(&pdev->dev, "lpll");
+	if (IS_ERR(pnl->lpll))
+		return PTR_ERR(pnl->lpll);
 
 	return 0;
 }
