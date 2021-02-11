@@ -319,6 +319,10 @@
 				#clock-cells = <1>;
 				reg = <0x206000 0x200>;
 				clocks = <&xtal>;
+				clock-output-names = "1f206000.mpll", "1f206000.mpll_div_2",
+						     "1f206000.mpll_div_3", "1f206000.mpll_div_4",
+						     "1f206000.mpll_div_5", "1f206000.mpll_div_6",
+						     "1f206000.mpll_div_7", "1f206000.mpll_div_10";
 			};
 
 			cpupll: cpupll@206400 {
