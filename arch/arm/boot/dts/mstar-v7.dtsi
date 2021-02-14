@@ -314,6 +314,15 @@
 				status = "disabled";
 			};
 
+			rtc: rtc@2400 {
+				compatible = "mstar,msc313-rtc";
+				reg = <0x2400 0x40>;
+				clocks = <&pm_muxes MSC313_PM_MUXES_RTC>;
+				interrupts-extended = <&intc_irq GIC_SPI 44 IRQ_TYPE_LEVEL_HIGH>,
+						      <&wakeintc 4 IRQ_TYPE_LEVEL_HIGH>;
+				wakeup-source;
+			};
+
 			sar: sar@2800 {
 				reg = <0x2800 0x200>;
 				interrupts-extended = <&intc_irq GIC_SPI 45 IRQ_TYPE_LEVEL_HIGH>,
