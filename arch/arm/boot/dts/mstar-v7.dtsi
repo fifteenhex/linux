@@ -111,6 +111,22 @@
 				mask = <0x79>;
 			};
 
+			pinctrl_pm: pinctrl@1c00 {
+				mstar,pmsleep = <&pmsleep>;
+				pm_uart_pins: pm_uart {
+					function = "pm_uart";
+					groups = "pm_uart";
+				};
+				pm_spi_pins: pm_spi {
+					function = "pm_spi";
+					groups = "pm_spi";
+				};
+				pm_irin_pins: pm_irin {
+					function = "pm_irin";
+					groups = "pm_irin";
+				};
+			};
+
 			watchdog@6000 {
 				compatible = "mstar,msc313e-wdt";
 				reg = <0x6000 0x1f>;
