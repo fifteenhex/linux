@@ -15,3 +15,11 @@
 	compatible = "sstar,ssd201-smpctrl", "mstar,smpctrl";
 	status = "okay";
 };
+
+&pinctrl {
+	compatible = "sstar,ssd20xd-pinctrl";
+	ttl_mode1_pins: ttl_mode1 {
+		function = "ttl";
+		groups = "ttl_mode1";
+	};
+};
