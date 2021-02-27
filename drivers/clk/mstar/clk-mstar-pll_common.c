@@ -9,7 +9,7 @@ int mstar_pll_common_probe(struct platform_device *pdev, struct mstar_pll **pll,
 		const struct clk_ops *clk_ops)
 {
 	struct mstar_pll_output* output;
-	struct clk_init_data *clk_init;
+	struct clk_init_data clk_init = { };
 	struct clk* clk;
 	int numparents, numoutputs, numrates, pllindex;
 	struct clk_onecell_data *clk_data;
@@ -61,16 +61,12 @@ int mstar_pll_common_probe(struct platform_device *pdev, struct mstar_pll **pll,
 		of_property_read_u32_index(pdev->dev.of_node, "clock-rates",
 				pllindex, &output->rate);
 
-		clk_init = devm_kzalloc(&pdev->dev, sizeof(*clk_init), GFP_KERNEL);
-		if (!clk_init)
-			return -ENOMEM;
-
-		output->clk_hw.init = clk_init;
+		output->clk_hw.init = &clk_init;
 		of_property_read_string_index(pdev->dev.of_node,
-				"clock-output-names", pllindex, &clk_init->name);
-		clk_init->ops = clk_ops;
-		clk_init->num_parents = 1;
-		clk_init->parent_names = parents;
+				"clock-output-names", pllindex, &clk_init.name);
+		clk_init.ops = clk_ops;
+		clk_init.num_parents = 1;
+		clk_init.parent_names = parents;
 
 		clk = clk_register(&pdev->dev, &output->clk_hw);
 		if (IS_ERR(clk)) {
