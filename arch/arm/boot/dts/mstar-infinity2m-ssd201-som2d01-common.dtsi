@@ -28,3 +28,11 @@
 		};
 	};
 };
+
+&usbphy0 {
+	status = "okay";
+};
+
+&uhc0 {
+	status = "okay";
+};
