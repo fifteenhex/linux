@@ -1421,6 +1421,7 @@ dtb-$(CONFIG_ARCH_MSTARV7) += \
 	mstar-infinity-msc313-breadbee_crust.dtb \
 	mstar-infinity2m-ssd201-som2d01.dtb \
 	mstar-infinity2m-ssd202d-gw302.dtb \
+	mstar-infinity2m-ssd202d-sbc2d70.dtb \
 	mstar-infinity2m-ssd202d-som2d01.dtb \
 	mstar-infinity2m-ssd202d-ssd201htv2.dtb \
 	mstar-infinity2m-ssd202d-unitv2.dtb \
