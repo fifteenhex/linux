@@ -4758,6 +4758,8 @@ static const struct macb_config msc313e_config = {
 #endif
 
 static const struct of_device_id macb_dt_ids[] = {
+//todo use the right arch defs..
+#ifndef CONFIG_ARCH_MSTARV7
 	{ .compatible = "cdns,at32ap7000-macb" },
 	{ .compatible = "cdns,at91sam9260-macb", .data = &at91sam9260_config },
 	{ .compatible = "cdns,macb" },
@@ -4778,6 +4780,7 @@ static const struct of_device_id macb_dt_ids[] = {
 	{ .compatible = "microchip,sama7g5-gem", .data = &sama7g5_gem_config },
 	{ .compatible = "microchip,sama7g5-emac", .data = &sama7g5_emac_config },
 	{ .compatible = "sifive,fu540-macb", .data = &fu540_c000_config },
+#endif
 #ifdef CONFIG_ARCH_MSTARV7
 	{ .compatible = "mstar,msc313-emac", .data = &msc313_config },
 	{ .compatible = "mstar,msc313e-emac", .data = &msc313e_config },
