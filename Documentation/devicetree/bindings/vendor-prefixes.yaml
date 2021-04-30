@@ -1274,6 +1274,8 @@ patternProperties:
     description: Winbond Electronics corp.
   "^winstar,.*":
     description: Winstar Display Corp.
+  "^wirelesstag,.*":
+    description: Shenzhen Wireless-Tag Technology Co., Ltd.
   "^wits,.*":
     description: Shenzhen Merrii Technology Co., Ltd. (WITS)
   "^wlf,.*":
