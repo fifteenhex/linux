@@ -21,3 +21,13 @@
                 reg = <0x10>;
         };
 };
+
+&i2c1 {
+        pinctrl-names = "default";
+        pinctrl-0 = <&i2c1_mode4_pins>;
+	status = "okay";
+        ts@5d {
+		compatible = "goodix,gt911";
+		reg = <0x5d>;
+	};
+};
