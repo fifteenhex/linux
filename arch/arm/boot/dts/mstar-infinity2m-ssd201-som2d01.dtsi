@@ -25,6 +25,14 @@
 		states = <1000000 0x1
 			  950000  0x0>;
 	};
+
+	vcc_dram: fixedregulator@1 {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_dram";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-boot-on;
+	};
 };
 
 &cpu0 {
@@ -66,4 +74,8 @@
 
 &emac {
 	status = "okay";
+};
+
+&miu {
+	ddr-supply = <&vcc_dram>;
 };
