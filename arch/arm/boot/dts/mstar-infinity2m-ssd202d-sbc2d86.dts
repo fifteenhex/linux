@@ -31,3 +31,8 @@
 		reg = <0x5d>;
 	};
 };
+
+&pwm {
+	pinctrl-names = "default";
+        pinctrl-0 = <&pwm0_mode3_pins>;
+};
