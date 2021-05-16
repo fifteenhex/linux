@@ -2221,6 +2221,7 @@ F:	arch/arm/mach-mstar/
 F:	drivers/clk/mstar/
 F:	drivers/gpio/gpio-msc313.c
 F:	drivers/pinctrl/pinctrl-msc313.c
+F:	drivers/pwm/pwm-msc313.c
 F:	drivers/pwm/pwm-msc313e.c
 F:	drivers/rtc/rtc-msc313.c
 F:	drivers/watchdog/msc313e_wdt.c
