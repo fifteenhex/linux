@@ -53,3 +53,8 @@
 	pinctrl-names = "default";
         pinctrl-0 = <&pwm0_mode3_pins>;
 };
+
+&pnl {
+	pinctrl-names = "default";
+	pinctrl-0 = <&tx_mipi_mode1_pins>;
+};
