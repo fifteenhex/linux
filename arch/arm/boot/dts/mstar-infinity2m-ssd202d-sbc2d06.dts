@@ -10,6 +10,14 @@
 / {
 	model = "SBC2D06 (SSD202D)";
 	compatible = "ido,sbc2d06", "mstar,infinity2m";
+
+	leds {
+		compatible = "gpio-leds";
+		sys_led {
+			gpios = <&gpio SSD20XD_GPIO_GPIO85 GPIO_ACTIVE_LOW>;
+			linux,default-trigger = "activity";
+		};
+	};
 };
 
 &emac {
