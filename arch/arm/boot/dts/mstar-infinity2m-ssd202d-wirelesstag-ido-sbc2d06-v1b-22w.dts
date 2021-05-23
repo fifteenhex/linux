@@ -29,12 +29,13 @@
 };
 
 &emac1 {
-	status = "okay";
-	phy-mode = "rmii";
-	phy-handle = <&phy0>;
-
 	#address-cells = <1>;
 	#size-cells = <0>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&eth1_mode4_pins>;
+	phy-mode = "rmii";
+	phy-handle = <&phy0>;
+	status = "okay";
 	phy0: ethernet-phy@0 {
 		reg = <0x0>;
 		phy-mode = "rmii";
