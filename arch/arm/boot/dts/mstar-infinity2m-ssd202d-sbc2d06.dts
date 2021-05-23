@@ -11,3 +11,20 @@
 	model = "SBC2D06 (SSD202D)";
 	compatible = "ido,sbc2d06", "mstar,infinity2m";
 };
+
+&emac {
+	status = "okay";
+};
+
+&emac1 {
+	status = "okay";
+	phy-mode = "rmii";
+	phy-handle = <&phy0>;
+
+	#address-cells = <1>;
+	#size-cells = <0>;
+	phy0: ethernet-phy@0 {
+		reg = <0x0>;
+		phy-mode = "rmii";
+	};
+};
