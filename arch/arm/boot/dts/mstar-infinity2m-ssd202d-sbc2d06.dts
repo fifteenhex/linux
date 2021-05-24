@@ -67,3 +67,8 @@
 		reset-deassert-us = <500000>;
 	};
 };
+
+&sdio {
+	vmmc-supply = <&vcc_sd>;
+	status = "okay";
+};
