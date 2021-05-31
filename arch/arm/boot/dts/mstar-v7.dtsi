@@ -308,6 +308,11 @@
 					interrupt-controller;
 					#interrupt-cells = <1>;
 				};
+
+				pm_muxes: pm_muxes@0 {
+					compatible = "mstar,msc313-pm-muxes";
+					#clock-cells = <1>;
+				};
 			};
 
 			reboot {
