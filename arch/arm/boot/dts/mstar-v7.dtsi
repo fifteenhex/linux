@@ -282,8 +282,13 @@
 				 * 0x1f001ccc  -- set to 9fe8 before deep sleep
 				 * 0x1f001cdc  -- set to 0xa5 before deep sleep
 				 */
-				compatible = "mstar,msc313-pmsleep", "syscon";
+				compatible = "mstar,msc313-pmsleep", "syscon", "simple-mfd";
 				reg = <0x1c00 0x100>;
+
+				pm_muxes: pm_muxes@0 {
+					compatible = "mstar,msc313-pm-muxes";
+					#clock-cells = <1>;
+				};
 			};
 
 			reboot {
