@@ -665,6 +665,7 @@
 				reg = <0x222300 0x100>;
 				interrupt-parent = <&intc_irq>;
 				interrupts = <GIC_SPI 39 IRQ_TYPE_LEVEL_HIGH>;
+				clocks = <&clkgen MSC313_CLKGEN_DEGLITCHES MSC313_CLKGEN_MSPI1 0>;
 				status = "disabled";
 			};
 
