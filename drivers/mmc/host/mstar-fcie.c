@@ -717,8 +717,10 @@ static int msc313_fcie_probe(struct platform_device *pdev)
 			return PTR_ERR(fcie->clk);
 	}
 	
-	clk_prepare_enable(fcie->clk);
-	
+	ret = clk_prepare_enable(fcie->clk);
+	if (ret)
+		return ret;
+
 	// enable interrupts
 	regmap_write(fcie->regmap, REG_INTMASK, INT_DATA_END | INT_CMD_END |
 			INT_BUSY_END | INT_ERR);
