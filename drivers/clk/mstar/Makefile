@@ -14,4 +14,3 @@ obj-$(CONFIG_MSTAR_MSC313_CLKGEN) += clk-msc313-clkgen.o
 
 obj-y += clk-mstar-pll_common.o \
 	 clk-msc313-mux.o
-
