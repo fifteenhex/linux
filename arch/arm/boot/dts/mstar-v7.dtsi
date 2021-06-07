@@ -1068,7 +1068,7 @@
 		usbphy1: usbphy@1 {
 			#phy-cells = <1>;
 			compatible = "mstar,msc313-usb-phy";
-			clocks = <&xtal12>;
+			clocks = <&xtal_div2>;
 			mstar,utmi = <&utmi1>;
 			mstar,usbc = <&usbc1>;
 			status = "disabled";
