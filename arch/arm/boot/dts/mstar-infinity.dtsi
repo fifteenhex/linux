@@ -73,7 +73,7 @@
 		compatible = "mstar,msc313-pwm";
 		reg = <0x1f001da0 0xc>;
 		#pwm-cells = <2>;
-		clocks = <&xtal12>;
+		clocks = <&xtal_div2>;
 		status = "disabled";
 	};
 
