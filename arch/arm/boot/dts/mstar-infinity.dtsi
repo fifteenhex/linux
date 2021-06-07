@@ -138,7 +138,7 @@
 		phys = <&fakephy0>;
 		mstar,usbc = <&usbc0>;
 		clock-names = "udc";
-		clocks = <&xtal12>;
+		clocks = <&xtal_div2>;
 		status = "disabled";
 	};
 };
