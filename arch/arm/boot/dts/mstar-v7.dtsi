@@ -1026,7 +1026,7 @@
 		usbphy0: usbphy@0 {
 			#phy-cells = <1>;
 			compatible = "mstar,msc313-usb-phy";
-			clocks = <&xtal12>;
+			clocks = <&xtal_div2>;
 			mstar,utmi = <&utmi0>;
 			mstar,usbc = <&usbc0>;
 			interrupts-extended = <&intc_irq GIC_SPI 30 IRQ_TYPE_LEVEL_HIGH>;
