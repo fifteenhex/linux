@@ -34,6 +34,12 @@
 		};
 	};
 
+	buttons {
+		button {
+			gpios = <&gpio SSD20XD_GPIO_GPIO2 GPIO_ACTIVE_LOW>;
+		};
+	};
+
 	vcc_core: regulator@0 {
 		compatible = "regulator-fixed";
 		regulator-name = "vcc_core";
