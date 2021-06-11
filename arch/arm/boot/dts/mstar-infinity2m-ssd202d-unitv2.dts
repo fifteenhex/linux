@@ -90,13 +90,14 @@
 	status = "okay";
 };
 
-//&usbphy1 {
-//	status = "okay";
-//};
+&usbphy2 {
+	vbus-supply = <&vcc_wifi>;
+	status = "okay";
+};
 
-//&uhc1 {
-//	status = "okay";
-//};
+&uhc2 {
+	status = "okay";
+};
 
 &emac {
 	status = "okay";
@@ -104,4 +105,8 @@
 
 &miu {
 	ddr-supply = <&vcc_dram>;
+};
+
+&sdio {
+	status = "okay";
 };
