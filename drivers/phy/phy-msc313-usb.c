@@ -13,6 +13,7 @@
 #include <linux/regmap.h>
 #include <linux/usb/mstar_usbc.h>
 #include <linux/usb/mstar_utmi.h>
+#include <linux/regulator/consumer.h>
 
 #define NUM_PORTS 2
 #define PORT_UHC 0
@@ -23,6 +24,7 @@ struct msc313_usb_phy {
 	struct phy *ports[NUM_PORTS];
 	struct regmap *utmi;
 	struct regmap *usbc;
+	struct regulator *vbus;
 };
 
 static int msc313_usb_phy_init(struct phy *phy)
@@ -192,6 +194,9 @@ static int msc313_usb_phy_probe(struct platform_device *pdev)
 		}
 		phy_set_drvdata(msc313_usb_phy->ports[i], msc313_usb_phy);
 	}
+
+	msc313_usb_phy->vbus = devm_regulator_get(dev, "vbus");
+	regulator_enable(msc313_usb_phy->vbus);
 
 	dev_set_drvdata(dev, msc313_usb_phy);
 
