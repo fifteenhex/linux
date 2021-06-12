@@ -441,8 +441,25 @@ MSC313_GPIO_CHIPDATA(msc313);
 			    SSD20XD_TTL_OFFSET_TTL26, \
 			    SSD20XD_TTL_OFFSET_TTL27
 
+/* ssd20x has different ordering of these pads */
+
+#define SSD20XD_OFF_SD_D0	0x140
+#define SSD20XD_OFF_SD_D1	0x144
+#define SSD20XD_OFF_SD_D2	0x148
+#define SSD20XD_OFF_SD_D3	0x14c
+#define SSD20XD_OFF_SD_CMD	0x150
+#define SSD20XD_OFF_SD_CLK	0x154
+
+#define SSD20XD_SD_OFFSETS	SSD20XD_OFF_SD_CLK, \
+				SSD20XD_OFF_SD_CMD, \
+				SSD20XD_OFF_SD_D0, \
+				SSD20XD_OFF_SD_D1, \
+				SSD20XD_OFF_SD_D2, \
+				SSD20XD_OFF_SD_D3,
+
 static const char * const ssd20xd_names[] = {
 	FUART_NAMES,
+	SD_NAMES,
 	SSD20XD_GPIO_NAMES,
 	SSD20XD_TTL_PINNAMES,
 	SSD20XD_UART0_NAMES,
@@ -450,6 +467,7 @@ static const char * const ssd20xd_names[] = {
 
 static const unsigned int ssd20xd_offsets[] = {
 	FUART_OFFSETS,
+	SSD20XD_SD_OFFSETS,
 	SSD20XD_GPIO_OFFSETS,
 	SSD20XD_TTL_OFFSETS,
 	SSD20XD_UART0_OFFSETS,
