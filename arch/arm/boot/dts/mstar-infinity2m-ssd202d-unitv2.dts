@@ -59,8 +59,8 @@
 	vcc_dram: regulator@2 {
 		compatible = "regulator-fixed";
 		regulator-name = "vcc_dram";
-		regulator-min-microvolt = <1800000>;
-		regulator-max-microvolt = <1800000>;
+		regulator-min-microvolt = <1500000>;
+		regulator-max-microvolt = <1500000>;
 		regulator-boot-on;
 	};
 
