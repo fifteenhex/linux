@@ -455,7 +455,7 @@ MSC313_GPIO_CHIPDATA(msc313);
 				SSD20XD_OFF_SD_D0, \
 				SSD20XD_OFF_SD_D1, \
 				SSD20XD_OFF_SD_D2, \
-				SSD20XD_OFF_SD_D3,
+				SSD20XD_OFF_SD_D3
 
 static const char * const ssd20xd_names[] = {
 	FUART_NAMES,
