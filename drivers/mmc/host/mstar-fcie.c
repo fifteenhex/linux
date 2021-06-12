@@ -632,7 +632,6 @@ static int msc313_fcie_probe(struct platform_device *pdev)
 {
 	struct mmc_host *mmc;
 	struct msc313_fcie *fcie;
-	struct resource *mem;
 	__iomem void *base;
 	int irq, ret = 0;
 	
@@ -647,9 +646,6 @@ static int msc313_fcie_probe(struct platform_device *pdev)
 
 	mmc->ops = &mstar_fcie_ops;
 
-	mmc->f_min = 300000;
-	mmc->f_max = 40000000;
-
 	fcie = mmc_priv(mmc);
 	init_waitqueue_head(&fcie->wait);
 
@@ -659,20 +655,16 @@ static int msc313_fcie_probe(struct platform_device *pdev)
 
 	mmc->ocr_avail	= MMC_VDD_32_33 | MMC_VDD_33_34;
 
-
-
 	fcie->dev = &pdev->dev;
-	
-	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	base = devm_ioremap_resource(&pdev->dev, mem);
+
+	base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(base))
 		return PTR_ERR(base);
 	
 	fcie->regmap = devm_regmap_init_mmio(&pdev->dev, base,
 				&msc313_fcie_regmap_config);
-	if(IS_ERR(fcie->regmap)){
+	if(IS_ERR(fcie->regmap))
 		return PTR_ERR(fcie->regmap);
-	}
 
 	fcie->clk_en = devm_regmap_field_alloc(&pdev->dev, fcie->regmap, sd_mode_clken_field);
 	fcie->bus_width = devm_regmap_field_alloc(&pdev->dev, fcie->regmap, sd_mode_buswidth_field);
@@ -720,9 +712,16 @@ static int msc313_fcie_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	// enable interrupts
-	regmap_write(fcie->regmap, REG_INTMASK, INT_DATA_END | INT_CMD_END |
-			INT_BUSY_END | INT_ERR);
+	mmc->f_min = clk_round_rate(fcie->clk, 400000);
+	mmc->f_max = clk_round_rate(fcie->clk, ~0);
+
+	printk("min %u, max %u\n", mmc->f_min, mmc->f_max);
+
+	/* enable interrupts */
+	regmap_write(fcie->regmap, REG_INTMASK, INT_DATA_END |
+						INT_CMD_END  |
+						INT_BUSY_END |
+						INT_ERR);
 
 	ret = mmc_add_host(mmc);
 
