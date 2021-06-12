@@ -563,7 +563,7 @@ static void mstar_fcie_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 
 	mstar_fcie_card_power(mmc, ios);
 
-	// setup the bus width
+	/* setup the bus width */
 	switch(ios->bus_width){
 		case MMC_BUS_WIDTH_1:
 			bw = 0;
@@ -579,15 +579,14 @@ static void mstar_fcie_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 	}
 	regmap_field_write(fcie->bus_width, bw);
 
-	// setup the clock
+	/* setup the clock */
 	if(ios->clock){
 		long roundedclk = clk_round_rate(fcie->clk, ios->clock);
-		if(roundedclk < 0){
-			dev_dbg(fcie->dev, "error rounding clock to %u, leaving clock alone\n", ios->clock);
-		}
+		if(roundedclk < 0)
+			dev_err(fcie->dev, "error rounding clock to %u: %ld, leaving clock alone\n", ios->clock, roundedclk);
 		else {
 			clk_set_rate(fcie->clk, roundedclk);
-			dev_dbg(fcie->dev, "requested clock rate %u became %ld\n", ios->clock, roundedclk);
+			dev_err(fcie->dev, "requested clock rate %u became %ld\n", ios->clock, roundedclk);
 		}
 		regmap_field_write(fcie->clk_en, 1);
 	}
