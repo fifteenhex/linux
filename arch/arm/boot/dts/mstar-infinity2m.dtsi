@@ -93,6 +93,13 @@
 	};
 };
 
+&soc {
+	//start address for second cpu
+	//0x1F20404C
+	//0x1F204050
+	//0x1F204058 -- unlock
+};
+
 &riu {
 	pwm: pwm@3400 {
 		compatible = "mstar,ssd20xd-pwm";
