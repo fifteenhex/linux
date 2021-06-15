@@ -99,6 +99,8 @@
 
 //#define SUPERDEBUG
 
+#define FCIE_CMD_TIMEOUT_MS	30000
+
 struct msc313_fcie {
 	struct device *dev;
 	struct regmap *regmap;
@@ -273,9 +275,11 @@ static bool mstar_fcie_parse_and_check_flags(struct msc313_fcie *fcie, unsigned 
 }
 
 static int mstar_fcie_start_transfer_and_wait(struct msc313_fcie *fcie,
-		bool cmd, bool data, bool busy, unsigned int* status)
+		bool cmd, bool data, bool busy, unsigned int timeout,
+		unsigned int* status)
 {
 	unsigned int intflags, ctrl, poll_timeout;
+	unsigned long timeout_jiffies = msecs_to_jiffies(timeout);
 
 	/* clear the flags and start the transfer */
 	regmap_field_write(fcie->status, ~0);
@@ -304,19 +308,22 @@ static int mstar_fcie_start_transfer_and_wait(struct msc313_fcie *fcie,
 	else {
 		/* wait until the interrupt fires and sets cmd_done */
 		if(cmd && !fcie->cmd_done){
-			if(wait_event_timeout(fcie->wait, fcie->cmd_done || fcie->error, HZ * 10) == 0)
+			if(wait_event_timeout(fcie->wait, fcie->cmd_done || fcie->error,
+					timeout_jiffies) == 0)
 				goto irq_timeout;
 		}
 
 		/* wait until the interrupt fires and sets data_done */
 		if(data && !fcie->data_done){
-			if(wait_event_timeout(fcie->wait, fcie->data_done || fcie->error, HZ * 10) == 0)
+			if(wait_event_timeout(fcie->wait, fcie->data_done || fcie->error,
+					timeout_jiffies) == 0)
 				goto irq_timeout;
 		}
 
 		/* wait until the interrupt fires and sets busy_done */
 		if(busy && !fcie->busy_done){
-			if(wait_event_timeout(fcie->wait, fcie->busy_done || fcie->error, HZ * 10) == 0)
+			if(wait_event_timeout(fcie->wait, fcie->busy_done || fcie->error,
+					timeout_jiffies) == 0)
 				goto irq_timeout;
 		}
 	}
@@ -432,8 +439,10 @@ static int mstar_fcie_request_prepcmd_and_tx(struct msc313_fcie *fcie, struct mm
 {
 	int rspsz = mstar_fcie_request_setupcmd(fcie, cmd);
 	unsigned int status;
+	unsigned int timeout =  cmd->busy_timeout ? cmd->busy_timeout : FCIE_CMD_TIMEOUT_MS;
 
-	if (mstar_fcie_start_transfer_and_wait(fcie, true, false, cmd->flags & MMC_RSP_BUSY, &status)) {
+	if (mstar_fcie_start_transfer_and_wait(fcie, true, false,
+			cmd->flags & MMC_RSP_BUSY, timeout, &status)) {
 		cmd->error = ETIMEDOUT;
 		return 1;
 	}
@@ -524,7 +533,8 @@ static void mstar_fcie_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		regmap_write(fcie->regmap, REG_DMA_LEN_H, dmalen >> 16);
 		regmap_write(fcie->regmap, REG_DMA_LEN_L, dmalen & 0xffff);
 		regmap_field_write(fcie->blk_cnt, blks);
-		if(mstar_fcie_start_transfer_and_wait(fcie, chkcmddone, true, false, &status)){
+		if(mstar_fcie_start_transfer_and_wait(fcie, chkcmddone, true,
+				false, data->timeout_ns, &status)){
 			data->error = ETIMEDOUT;
 			dev_err(fcie->dev, "data transfer timed out; cmd: 0x%02x arg: 0x%08x\n",
 					mrq->cmd->opcode, mrq->cmd->arg);
