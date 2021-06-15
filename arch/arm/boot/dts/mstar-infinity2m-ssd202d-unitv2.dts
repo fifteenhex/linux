@@ -43,8 +43,8 @@
 	vcc_core: regulator@0 {
 		compatible = "regulator-fixed";
 		regulator-name = "vcc_core";
-		regulator-min-microvolt = <900000>;
-		regulator-max-microvolt = <900000>;
+		regulator-min-microvolt = <950000>;
+		regulator-max-microvolt = <950000>;
 		regulator-boot-on;
 	};
 
