@@ -459,8 +459,11 @@ static void mstar_fcie_request(struct mmc_host *mmc, struct mmc_request *mrq)
 	 * run the command on it's own
 	 */
 	if (data == NULL || (data->flags & MMC_DATA_WRITE)) {
-		if(mstar_fcie_request_prepcmd_and_tx(fcie, mrq->cmd))
+		if(mstar_fcie_request_prepcmd_and_tx(fcie, mrq->cmd)) {
+			dev_err(fcie->dev, "failed to send command; cmd: 0x%02x arg: 0x%08x\n",
+					mrq->cmd->opcode, mrq->cmd->arg);
 			goto tfr_err;
+		}
 	}
 
 	if (!mrq->data)
@@ -523,6 +526,8 @@ static void mstar_fcie_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		regmap_field_write(fcie->blk_cnt, blks);
 		if(mstar_fcie_start_transfer_and_wait(fcie, chkcmddone, true, false, &status)){
 			data->error = ETIMEDOUT;
+			dev_err(fcie->dev, "data transfer timed out; cmd: 0x%02x arg: 0x%08x\n",
+					mrq->cmd->opcode, mrq->cmd->arg);
 			goto tfr_err;
 		}
 		/*
@@ -566,9 +571,11 @@ static void mstar_fcie_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		data->bytes_xfered += dmalen;
 	}
 
-	if (data->stop)
-		if(mstar_fcie_request_prepcmd_and_tx(fcie, data->stop))
-			goto tfr_err;
+	if (data->stop && mstar_fcie_request_prepcmd_and_tx(fcie, data->stop)) {
+		dev_err(fcie->dev, "stop command timeout; cmd: 0x%02x arg: 0x%08x\n",
+				mrq->data->stop->opcode, mrq->data->stop->arg);
+		goto data_stop_err;
+	}
 
 	dma_unmap_sg(fcie->dev, data->sg, data->sg_len, dir_data);
 
@@ -581,6 +588,7 @@ drv_err:
 tfr_err:
 	if(mrq->stop)
 		mstar_fcie_request_prepcmd_and_tx(fcie, mrq->stop);
+data_stop_err:
 	mmc_request_done(mmc, mrq);
 }
 
