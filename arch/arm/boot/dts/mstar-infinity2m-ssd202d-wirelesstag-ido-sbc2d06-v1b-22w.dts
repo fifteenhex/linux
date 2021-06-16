@@ -61,11 +61,11 @@
 	phy-handle = <&phy1>;
 	phy-mode = "rmii";
 	status = "okay";
+	reset-gpios = <&gpio SSD20XD_GPIO_TTL16 GPIO_ACTIVE_LOW>;
+	reset-assert-us = <500000>;
+	reset-deassert-us = <500000>;
 	phy1: ethernet-phy@1 {
 		reg = <1>;
-		reset-gpios = <&gpio SSD20XD_GPIO_TTL16 GPIO_ACTIVE_LOW>;
-		reset-assert-us = <500000>;
-		reset-deassert-us = <500000>;
 	};
 };
 
