@@ -1671,10 +1671,13 @@ static void vlv_dsi_add_properties(struct intel_connector *connector)
 
 	connector->base.state->scaling_mode = DRM_MODE_SCALE_ASPECT;
 
-	drm_connector_set_panel_orientation_with_quirk(&connector->base,
-						       intel_dsi_get_panel_orientation(connector),
-						       connector->panel.fixed_mode->hdisplay,
-						       connector->panel.fixed_mode->vdisplay);
+	drm_connector_init_panel_orientation_property(&connector->base);
+	drm_connector_set_panel_orientation_with_quirk(
+				&connector->base,
+				intel_dsi_get_panel_orientation(connector),
+				connector->panel.fixed_mode->hdisplay,
+				connector->panel.fixed_mode->vdisplay);
+	}
 }
 
 #define NS_KHZ_RATIO		1000000
