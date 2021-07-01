@@ -73,6 +73,10 @@
 	};
 };
 
+&cpu0 {
+	cpu-supply = <&vcc_core>;
+};
+
 &pm_uart {
 	status = "okay";
 };
