@@ -83,6 +83,10 @@
 	};
 };
 
+&cpu0 {
+	cpu-supply = <&reg_vcc_core>;
+};
+
 &pm_uart {
 	status = "okay";
 };
