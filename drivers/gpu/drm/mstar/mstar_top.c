@@ -37,18 +37,21 @@ static irqreturn_t mstar_top_irq(int irq, void *data)
 
 	regmap_field_force_write(top->vsync_pos_flag, 1);
 
+#if 0
 	if (top->drm_device && drm_dev_has_vblank(top->drm_device)) {
 		drm_for_each_crtc(crtc, top->drm_device){
-			drm_crtc_handle_vblank(crtc);
+		drm_crtc_handle_vblank(crtc);
 			spin_lock_irqsave(&crtc->dev->event_lock, flags);
 			if (crtc->state && crtc->state->event) {
 				printk("send event! %px\n",crtc->state->event);
 				drm_crtc_send_vblank_event(crtc, crtc->state->event);
+				drm_crtc_vblank_put(crtc);
 				crtc->state->event = NULL;
 			}
 			spin_unlock_irqrestore(&crtc->dev->event_lock, flags);
 		}
 	}
+#endif
 
 	return IRQ_HANDLED;
 }
@@ -118,6 +121,7 @@ static int mstar_top_probe(struct platform_device *pdev)
 static int mstar_top_remove(struct platform_device *pdev)
 {
 	component_del(&pdev->dev, &mstar_top_ops);
+
 	return 0;
 }
 
