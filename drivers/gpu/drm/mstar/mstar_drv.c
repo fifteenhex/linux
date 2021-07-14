@@ -42,10 +42,10 @@ static struct drm_driver mstar_drv_driver = {
 	DRM_GEM_CMA_DRIVER_OPS,
 };
 
-//static const struct drm_mode_config_funcs drv_mode_config_funcs = {
-//	.atomic_check = drm_atomic_helper_check,
-//	.atomic_commit = drm_atomic_helper_commit,
-//};
+static const struct drm_mode_config_funcs drv_mode_config_funcs = {
+	.atomic_check = drm_atomic_helper_check,
+	.atomic_commit = drm_atomic_helper_commit,
+};
 
 static int mstar_drv_bind(struct device *dev)
 {
@@ -78,7 +78,7 @@ static int mstar_drv_bind(struct device *dev)
 	drm->mode_config.min_height = 0;
 	drm->mode_config.max_width = 8198;
 	drm->mode_config.max_height = 8198;
-//	drm->mode_config.funcs = &drv_mode_config_funcs;
+	drm->mode_config.funcs = &drv_mode_config_funcs;
 
 	ret = component_bind_all(drm->dev, drm);
 	if (ret) {
@@ -87,9 +87,9 @@ static int mstar_drv_bind(struct device *dev)
 	}
 
 	/* drm_vblank_init calls kcalloc, which can fail */
-	ret = drm_vblank_init(drm, drm->mode_config.num_crtc);
-	if (ret)
-		goto cleanup_mode_config;
+	//ret = drm_vblank_init(drm, drm->mode_config.num_crtc);
+	//if (ret)
+	//	goto cleanup_mode_config;
 
 	drm->irq_enabled = true;
 
