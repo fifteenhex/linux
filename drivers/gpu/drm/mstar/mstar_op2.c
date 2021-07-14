@@ -32,8 +32,6 @@ static int mstar_op2_mode_set(struct drm_crtc *crtc, struct drm_display_mode *mo
 		struct drm_display_mode *adjusted_mode, int x, int y,
 		struct drm_framebuffer *old_fb)
 {
-	printk("%s\n", __func__);
-
 	return 0;
 }
 
@@ -95,8 +93,6 @@ static int mstar_op2_probe(struct platform_device *pdev)
 	struct mstar_op2 *op2;
 	struct regmap *regmap;
 	void __iomem *base;
-
-	dev_info(dev, "probe\n");
 
 	op2 = devm_kzalloc(dev, sizeof(*op2), GFP_KERNEL);
 	if (!op2)
