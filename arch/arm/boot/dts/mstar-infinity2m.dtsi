@@ -122,6 +122,14 @@
 		status = "disabled";
 	};
 
+	gpi: interrupt-controller@207a00 {
+		compatible = "sstar,ssd20xd-gpi";
+		reg = <0x207a00 0x200>;
+		#interrupt-cells = <2>;
+		interrupt-controller;
+		interrupts-extended = <&intc_irq GIC_SPI 56 IRQ_TYPE_LEVEL_HIGH>;
+	};
+
 	display@0 {
 		compatible = "sstar,ssd20xd-drm";
 		ports = <&mopg>,<&mops>,<&gop0>,<&gop1>,<&op2>,<&displaytop>, <&dsi>;
