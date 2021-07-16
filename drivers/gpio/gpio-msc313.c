@@ -490,7 +490,7 @@ static const unsigned int ssd20xd_offsets[] = {
 	SSD20XD_GPIO_OFFSETS,
 };
 
-MSC313_GPIO_CHIPDATA(ssd20xd);
+MSC313_GPIO_CHIPDATA(ssd20xd, msc313_gpio_populate_parent_fwspec, msc313e_gpio_child_to_parent_hwirq);
 #endif
 
 #ifdef CONFIG_MACH_MERCURY
