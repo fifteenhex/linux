@@ -46,6 +46,9 @@
         ts@5d {
 		compatible = "goodix,gt911";
 		reg = <0x5d>;
+		interrupts-extended = <&gpi 24 IRQ_TYPE_LEVEL_HIGH>;
+		reset-gpios = <&gpio SSD20XD_GPIO_TTL21 0>;
+		interrupt-gpios = <&gpio SSD20XD_GPIO_TTL20 0>;
 	};
 };
 
