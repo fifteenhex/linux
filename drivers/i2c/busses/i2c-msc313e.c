@@ -96,10 +96,11 @@ static const struct reg_field startstop_start_field = REG_FIELD(REG_STARTSTOP, 0
 static const struct reg_field startstop_stop_field = REG_FIELD(REG_STARTSTOP, 8, 8);
 
 static const struct reg_field wdata_data_field = REG_FIELD(REG_WDATA, 0, 7);
-static const struct reg_field wdata_ack_field = REG_FIELD(REG_WDATA, 8, 8);
+static const struct reg_field wdata_nack_field = REG_FIELD(REG_WDATA, 8, 8);
 
 static const struct reg_field rdata_data_field = REG_FIELD(REG_RDATA, 0, 7);
-static const struct reg_field rdata_trigack_field = REG_FIELD(REG_RDATA, 8, 9);
+static const struct reg_field rdata_readack_field = REG_FIELD(REG_RDATA, 9, 9);
+static const struct reg_field rdata_readtrig_field = REG_FIELD(REG_RDATA, 8, 8);
 
 static const struct reg_field status_state_field = REG_FIELD(REG_INT_STAT, 0, 4);
 static const struct reg_field status_int_field = REG_FIELD(REG_INT_STAT, 8, 13);
@@ -144,11 +145,12 @@ struct msc313e_i2c {
 
 	/* rx data fields */
 	struct regmap_field *rdata;
-	struct regmap_field *rtrigack;
+	struct regmap_field *read_trig;
+	struct regmap_field *read_ack;
 
 	/* tx data fields */
 	struct regmap_field *wdata;
-	struct regmap_field *ack;
+	struct regmap_field *write_nack;
 
 	struct regmap_field *stop;
 	struct regmap_field *state;
@@ -218,34 +220,6 @@ static int msc313e_i2c_waitforidle(struct msc313e_i2c *i2c)
 	return 0;
 }
 
-static int msc313_i2c_rxbyte(struct msc313e_i2c *i2c, bool last)
-{
-	unsigned int data;
-
-	i2c->done = false;
-	regmap_field_force_write(i2c->rtrigack, (last ? BIT(1) : 0) | BIT(0));
-	if(msc313e_i2c_waitforidle(i2c))
-		goto err;
-
-	regmap_field_read(i2c->rdata, &data);
-	return data;
-
-err:
-	return -1;
-}
-
-static int msc313_i2c_txbyte(struct msc313e_i2c *i2c, u8 byte)
-{
-	unsigned int ack;
-
-	i2c->done = false;
-	regmap_field_force_write(i2c->wdata, byte);
-	msc313e_i2c_waitforidle(i2c);
-	regmap_field_read(i2c->ack, &ack);
-
-	return ack;
-}
-
 static int msc313_i2c_xfer_dma(struct msc313e_i2c *i2c, struct i2c_msg *msg, u8 *dma_buf)
 {
 	bool read = msg->flags & I2C_M_RD;
@@ -291,40 +265,81 @@ static int msc313_i2c_xfer_dma(struct msc313e_i2c *i2c, struct i2c_msg *msg, u8 
 	return 0;
 }
 
+static int msc313_i2c_rxbyte(struct msc313e_i2c *i2c, bool last)
+{
+	unsigned int data;
+
+	i2c->done = false;
+
+	regmap_field_write(i2c->read_ack, (last ? 1 : 0));
+	regmap_field_force_write(i2c->read_trig, 1);
+
+	if(msc313e_i2c_waitforidle(i2c))
+		goto err;
+
+	regmap_field_read(i2c->rdata, &data);
+	return data;
+
+err:
+	return -ETIMEDOUT;
+}
+
+static int msc313_i2c_txbyte(struct msc313e_i2c *i2c, u8 byte)
+{
+	unsigned int nack;
+
+	i2c->done = false;
+
+	regmap_field_force_write(i2c->wdata, byte);
+	msc313e_i2c_waitforidle(i2c);
+
+	regmap_field_read(i2c->write_nack, &nack);
+
+	return nack ? -ENXIO : 0;
+}
+
 static int msc313_i2c_xfer_pio(struct msc313e_i2c *i2c, struct i2c_msg *msg)
 {
 	bool read = msg->flags & I2C_M_RD;
-	int i, ret;
-
-	printk("pio i2c read: %d, len: %d\n", msg->flags & I2C_M_RD, msg->len);
+	int i, ret = 0;
 
 	i2c->done = false;
 
 	regmap_field_force_write(i2c->start, 1);
 	msc313e_i2c_waitforidle(i2c);
 
-	if (msc313_i2c_txbyte(i2c, (msg->addr << 1) | read ? 1 : 0))
-		goto txerror;
+	ret = msc313_i2c_txbyte(i2c, (msg->addr << 1) | (read ? 1 : 0));
+	if (ret)
+		goto error;
 
 	for (i = 0; i < msg->len; i++){
-		if (read)
-			*(msg->buf + i) = msc313_i2c_rxbyte(i2c, i + 1 == msg->len);
-		else
-			if (msc313_i2c_txbyte(i2c, *(msg->buf + i)))
-				goto txerror;
+		if (read){
+			int b = msc313_i2c_rxbyte(i2c, i + 1 == msg->len);
+			if(b < 0){
+				ret = b;
+				goto error;
+			}
+
+			*(msg->buf + i) = b;
+		}
+		else {
+			ret = msc313_i2c_txbyte(i2c, *(msg->buf + i));
+			if (ret)
+				goto error;
+		}
 	}
 
-txerror:
+error:
 	regmap_field_force_write(i2c->stop, 1);
 	msc313e_i2c_waitforidle(i2c);
 
-	return 0;
+	return ret;
 }
 
 static int msc313_i2c_xfer(struct i2c_adapter *i2c_adap, struct i2c_msg msgs[],
 			    int num)
 {
-	int i, ret = 0;
+	int i, txed = 0, ret = 0;
 	struct msc313e_i2c *i2c = i2c_get_adapdata(i2c_adap);
 	u8 *dma_buf;
 
@@ -334,14 +349,22 @@ static int msc313_i2c_xfer(struct i2c_adapter *i2c_adap, struct i2c_msg msgs[],
 	for(i = 0; i < num; i++) {
 		struct i2c_msg *msg = &msgs[i];
 
-		dma_buf = i2c_get_dma_safe_msg_buf(msg, 8);
+		//dma_buf = i2c_get_dma_safe_msg_buf(msg, 8);
 
-		if(dma_buf)
-			msc313_i2c_xfer_dma(i2c, msg, dma_buf);
-		else
-			msc313_i2c_xfer_pio(i2c, msg);
+		//if(dma_buf)
+		//	msc313_i2c_xfer_dma(i2c, msg, dma_buf);
+		//else
+			ret = msc313_i2c_xfer_pio(i2c, msg);
+
+		if(ret)
+			goto abort;
+
+		txed++;
 	}
 
+	ret = txed;
+
+abort:
 	regmap_field_force_write(i2c->rst, 1);
 	mdelay(10);
 
@@ -424,9 +447,10 @@ static int msc313e_i2c_probe(struct platform_device *pdev)
 	msc313ei2c->stop = devm_regmap_field_alloc(&pdev->dev, msc313ei2c->regmap, startstop_stop_field);
 
 	msc313ei2c->rdata = devm_regmap_field_alloc(&pdev->dev, msc313ei2c->regmap, rdata_data_field);
-	msc313ei2c->rtrigack = devm_regmap_field_alloc(&pdev->dev, msc313ei2c->regmap, rdata_trigack_field);
+	msc313ei2c->read_trig = devm_regmap_field_alloc(&pdev->dev, msc313ei2c->regmap, rdata_readtrig_field);
+	msc313ei2c->read_ack = devm_regmap_field_alloc(&pdev->dev, msc313ei2c->regmap, rdata_readack_field);
 
-	msc313ei2c->ack = devm_regmap_field_alloc(&pdev->dev, msc313ei2c->regmap, wdata_ack_field);
+	msc313ei2c->write_nack = devm_regmap_field_alloc(&pdev->dev, msc313ei2c->regmap, wdata_nack_field);
 	msc313ei2c->wdata = devm_regmap_field_alloc(&pdev->dev, msc313ei2c->regmap, wdata_data_field);
 
 	msc313ei2c->state = devm_regmap_field_alloc(&pdev->dev, msc313ei2c->regmap, status_state_field);
