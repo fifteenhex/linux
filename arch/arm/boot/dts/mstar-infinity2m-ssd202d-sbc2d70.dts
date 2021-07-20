@@ -119,3 +119,12 @@
 		};
 	};
 };
+
+&usbphy2 {
+	//vbus-supply = <&vcc_vbus>;
+	status = "okay";
+};
+
+&uhc2 {
+	status = "okay";
+};
