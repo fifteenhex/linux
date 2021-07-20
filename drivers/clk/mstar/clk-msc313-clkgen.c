@@ -540,6 +540,15 @@ static const struct msc313_clkgen_parent_data sdio_parents[] = {
 };
 #define SDIO	MSC313_MUX_PARENT_DATA("sdio", sdio_parents, 0x114, 0, 2, 3, -1)
 
+/* ssd20xd only? */
+static const struct msc313_clkgen_parent_data mop_parents[] = {
+	PARENT_MUX(MSC313_CLKGEN_MIU), // wrong
+	PARENT_MUX(MSC313_CLKGEN_MIU), // wrong
+	PARENT_GATE(8),
+	PARENT_MUX(MSC313_CLKGEN_MIU),
+};
+#define MOP	MSC313_MUX_PARENT_DATA("mop", mop_parents, 0x150, 0, 2, 2, -1)
+
 static const struct msc313_clkgen_parent_data bdma_parents[] = {
 	PARENT_MUX(MSC313_CLKGEN_MIU),
 	PARENT_OF("xtal_div2_div40"),
@@ -609,6 +618,7 @@ static const struct msc313_mux_data ssd20xd_muxes[] = {
 	AESDMA,
 	MSC313_MUX_GAP(),
 	JPE,
+	MOP,
 };
 
 static const struct msc313_muxes_data ssd20xd_data = MSC313_MUXES_DATA(ssd20xd_muxes);
