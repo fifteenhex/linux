@@ -56,6 +56,19 @@
 		gpios = <&gpio SSD20XD_GPIO_GPIO90 0>;
 		enable-active-high;
 	};
+
+	panel@0 {
+		compatible = "chenchen,cc0702i50r";
+		reg = <0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&ttl_mode1_pins>;
+		//backlight = <&backlight>;
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&op2_out>;
+			};
+		};
+	};
 };
 
 &emac {
@@ -88,4 +101,21 @@
 	vmmc-supply = <&vcc_sd>;
 	pinctrl-0 = <&sdio_mode1_8ma_pins>;
 	status = "okay";
+};
+
+&display {
+	ports = <&mopg>,<&mops>,<&gop0>,<&gop1>,<&op2>,<&displaytop>;
+};
+
+&op2 {
+	status = "okay";
+
+	ports {
+		port@0 {
+			reg = <0>;
+			op2_out: endpoint {
+				remote-endpoint = <&panel_in>;
+			};
+		};
+	};
 };
