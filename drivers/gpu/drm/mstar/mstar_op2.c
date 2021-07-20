@@ -7,6 +7,8 @@
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
 
+#include "mstar_ttl.h"
+
 #define DRIVER_NAME "mstar-op2"
 
 struct mstar_op2 {
@@ -71,7 +73,8 @@ static int mstar_op2_bind(struct device *dev, struct device *master,
 	/* set the port so the encoder can find us */
 	op2->drm_crtc.port = of_graph_get_port_by_id(dev->of_node, 0);
 
-	return 0;
+	/* create a fake encoder for ttl output */
+	return mstar_ttl_init(drm, dev->of_node);
 }
 
 static void mstar_op2_unbind(struct device *dev, struct device *master,
