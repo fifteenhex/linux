@@ -578,6 +578,13 @@ static const struct msc313_clkgen_parent_data jpe_parents[] = {
 };
 #define JPE	MSC313_MUX_PARENT_DATA("jpe", jpe_parents, 0x1a8, 0, 2, 2, -1)
 
+/* SATA */
+static const struct msc313_clkgen_parent_data sata_parents[] = {
+	PARENT_GATE(9), // incorrect, should be utmi 240m
+	PARENT_GATE(8),
+};
+#define SATA	MSC313_MUX_PARENT_DATA("sata", sata_parents, 0x1b8, 0, 2, 2, -1)
+
 static const struct msc313_mux_data msc313_muxes[] = {
 	MIU,
 	DDR_SYN,
@@ -619,6 +626,7 @@ static const struct msc313_mux_data ssd20xd_muxes[] = {
 	MSC313_MUX_GAP(),
 	JPE,
 	MOP,
+	SATA,
 };
 
 static const struct msc313_muxes_data ssd20xd_data = MSC313_MUXES_DATA(ssd20xd_muxes);
