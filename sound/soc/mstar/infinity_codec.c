@@ -92,12 +92,11 @@ enum
 
 static const char *infinity_output_select[]  = {"DMA Reader", "ADC In", "Sine Gen"};
 static const struct soc_enum infinity_outsel_enum =
-  SOC_ENUM_SINGLE(AUD_PLAYBACK_MUX, 0, 3, infinity_output_select);
+		SOC_ENUM_SINGLE(AUD_PLAYBACK_MUX, 0, 3, infinity_output_select);
 
 #define OUTPUT_DMA	0
 #define OUTPUT_ADC_IN	1
 #define OUTPUT_SINE_GEN	2
-
 
 static u16 codec_reg_backup[AUD_REG_LEN] =
 {

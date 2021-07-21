@@ -1,6 +1,7 @@
-/*------------------------------------------------------------------------------
- *   Copyright (c) 2008 MStar Semiconductor, Inc.  All rights reserved.
- *------------------------------------------------------------------------------*/
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Copyright (C) 2021 Daniel Palmer <daniel@thingy.jp>
+ */
 
 #include <linux/module.h>
 #include <linux/interrupt.h>
@@ -18,6 +19,8 @@
 
 #include "infinity_pcm.h"
 #include "infinity.h"
+
+#define DRIVER_NAME "msc313-bach"
 
 struct infinity_soc {
 	struct snd_soc_dai_link_component cpu_dai_component;
@@ -133,14 +136,14 @@ static int infinity_soc_card_resume_post(struct snd_soc_card *card) {
 
 }
 
-static struct snd_soc_ops infinity_soc_ops = {
+static const struct snd_soc_ops infinity_soc_ops = {
 	.hw_params = infinity_soc_dai_link_hw_params,
 };
 
 static int infinity_audio_probe(struct platform_device *pdev) {
 	struct device *dev = &pdev->dev;
-	struct infinity_soc *soc;
 	struct device_node* device_node;
+	struct infinity_soc *soc;
 	int ret;
 
 	soc = devm_kzalloc(dev, sizeof(*soc), GFP_KERNEL);
@@ -199,19 +202,21 @@ static int infinity_audio_probe(struct platform_device *pdev) {
 
 int infinity_audio_remove(struct platform_device *pdev) {
 	struct infinity_soc *soc = dev_get_drvdata(&pdev->dev);
+
 	snd_soc_unregister_card(&soc->card);
+
 	return 0;
 }
 
 static const struct of_device_id infinity_audio_of_match[] = {
-		{ .compatible = "mstar,snd-infinity", },
+		{ .compatible = "mstar,msc313-bach", },
 		{ },
 };
 MODULE_DEVICE_TABLE(of, infinity_audio_of_match);
 
 static struct platform_driver infinity_audio = {
 	.driver = {
-		.name = "infinity-audio",
+		.name = DRIVER_NAME,
 		.owner = THIS_MODULE,
 		.pm = &snd_soc_pm_ops,
 		.of_match_table = infinity_audio_of_match,
@@ -219,7 +224,6 @@ static struct platform_driver infinity_audio = {
 	.probe = infinity_audio_probe,
 	.remove = infinity_audio_remove,
 };
-
 module_platform_driver(infinity_audio);
 
 MODULE_AUTHOR("Roger Lai, roger.lai@mstarsemi.com");
