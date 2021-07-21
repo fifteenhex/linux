@@ -1,6 +1,8 @@
-/*------------------------------------------------------------------------------
-	Copyright (c) 2008 MStar Semiconductor, Inc.  All rights reserved.
-------------------------------------------------------------------------------*/
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Copyright (C) 2021 Daniel Palmer <daniel@thingy.jp>
+ */
+
 #ifndef _INFINITY_PCM_H_
 #define _INFINITY_PCM_H_
 
