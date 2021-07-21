@@ -1,5 +1,7 @@
-// SWEET BABY JEZZZUS!!!
-//
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Copyright (C) 2021 Daniel Palmer <daniel@thingy.jp>
+ */
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -20,12 +22,6 @@
 #include <asm/io.h>
 
 #include "infinity.h"
-
-#define DELAY(x) mdelay(x)
-#define SLEEP(x) schedule_timeout(msecs_to_jiffies(x * 1000))
-#define UDELAY(x) udelay(x)		//CAPDELAY(1000*us)
-//extern DEVINFO_BOARD_TYPE ms_devinfo_board_type(void);
-#define BOARDNAME() 0x0801 //ms_devinfo_board_type()
 
 const U16 g_nInfinityDmaIntReg[BACH_DMA_NUM][BACH_DMA_INT_NUM] =
 {
@@ -127,6 +123,7 @@ U16 InfinityReadReg(BachRegBank_e nBank, U8 nAddr)
         ERRMSG("WAVEDEV.DLL: InfinityReadReg - ERROR bank default case!\n");
         return 0;
     }*/
+	return 0;
 }
 
 U32 InfinityRateToU32(BachRate_e eRate)
