@@ -42,12 +42,6 @@ static struct reg_field mux0_mmc1_src_field	= REG_FIELD(MSTAR_BACH_REG_MUX0_SEL,
 #define MSTAR_BACH_REG_DMA1_CTRL_14			(MSTAR_BACH_BANK_0 + 0x138)
 #define MSTAR_BACH_REG_DMA1_CTRL_15			(MSTAR_BACH_BANK_0 + 0x13c)
 
-#define MSTAR_BACH_REG_DMA_TEST_CTRL5			(MSTAR_BACH_BANK_0 + 0x1d4)
-static struct reg_field sine_gen_en_field   = REG_FIELD(MSTAR_BACH_REG_DMA_TEST_CTRL5, 15, 15);
-static struct reg_field sine_gen_len_field  = REG_FIELD(MSTAR_BACH_REG_DMA_TEST_CTRL5, 14, 14);
-static struct reg_field sine_gen_ren_field  = REG_FIELD(MSTAR_BACH_REG_DMA_TEST_CTRL5, 13, 13);
-static struct reg_field sine_gen_gain_field = REG_FIELD(MSTAR_BACH_REG_DMA_TEST_CTRL5, 4, 7);
-static struct reg_field sine_gen_freq_field = REG_FIELD(MSTAR_BACH_REG_DMA_TEST_CTRL5, 0, 3);
 
 #define MSTAR_BACH_REG_DMA_TEST_CTRL7 (MSTAR_BACH_BANK_0 + 0x1dc)
 
