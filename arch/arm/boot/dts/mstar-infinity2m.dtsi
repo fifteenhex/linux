@@ -135,6 +135,11 @@
 		ports = <&mopg>,<&mops>,<&gop0>,<&gop1>,<&op2>,<&displaytop>,<&dsi>;
 	};
 
+	ge: ge@224000 {
+		// TBC, address from DTS
+		reg = <0x224000 0x200>;
+	};
+
 	displaytop: top@225000 {
 		compatible = "sstar,ssd20xd-display-top";
 		reg = <0x225000 0x200>;
