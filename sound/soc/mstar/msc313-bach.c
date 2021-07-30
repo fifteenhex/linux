@@ -3,6 +3,7 @@
  * Copyright (C) 2021 Daniel Palmer <daniel@thingy.jp>
  */
 
+#include <linux/clk.h>
 #include <linux/module.h>
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
@@ -27,13 +28,22 @@
 
 #define DRIVER_NAME "msc313-bach"
 
+struct msc313_bach_dma_sub_channel {
+
+};
+
 struct msc313_bach_dma_channel {
 	struct regmap_field *rst;
 	struct regmap_field *en;
+	struct regmap_field *rd_underrun_int_clear;
 	struct regmap_field *rd_underrun_int_en;
+
+	struct msc313_bach_dma_sub_channel reader_writer[2];
 };
 
 struct msc313_bach {
+	struct clk *clk;
+
 	struct snd_soc_dai_link_component cpu_dai_component;
 	struct snd_soc_dai_link_component platform_component;
 	struct snd_soc_dai_link_component codec_component;
@@ -44,14 +54,8 @@ struct msc313_bach {
 	struct regmap *bach;
 
 	/* DMA */
-	struct msc313_bach_dma_channel dma_channels[2];
+	struct msc313_bach_dma_channel dma_channels[1];
 };
-
-//#define MSTAR_BACH_REG_DMA_TEST_CTRL5	(MSTAR_BACH_BANK_0 + 0x1d4)
-//static struct reg_field sine_gen_len_field  = REG_FIELD(MSTAR_BACH_REG_DMA_TEST_CTRL5, 14, 14);
-//static struct reg_field sine_gen_ren_field  = REG_FIELD(MSTAR_BACH_REG_DMA_TEST_CTRL5, 13, 13);
-//static struct reg_field sine_gen_gain_field = REG_FIELD(MSTAR_BACH_REG_DMA_TEST_CTRL5, 4, 7);
-//static struct reg_field sine_gen_freq_field = REG_FIELD(MSTAR_BACH_REG_DMA_TEST_CTRL5, 0, 3);
 
 /* Bank 1 */
 #define REG_MUX0SEL	0xc
@@ -67,28 +71,6 @@ struct msc313_bach {
 #define REG_ATOP_ANALOG_CTRL3	(REG_ATOP_OFFSET + 0xc)
 
 /* cpu dai */
-
-struct msc313_bach_dma_params {
-	int x;
-};
-
-struct msc313_bach_dma_params xxx = {
-
-};
-
-static int msc313_bach_cpu_dai_startup(struct snd_pcm_substream *substream, struct snd_soc_dai *dai)
-{
-	printk("%s:%d\n", __func__, __LINE__);
-
-	snd_soc_dai_set_dma_data(dai, substream, &xxx);
-
-	return 0;
-}
-
-static const struct snd_soc_dai_ops msc313_bach_cpu_dai_ops = {
-	.startup	= msc313_bach_cpu_dai_startup,
-};
-
 struct snd_soc_dai_driver msc313_bach_cpu_dai_drv = {
 	.name = "msc313-bach-cpu-dai",
 	.playback =
@@ -105,7 +87,6 @@ struct snd_soc_dai_driver msc313_bach_cpu_dai_drv = {
 		.rates		= SNDRV_PCM_RATE_8000_48000,
 		.formats	= SNDRV_PCM_FMTBIT_S16_LE,
 	},
-	//.ops = &msc313_bach_cpu_dai_ops,
 };
 
 static const struct snd_soc_component_driver msc313_bach_cpu_component = {
@@ -377,6 +358,7 @@ static const struct snd_pcm_hardware msc313_bach_pcm_capture_hardware =
 static int msc313_bach_pcm_open(struct snd_soc_component *component,
 		struct snd_pcm_substream *substream)
 {
+	struct msc313_bach *bach = snd_soc_card_get_drvdata(component->card);
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	int ret;
 
@@ -393,13 +375,48 @@ static int msc313_bach_pcm_open(struct snd_soc_component *component,
 		return -EINVAL;
 	}
 
+	regmap_field_write(bach->dma_channels[0].rst, 0);
+
+	return 0;
+}
+
+static int msc313_bach_pcm_close(struct snd_soc_component *component,
+		struct snd_pcm_substream *substream)
+{
+	struct msc313_bach *bach = snd_soc_card_get_drvdata(component->card);
+	struct snd_pcm_runtime *runtime = substream->runtime;
+	int ret;
+
+	printk("%s:%d\n", __func__, __LINE__);
+
+	regmap_field_write(bach->dma_channels[0].rst, 1);
+
 	return 0;
 }
 
 static int msc313_bach_pcm_trigger(struct snd_soc_component *component,
 		struct snd_pcm_substream *substream, int cmd)
 {
+	struct msc313_bach *bach = snd_soc_card_get_drvdata(component->card);
+	int ret = 0;
+
 	printk("%s:%d\n", __func__, __LINE__);
+
+	switch (cmd) {
+	case SNDRV_PCM_TRIGGER_START:
+	case SNDRV_PCM_TRIGGER_RESUME:
+		regmap_field_write(bach->dma_channels[1].en, 1);
+		//regmap_field_write(bach->dma_channels[0].rd_underrun_int_en, 1);
+		break;
+
+	case SNDRV_PCM_TRIGGER_STOP:
+	case SNDRV_PCM_TRIGGER_SUSPEND:
+		regmap_field_write(bach->dma_channels[1].en, 0);
+		//regmap_field_write(bach->dma_channels[0].rd_underrun_int_en, 0);
+		break;
+	default:
+		ret = -EINVAL;
+	}
 
 	return 0;
 }
@@ -417,6 +434,7 @@ static const struct snd_soc_component_driver msc313_soc_pcm_drv = {
 	.open		= msc313_bach_pcm_open,
 	.trigger	= msc313_bach_pcm_trigger,
 	.pointer	= msc313_bach_pcm_pointer,
+	.close		= msc313_bach_pcm_close,
 };
 /* pcm */
 
@@ -428,7 +446,11 @@ static const struct regmap_config msc313_bach_regmap_config = {
 
 static irqreturn_t msc313_bach_irq(int irq, void *data)
 {
-	printk("bach irq\n");
+	struct msc313_bach *bach = data;
+
+	//printk("bach irq\n");
+
+	regmap_field_force_write(bach->dma_channels[0].rd_underrun_int_clear, 1);
 
 	return IRQ_HANDLED;
 }
@@ -442,12 +464,15 @@ static int msc313_bach_probe(struct platform_device *pdev)
 	struct snd_soc_card *card;
 	struct msc313_bach *bach;
 	void __iomem *base;
-	int i, ret, irq;
+	int i, j, ret, irq;
 
 	/* Get the resources we need to probe the components */
 	bach = devm_kzalloc(dev, sizeof(*bach), GFP_KERNEL);
 	if(IS_ERR(bach))
 		return PTR_ERR(bach);
+
+	bach->clk = devm_clk_get(&pdev->dev, NULL);
+	clk_prepare_enable(bach->clk);
 
 	base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(base))
@@ -466,11 +491,22 @@ static int msc313_bach_probe(struct platform_device *pdev)
 		unsigned int chan_offset = 0x100 + (0x40 * i);
 		struct reg_field chan_rst_field = REG_FIELD(chan_offset + 0x0, 0, 0);
 		struct reg_field chan_en_field = REG_FIELD(chan_offset + 0x0, 1, 1);
+		struct reg_field chan_rd_underrun_int_clear_field = REG_FIELD(chan_offset + 0x0, 8, 8);
 		struct reg_field chan_rd_underrun_int_en_field = REG_FIELD(chan_offset + 0x0, 13, 13);
 
 		chan->rst = devm_regmap_field_alloc(dev, bach->bach, chan_rst_field);
 		chan->en = devm_regmap_field_alloc(dev, bach->bach, chan_en_field);
+		chan->rd_underrun_int_clear = devm_regmap_field_alloc(dev, bach->bach, chan_rd_underrun_int_clear_field);
 		chan->rd_underrun_int_en = devm_regmap_field_alloc(dev, bach->bach, chan_rd_underrun_int_en_field);
+
+		for (j = 0; j < ARRAY_SIZE(chan->reader_writer); j++){
+			struct msc313_bach_dma_sub_channel *sub = &chan->reader_writer[j];
+			unsigned int sub_chan_offset = chan_offset + 4 + (0x20 * j);
+			struct reg_field sub_chan_overrunthreshold_field = REG_FIELD(sub_chan_offset + 0x10, 15, 0);
+			struct reg_field sub_chan_underrunthreshold_field = REG_FIELD(sub_chan_offset + 0x14, 15, 0);
+		}
+
+		regmap_field_write(chan->rst, 1);
 	}
 
 	/* probe the components */
