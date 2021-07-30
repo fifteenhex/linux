@@ -117,6 +117,10 @@
 		clocks = <&xtal_div2>;
 	};
 
+	rtcpwc@6800 {
+		reg = <0x6800 0x200>;
+	};
+
 	smpctrl: smpctrl@204000 {
 		reg = <0x204000 0x200>;
 		status = "disabled";
