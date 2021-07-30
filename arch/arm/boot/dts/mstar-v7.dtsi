@@ -937,42 +937,22 @@
 				//clocks = <&clkgen_mux_gop 0>;
 				status = "disabled";
 			};
-		};
 
-		atop: syscon@1f206800 {
-			compatible = "syscon";
-			reg = <0x1f206800 0x600>;
-		};
+			audiotop: syscon@206800 {
+				compatible = "syscon";
+				reg = <0x206800 0x200>;
+			};
 
-		/* bach */
-		bach: syscon@1f2a0400 {
-			compatible = "syscon";
-			reg = <0x1f2a0400 0x600>;
-		};
-
-		bach_codec: bach_codec@0 {
-			compatible = "mstar,snd-infinity-codec";
-			mstar,atop = <&atop>;
-			mstar,bach = <&bach>;
-		};
-
-		bach_cpu: bach_cpu@0 {
-			compatible = "mstar,snd-infinity-cpu";
-			mstar,bach = <&bach>;
-		};
-
-		bach_pcm: bach_pcmm@0 {
-			compatible = "mstar,snd-infinity-pcm";
-			mstar,bach = <&bach>;
-		};
-
-		sound: sound@0 {
-			compatible = "mstar,snd-infinity";
-			interrupt-parent = <&intc_irq>;
-			interrupts = <GIC_SPI 42 IRQ_TYPE_LEVEL_HIGH>;
-			mstar,bach-cpu = <&bach_cpu>;
-			mstar,bach-platform = <&bach_pcm>;
-			mstar,bach-codec = <&bach_codec>;
+			bach: bach@2a0400 {
+				compatible = "mstar,msc313-bach";
+				reg = <0x2a0400 0x600>;
+				clocks = <&clkgen MSC313_CLKGEN_GATES 0 0>;
+				interrupt-parent = <&intc_irq>;
+				interrupts = <GIC_SPI 42 IRQ_TYPE_LEVEL_HIGH>;
+				interconnect-names = "dma-mem";
+				interconnects = <&miu 0>;
+				mstar,audiotop = <&audiotop>;
+			};
 		};
 
 		/* csi - camera interface */
