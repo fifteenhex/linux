@@ -29,7 +29,7 @@
 #define DRIVER_NAME "msc313-bach"
 
 struct msc313_bach_dma_sub_channel {
-
+	struct regmap_field *overrunthreshold;
 };
 
 struct msc313_bach_dma_channel {
@@ -502,8 +502,8 @@ static int msc313_bach_probe(struct platform_device *pdev)
 		for (j = 0; j < ARRAY_SIZE(chan->reader_writer); j++){
 			struct msc313_bach_dma_sub_channel *sub = &chan->reader_writer[j];
 			unsigned int sub_chan_offset = chan_offset + 4 + (0x20 * j);
-			struct reg_field sub_chan_overrunthreshold_field = REG_FIELD(sub_chan_offset + 0x10, 15, 0);
-			struct reg_field sub_chan_underrunthreshold_field = REG_FIELD(sub_chan_offset + 0x14, 15, 0);
+			struct reg_field sub_chan_overrunthreshold_field = REG_FIELD(sub_chan_offset + 0x10, 0, 15);
+			struct reg_field sub_chan_underrunthreshold_field = REG_FIELD(sub_chan_offset + 0x14, 0, 15);
 		}
 
 		regmap_field_write(chan->rst, 1);
