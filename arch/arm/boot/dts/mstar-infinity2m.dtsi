@@ -118,6 +118,7 @@
 	};
 
 	rtcpwc@6800 {
+		compatible = "sstar,ssd20xd-rtcpwc";
 		reg = <0x6800 0x200>;
 	};
 
