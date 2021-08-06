@@ -13,6 +13,7 @@
 
 struct reg_field base_wr_field = REG_FIELD(0x0, 1, 1);
 struct reg_field base_rd_field = REG_FIELD(0x0, 2, 2);
+struct reg_field cnt_rst_field = REG_FIELD(0x0, 3, 3);
 struct reg_field iso_ctrl_field = REG_FIELD(0xc, 0, 2);
 struct reg_field wrdata_l_field = REG_FIELD(0x10, 0, 15);
 struct reg_field wrdata_h_field = REG_FIELD(0x14, 0, 15);
@@ -28,7 +29,7 @@ struct reg_field iso_en_field = REG_FIELD(0x54, 0, 0);
 
 struct ssd20xd_rtcpwc {
 	struct rtc_device *rtc_dev;
-	struct regmap_field *base_wr, *base_rd;
+	struct regmap_field *base_wr, *base_rd, *cnt_rst;
 	struct regmap_field *iso_ctrl, *iso_ctrl_ack, *iso_en;
 	struct regmap_field *wrdata_l, *wrdata_h;
 	struct regmap_field *rddata_l, *rddata_h;
@@ -49,8 +50,8 @@ static int ssd20xd_rtcpwc_isoctrl(struct ssd20xd_rtcpwc *rtcpwc)
 	 * The vendor code has this as part of the sequence
 	 * but after testing this doesn't trigger a change in the
 	 * ack bit. Instead the vendor code has a loop that breaks
-	 * when ack is zero but the ack bit is always zero so it's
-	 * pointless. I think the intention here is to reset the
+	 * when ack is zero but the ack bit is zero until 0x1 is written
+	 * so it's pointless. I think the intention here is to reset the
 	 * register to zero and it isn't actually part of the
 	 * sequence.
 	 */
@@ -95,9 +96,9 @@ static int ssd20xd_rtcpwc_isoctrl(struct ssd20xd_rtcpwc *rtcpwc)
 	return 0;
 }
 
-static int ssd20xd_rtcpwc_read_base(struct ssd20xd_rtcpwc *priv)
+static int ssd20xd_rtcpwc_read_base(struct ssd20xd_rtcpwc *priv, unsigned int *base)
 {
-	unsigned l, h, base;
+	unsigned l, h;
 
 	regmap_field_write(priv->base_rd, 1);
 	ssd20xd_rtcpwc_isoctrl(priv);
@@ -105,9 +106,34 @@ static int ssd20xd_rtcpwc_read_base(struct ssd20xd_rtcpwc *priv)
 	regmap_field_read(priv->rddata_h, &h);
 	regmap_field_write(priv->base_rd, 0);
 
-	base = (h << 16) | l;
+	*base = (h << 16) | l;
 
-	printk("base --- %x\n", base);
+	printk("base --- %x\n", *base);
+
+	return 0;
+}
+
+static int ssd20xd_rtcpwc_read_counter(struct ssd20xd_rtcpwc *priv, unsigned int *counter)
+{
+	unsigned int updating, l, h;
+	int ret;
+
+	regmap_field_write(priv->rdcnt_trig, 1);
+	/*
+	 * If the rtc isn't running for some reason the updating bit never clears
+	 * and a deadlock happens. So only let this spin for 1s at most.
+	 */
+	ret = regmap_field_read_poll_timeout(priv->cnt_updating, updating, !updating, 0, 1000000);
+	if(ret)
+		return ret;
+
+	regmap_field_read(priv->rdcnt_l, &l);
+	regmap_field_read(priv->rdcnt_h, &h);
+	regmap_field_write(priv->rdcnt_trig, 0);
+
+	*counter = (h << 16) | l;
+
+	printk("counter --- %x\n", *counter);
 
 	return 0;
 }
@@ -115,52 +141,46 @@ static int ssd20xd_rtcpwc_read_base(struct ssd20xd_rtcpwc *priv)
 static int ssd20xd_rtcpwc_read_time(struct device *dev, struct rtc_time *tm)
 {
 	struct ssd20xd_rtcpwc *priv = dev_get_drvdata(dev);
-	unsigned updating, l, h;
+	unsigned int base, counter;
 	u32 seconds;
 
-	regmap_field_write(priv->rdcnt_trig, 1);
-	regmap_field_read_poll_timeout(priv->cnt_updating, updating, !updating, 0, 0);
-	regmap_field_read(priv->rdcnt_l, &l);
-	regmap_field_read(priv->rdcnt_h, &h);
-	regmap_field_write(priv->rdcnt_trig, 0);
+	ssd20xd_rtcpwc_read_base(priv, &base);
+	ssd20xd_rtcpwc_read_counter(priv, &counter);
 
-	seconds = h << 16 | l;
+	seconds = base + counter;
 
 	rtc_time64_to_tm(seconds, tm);
 
 	return 0;
 }
 
-static int ssd20xd_rtcpwc_write_base(struct ssd20xd_rtcpwc* priv)
+static int ssd20xd_rtcpwc_write_base(struct ssd20xd_rtcpwc* priv, u32 base)
 {
 	regmap_field_write(priv->base_wr, 1);
-	regmap_field_write(priv->wrdata_l, 0xaba3);
-	regmap_field_write(priv->wrdata_h, 0x5b5b);
+	regmap_field_write(priv->wrdata_l, base);
+	regmap_field_write(priv->wrdata_h, base >> 16);
 	ssd20xd_rtcpwc_isoctrl(priv);
 	regmap_field_write(priv->base_wr, 0);
 
 	return 0;
 }
+
+static int ssd20xd_rtcpwc_reset_counter(struct ssd20xd_rtcpwc* priv)
+{
+	regmap_field_write(priv->cnt_rst, 1);
+	ssd20xd_rtcpwc_isoctrl(priv);
+	regmap_field_write(priv->cnt_rst, 0);
+
+	return 0;
+}
+
 static int ssd20xd_rtcpwc_set_time(struct device *dev, struct rtc_time *tm)
 {
 	struct ssd20xd_rtcpwc *priv = dev_get_drvdata(dev);
-	unsigned long seconds;
+	unsigned long seconds = rtc_tm_to_time64(tm);
 
-	ssd20xd_rtcpwc_write_base(priv);
-	ssd20xd_rtcpwc_read_base(priv);
-
-#if 0
-	seconds = rtc_tm_to_time64(tm);
-	writew(seconds & 0xFFFF, priv->rtc_base + REG_RTC_LOAD_VAL_L);
-	writew((seconds >> 16) & 0xFFFF, priv->rtc_base + REG_RTC_LOAD_VAL_H);
-	reg = readw(priv->rtc_base + REG_RTC_CTRL);
-	writew(reg | LOAD_EN_BIT, priv->rtc_base + REG_RTC_CTRL);
-
-	/* need to check carefully if we want to clear REG_RTC_LOAD_VAL_H for customer*/
-	while (readw(priv->rtc_base + REG_RTC_CTRL) & LOAD_EN_BIT)
-		udelay(1);
-	writew(0, priv->rtc_base + REG_RTC_LOAD_VAL_H);
-#endif
+	ssd20xd_rtcpwc_write_base(priv, seconds);
+	ssd20xd_rtcpwc_reset_counter(priv);
 
 	return 0;
 }
@@ -203,6 +223,10 @@ static int ssd20xd_rtcpwc_probe(struct platform_device *pdev)
 	priv->base_rd = devm_regmap_field_alloc(dev, regmap, base_rd_field);
 	if(IS_ERR(priv->base_rd))
 		return PTR_ERR(priv->base_rd);
+
+	priv->cnt_rst = devm_regmap_field_alloc(dev, regmap, cnt_rst_field);
+	if(IS_ERR(priv->cnt_rst))
+		return PTR_ERR(priv->cnt_rst);
 
 	priv->iso_ctrl = devm_regmap_field_alloc(dev, regmap, iso_ctrl_field);
 	if(IS_ERR(priv->iso_ctrl))
