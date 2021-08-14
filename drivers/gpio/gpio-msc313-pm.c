@@ -116,33 +116,40 @@ struct msc313_pm_gpio {
 	const struct msc313_pm_gpio_data *info;
 };
 
-static void msc313_pm_gpio_irq_eoi(struct irq_data *data){
-	__iomem void *addr = data->chip_data;
+static void msc313_pm_gpio_irq_eoi(struct irq_data *data)
+{
+	void __iomem *addr = data->chip_data;
 	u16 reg = readw_relaxed(addr);
+
 	reg |= BIT_IRQ_CLEAR;
 	writew_relaxed(reg, addr);
 	irq_chip_eoi_parent(data);
 };
 
-static void msc313_pm_gpio_irq_mask(struct irq_data *data){
-	__iomem void *addr = data->chip_data;
+static void msc313_pm_gpio_irq_mask(struct irq_data *data)
+{
+	void __iomem *addr = data->chip_data;
 	u16 reg = readw_relaxed(addr);
+
 	reg |= BIT_IRQ_MASK;
 	writew_relaxed(reg, addr);
 	irq_chip_mask_parent(data);
 };
 
-static void msc313_pm_gpio_irq_unmask(struct irq_data *data){
-	__iomem void *addr = data->chip_data;
+static void msc313_pm_gpio_irq_unmask(struct irq_data *data)
+{
+	void __iomem *addr = data->chip_data;
 	u16 reg = readw_relaxed(addr);
 	reg &= ~BIT_IRQ_MASK;
 	writew_relaxed(reg, addr);
 	irq_chip_unmask_parent(data);
 }
 
-static int msc313_pm_gpio_irq_set_type(struct irq_data *data, unsigned int flow_type){
-	__iomem void *addr = data->chip_data;
+static int msc313_pm_gpio_irq_set_type(struct irq_data *data, unsigned int flow_type)
+{
+	void __iomem *addr = data->chip_data;
 	u16 reg = readw_relaxed(addr);
+
 	if(flow_type)
 		reg &= BIT_IRQ_TYPE;
 	else
@@ -163,8 +170,9 @@ static struct irq_chip msc313_pm_gpio_irqchip = {
 static void msc313e_pm_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
 {
 	struct msc313_pm_gpio *priv = gpiochip_get_data(chip);
-	__iomem void *addr = priv->base + priv->info->offsets[offset];
+	void __iomem *addr = priv->base + priv->info->offsets[offset];
 	u16 reg = readw_relaxed(addr);
+
 	if(value)
 		reg |= BIT_OUT;
 	else
@@ -182,7 +190,7 @@ static int msc313e_pm_gpio_get(struct gpio_chip *chip, unsigned offset)
 static int msc313e_pm_gpio_direction_input(struct gpio_chip *chip, unsigned offset)
 {
 	struct msc313_pm_gpio *priv = gpiochip_get_data(chip);
-	__iomem void *addr = priv->base + priv->info->offsets[offset];
+	void __iomem *addr = priv->base + priv->info->offsets[offset];
 	u16 reg = readw_relaxed(addr);
 	reg |= BIT_OEN;
 	writew_relaxed(reg, addr);
@@ -193,7 +201,7 @@ static int msc313e_pm_gpio_direction_output(struct gpio_chip *chip, unsigned off
 					int value)
 {
 	struct msc313_pm_gpio *priv = gpiochip_get_data(chip);
-	__iomem void *addr = priv->base + priv->info->offsets[offset];
+	void __iomem *addr = priv->base + priv->info->offsets[offset];
 	u16 reg = readw_relaxed(addr);
 	reg &= ~BIT_OEN;
 	writew_relaxed(reg, addr);
@@ -336,9 +344,4 @@ static struct platform_driver msc313_pm_gpio_driver = {
 	},
 	.probe = msc313_pm_gpio_probe,
 };
-
-MODULE_AUTHOR("Daniel Palmer <daniel@0x0f.com>");
-MODULE_DESCRIPTION("pm gpio controller driver for MStar/Sigmastar ARMv7 SoCs");
-MODULE_LICENSE("GPL v2");
-
 builtin_platform_driver(msc313_pm_gpio_driver);
