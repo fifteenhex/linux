@@ -196,6 +196,10 @@ static int spinand_init_quad_enable(struct spinand_device *spinand)
 static int spinand_ecc_enable(struct spinand_device *spinand,
 			      bool enable)
 {
+	u8 val;
+	spinand_read_reg_op(spinand, 0xb0, &val);
+	printk("0xb0 reg - 0x%02x %d\n", val, enable);
+
 	return spinand_upd_cfg(spinand, CFG_ECC_ENABLE,
 			       enable ? CFG_ECC_ENABLE : 0);
 }
