@@ -327,6 +327,13 @@ static const struct of_device_id msc313_pm_gpio_of_match[] = {
 		.data		= &info_msc313,
 	},
 #endif
+//#ifdef CONFIG_MACH_PIONEER
+	{
+		/* SSD212 */
+		.compatible	= "sstar,ssd212-gpio-pm",
+		.data		= &info_msc313,
+	},
+//#endif
 #ifdef CONFIG_MACH_MERCURY
 	{
 		/* SSC8336, SSC8336N */
