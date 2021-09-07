@@ -91,7 +91,7 @@ static int mstar_drv_bind(struct device *dev)
 	//if (ret)
 	//	goto cleanup_mode_config;
 
-	drm->irq_enabled = true;
+//	drm->irq_enabled = true;
 
 	/* Remove early framebuffers (ie. simplefb) */
 	remove_conflicting_framebuffers(NULL, "xx", false);
