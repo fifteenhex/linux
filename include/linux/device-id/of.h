@@ -8,7 +8,7 @@
 struct of_device_id {
 	char name[32];
 	char type[32];
-	char compatible[128];
+	char compatible[CONFIG_OF_COMPATIBLE_MAX_LEN];
 	const void *data;
 };
 
