@@ -4488,6 +4488,7 @@ static const struct panel_desc arm_rtsm = {
 };
 
 static const struct of_device_id platform_of_match[] = {
+#if 0
 	{
 		.compatible = "ampire,am-1280800n3tzqw-t00h",
 		.data = &ampire_am_1280800n3tzqw_t00h,
@@ -4659,10 +4660,14 @@ static const struct of_device_id platform_of_match[] = {
 	}, {
 		.compatible = "foxlink,fl500wvr00-a0t",
 		.data = &foxlink_fl500wvr00_a0t,
-	}, {
+	},
+#endif
+	{
 		.compatible = "frida,frd350h54004",
 		.data = &frida_frd350h54004,
-	}, {
+	},
+#if 0
+	{
 		.compatible = "friendlyarm,hd702e",
 		.data = &friendlyarm_hd702e,
 	}, {
@@ -4933,6 +4938,7 @@ static const struct of_device_id platform_of_match[] = {
 	}, {
 		/* sentinel */
 	}
+#endif
 };
 MODULE_DEVICE_TABLE(of, platform_of_match);
 
