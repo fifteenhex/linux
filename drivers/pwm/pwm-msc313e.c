@@ -221,7 +221,9 @@ static int msc313e_pwm_remove(struct platform_device *pdev)
 {
 	struct msc313e_pwm *pwm = platform_get_drvdata(pdev);
 
-	return pwmchip_remove(&pwm->pwmchip);
+	pwmchip_remove(&pwm->pwmchip);
+
+	return 0;
 }
 
 static struct platform_driver msc313e_pwm_driver = {
