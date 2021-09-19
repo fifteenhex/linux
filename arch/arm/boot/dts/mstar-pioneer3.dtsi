@@ -15,19 +15,19 @@
 
 		opp-240000000 {
 			opp-hz = /bits/ 64 <240000000>;
-			opp-microvolt = <950000>;
+			opp-microvolt = <900000>;
 			clock-latency-ns = <300000>;
 		};
 
 		opp-400000000 {
 			opp-hz = /bits/ 64 <400000000>;
-			opp-microvolt = <950000>;
+			opp-microvolt = <900000>;
 			clock-latency-ns = <300000>;
 		};
 
 		opp-600000000 {
 			opp-hz = /bits/ 64 <600000000>;
-			opp-microvolt = <950000>;
+			opp-microvolt = <900000>;
 			clock-latency-ns = <300000>;
 		};
 
