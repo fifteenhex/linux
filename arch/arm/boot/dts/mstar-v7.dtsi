@@ -344,20 +344,19 @@
 						 <&mpll 3>;
 				};
 
+				pmintc: interrupt-controller@1c10 {
+					compatible = "mstar,msc313-pm-intc";
+					interrupt-parent = <&intc_irq>;
+					interrupts = <GIC_SPI 2 IRQ_TYPE_LEVEL_HIGH>;
+					interrupt-controller;
+					#interrupt-cells = <1>;
+				};
+
 				reboot {
 					compatible = "syscon-reboot";
 					offset = <0xb8>;
 					mask = <0x79>;
 				};
-			};
-
-			pmintc: interrupt-controller@1c10 {
-				compatible = "mstar,msc313-pm-intc";
-				interrupt-parent = <&intc_irq>;
-				interrupts = <GIC_SPI 2 IRQ_TYPE_LEVEL_HIGH>;
-				interrupt-controller;
-				#interrupt-cells = <1>;
-				mstar,pmsleep = <&pmsleep>;
 			};
 
 			wakeintc: interrupt-controller@1c20 {
