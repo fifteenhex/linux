@@ -1468,6 +1468,7 @@ dtb-$(CONFIG_ARCH_MEDIATEK) += \
 dtb-$(CONFIG_ARCH_MILBEAUT) += milbeaut-m10v-evb.dtb
 dtb-$(CONFIG_ARCH_MSTARV7) += \
 	mstar-infinity-msc313-breadbee_crust.dtb \
+	mstar-infinity2m-ssd201-som2d01.dtb \
 	mstar-infinity2m-ssd202d-100ask-dongshanpione.dtb \
 	mstar-infinity2m-ssd202d-gw302.dtb \
 	mstar-infinity2m-ssd202d-miyoo-mini.dtb \
