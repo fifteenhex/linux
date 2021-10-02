@@ -5,7 +5,7 @@
  */
 
 /dts-v1/;
-#include "mstar-infinity2m-ssd202d-som2d01.dts"
+#include "mstar-infinity2m-ssd202d-wirelesstag-ido-som2d01.dtsi"
 
 / {
 	model = "SBC2D70 (SSD202D)";
