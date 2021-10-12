@@ -6,6 +6,7 @@
 
 /dts-v1/;
 #include "mstar-infinity2m-ssd201.dtsi"
+#include "mstar-infinity2m-ssd201-som2d01.dtsi"
 
 / {
 	model = "SOM2D01 (SSD201)";
