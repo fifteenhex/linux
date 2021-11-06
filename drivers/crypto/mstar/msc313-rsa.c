@@ -21,7 +21,14 @@
 #define REG_IND32	0x4
 #define REG_ADDR	0x8
 #define REG_DATA	0xc
+#define REG_START	0x1c
 #define REG_KEYCONFIG	0x20
+#define REG_STATUS	0x24
+
+#define ADDR_E		0x00
+#define ADDR_N		0x40
+#define ADDR_A		0x80
+#define ADDR_Z		0xc0
 
 static const struct regmap_config msc313_rsa_regmap_config = {
 	.reg_bits = 16,
@@ -41,6 +48,11 @@ struct msc313_rsa {
 	struct regmap_field *write;
 	struct regmap_field *autoinc;
 	struct regmap_field *autostart;
+
+	struct regmap_field *start;
+
+	struct regmap_field *busy;
+	struct regmap_field *done;
 };
 
 static struct reg_field ctrl_ind32start = REG_FIELD(REG_CTRL, 0, 0);
@@ -48,9 +60,15 @@ static struct reg_field ind32_write = REG_FIELD(REG_IND32, 1, 1);
 static struct reg_field ind32_autoinc = REG_FIELD(REG_IND32, 2, 2);
 static struct reg_field ind32_autostart = REG_FIELD(REG_IND32, 3, 3);
 
+static struct reg_field start_field_start = REG_FIELD(REG_START, 0, 0);
+
 static struct reg_field keyconfig_reset = REG_FIELD(REG_KEYCONFIG, 0, 0);
 static struct reg_field keyconfig_field_hw = REG_FIELD(REG_KEYCONFIG, 1, 1);
 static struct reg_field keyconfig_field_public = REG_FIELD(REG_KEYCONFIG, 2, 2);
+static struct reg_field keyconfig_field_length = REG_FIELD(REG_KEYCONFIG, 8, 15);
+
+static struct reg_field status_field_busy = REG_FIELD(REG_STATUS, 0, 0);
+static struct reg_field status_field_done = REG_FIELD(REG_STATUS, 1, 1);
 
 static const struct of_device_id msc313_rsa_of_match[] = {
 	{ .compatible = "mstar,msc313-rsa", },
@@ -126,14 +144,28 @@ static int msc313_rsa_read_memory(struct msc313_rsa *rsa, u16 addr, u8 *buffer, 
 	return 0;
 }
 
-static volatile u8 test_in[64] = { };
-static volatile u8 test_out[64] = { };
+static int msc313_rsa_do_one(struct msc313_rsa *rsa)
+{
+	unsigned int done;
+	int ret = 0;
+
+	regmap_field_write(rsa->start, 1);
+
+	if (regmap_field_read_poll_timeout(rsa->done, done, done == 1, 1, 500000)) {
+		dev_err(rsa->dev, "timeout waiting for rsa to finish\n");
+		ret = -ETIMEDOUT;
+	}
+
+	regmap_field_write(rsa->start, 0);
+
+	return ret;
+}
 
 static void msc313_rsa_test(struct msc313_rsa *rsa)
 {
 	u8 i;
-
-
+	u8 test_in[64] = { };
+	u8 test_out[64] = { };
 
 	for(i = 0; i < ARRAY_SIZE(test_in); i++)
 		test_in[i] = ~i;
@@ -144,6 +176,8 @@ static void msc313_rsa_test(struct msc313_rsa *rsa)
 
 	dev_info(rsa->dev, "in: %64phN\n", test_in);
 	dev_info(rsa->dev, "out: %64phN\n", test_out);
+
+	msc313_rsa_do_one(rsa);
 }
 
 static int msc313_rsa_set_pub_key(struct crypto_akcipher *tfm, const void *key,
@@ -199,6 +233,11 @@ static int msc313_rsa_probe(struct platform_device *pdev)
 	rsa->write = devm_regmap_field_alloc(&pdev->dev, rsa->regmap, ind32_write);
 	rsa->autoinc = devm_regmap_field_alloc(&pdev->dev, rsa->regmap, ind32_autoinc);
 	rsa->autostart = devm_regmap_field_alloc(&pdev->dev, rsa->regmap, ind32_autostart);
+
+	rsa->start = devm_regmap_field_alloc(dev, rsa->regmap, start_field_start);
+
+	rsa->busy = devm_regmap_field_alloc(dev, rsa->regmap, status_field_busy);
+	rsa->done = devm_regmap_field_alloc(dev, rsa->regmap, status_field_done);
 
 	rsa->clk = devm_clk_get(&pdev->dev, NULL);
 	if (IS_ERR(rsa->clk)) {
