@@ -20,7 +20,8 @@
 #define REG_CTRL	0x0
 #define REG_IND32	0x4
 #define REG_ADDR	0x8
-#define REG_DATA	0xc
+#define REG_FILE_IN	0xc
+#define REG_FILE_OUT	0x14
 #define REG_START	0x1c
 #define REG_KEYCONFIG	0x20
 #define REG_STATUS	0x24
@@ -41,6 +42,7 @@ struct msc313_rsa {
 	struct clk *clk;
 	int irq;
 	struct regmap *regmap;
+	bool quirk_dummyread;
 
 	struct regmap_field *reset;
 
@@ -72,6 +74,7 @@ static struct reg_field status_field_done = REG_FIELD(REG_STATUS, 1, 1);
 
 static const struct of_device_id msc313_rsa_of_match[] = {
 	{ .compatible = "mstar,msc313-rsa", },
+	{ .compatible = "sstar,ssd20xd-rsa", },
 	{},
 };
 MODULE_DEVICE_TABLE(of, msc313_rsa_of_match);
@@ -93,7 +96,7 @@ static irqreturn_t msc313_rsa_irq(int irq, void *data)
 
 static int msc313_rsa_write_memory(struct msc313_rsa *rsa, u16 addr, const u8 *buffer, unsigned int len)
 {
-	unsigned int i;
+	unsigned int i, tmp;
 
 	if (len % 4 != 0)
 		return -EINVAL;
@@ -105,8 +108,12 @@ static int msc313_rsa_write_memory(struct msc313_rsa *rsa, u16 addr, const u8 *b
 	regmap_write(rsa->regmap, REG_ADDR, addr);
 
 	for(i = 0; i < len; i += 4){
-		regmap_write(rsa->regmap, REG_DATA, buffer[i] | (buffer[i + 1] << 8));
-		regmap_write(rsa->regmap, REG_DATA + 4, buffer[i + 2] | (buffer[i + 3] << 8));
+		regmap_write(rsa->regmap, REG_FILE_IN, buffer[i] | (buffer[i + 1] << 8));
+		if(rsa->quirk_dummyread)
+			regmap_read(rsa->regmap, REG_FILE_IN, &tmp);
+		regmap_write(rsa->regmap, REG_FILE_IN + 4, buffer[i + 2] | (buffer[i + 3] << 8));
+		if(rsa->quirk_dummyread)
+			regmap_read(rsa->regmap, REG_FILE_IN, &tmp);
 	}
 	regmap_field_write(rsa->ind32start, 0);
 
@@ -127,14 +134,14 @@ static int msc313_rsa_read_memory(struct msc313_rsa *rsa, u16 addr, u8 *buffer, 
 	regmap_field_write(rsa->ind32start, 1);
 
 	for(i = 0; i < len; i += 4){
-		regmap_read(rsa->regmap, REG_ADDR, &tmp);
-		//printk("%u %u\n", i, tmp);
-		regmap_read(rsa->regmap, REG_DATA, &tmp);
-		//printk("l %u\n", tmp);
+		regmap_read(rsa->regmap, REG_FILE_OUT, &tmp);
+		if(rsa->quirk_dummyread)
+			regmap_read(rsa->regmap, REG_FILE_OUT, &tmp);
 		buffer[i] = tmp;
 		buffer[i + 1] = tmp >> 8;
-		regmap_read(rsa->regmap, REG_DATA + 4, &tmp);
-		//printk("l %u\n", tmp);
+		regmap_read(rsa->regmap, REG_FILE_OUT + 4, &tmp);
+		if(rsa->quirk_dummyread)
+			regmap_read(rsa->regmap, REG_FILE_OUT + 4, &tmp);
 		buffer[i + 2] = tmp;
 		buffer[i + 3] = tmp >> 8;
 	}
@@ -144,7 +151,7 @@ static int msc313_rsa_read_memory(struct msc313_rsa *rsa, u16 addr, u8 *buffer, 
 	return 0;
 }
 
-static int msc313_rsa_do_one(struct msc313_rsa *rsa)
+static int msc313_rsa_do_one(struct msc313_rsa *rsa, u8 *out, unsigned int len)
 {
 	unsigned int done;
 	int ret = 0;
@@ -156,7 +163,11 @@ static int msc313_rsa_do_one(struct msc313_rsa *rsa)
 		ret = -ETIMEDOUT;
 	}
 
+	msc313_rsa_read_memory(rsa, ADDR_Z, out, len);
+
 	regmap_field_write(rsa->start, 0);
+
+
 
 	return ret;
 }
@@ -172,28 +183,72 @@ static void msc313_rsa_test(struct msc313_rsa *rsa)
 
 	msc313_rsa_write_memory(rsa, 0, test_in, ARRAY_SIZE(test_in));
 
-	msc313_rsa_read_memory(rsa, 0, test_out, ARRAY_SIZE(test_out));
+
 
 	dev_info(rsa->dev, "in: %64phN\n", test_in);
 	dev_info(rsa->dev, "out: %64phN\n", test_out);
 
-	msc313_rsa_do_one(rsa);
+	msc313_rsa_do_one(rsa, test_out, sizeof(test_out));
+}
+
+static int msc313_rsa_sign(struct akcipher_request *req)
+{
+	printk("%s\n", __func__);
+
+	return 0;
+}
+
+static int msc313_rsa_verify(struct akcipher_request *req)
+{
+	printk("%s\n", __func__);
+
+	return 0;
+}
+
+static int msc313_rsa_encrypt(struct akcipher_request *req)
+{
+	printk("%s\n", __func__);
+
+	return 0;
+}
+
+static int msc313_rsa_decrypt(struct akcipher_request *req)
+{
+	printk("%s\n", __func__);
+
+	return 0;
 }
 
 static int msc313_rsa_set_pub_key(struct crypto_akcipher *tfm, const void *key,
 		   unsigned int keylen)
 {
-	return -EINVAL;
+	printk("%s\n", __func__);
+
+	return 0;
 }
 static int msc313_rsa_set_priv_key(struct crypto_akcipher *tfm, const void *key,
 		    unsigned int keylen)
 {
-	return -EINVAL;
+	printk("%s\n", __func__);
+
+	return 0;
+}
+
+static unsigned int msc313_rsa_max_size(struct crypto_akcipher *tfm)
+{
+	printk("%s\n", __func__);
+
+	return 64;
 }
 
 static struct akcipher_alg rsa_alg = {
+	.sign = msc313_rsa_sign,
+	.verify = msc313_rsa_verify,
+	.encrypt = msc313_rsa_encrypt,
+	.decrypt = msc313_rsa_decrypt,
 	.set_pub_key = msc313_rsa_set_pub_key,
 	.set_priv_key = msc313_rsa_set_priv_key,
+	.max_size = msc313_rsa_max_size,
 	.base = {
 		.cra_name = "rsa",
 		.cra_driver_name = "msc313-rsa",
