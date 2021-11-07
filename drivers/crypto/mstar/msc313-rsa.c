@@ -31,6 +31,9 @@
 #define ADDR_A		0x80
 #define ADDR_Z		0xc0
 
+static struct list_head dev_list = LIST_HEAD_INIT(dev_list);
+static spinlock_t dev_list_lock = __SPIN_LOCK_UNLOCKED(dev_list_lock);
+
 static const struct regmap_config msc313_rsa_regmap_config = {
 	.reg_bits = 16,
 	.val_bits = 16,
@@ -40,6 +43,7 @@ static const struct regmap_config msc313_rsa_regmap_config = {
 struct msc313_rsa {
 	struct device *dev;
 	struct clk *clk;
+	struct list_head dev_list;
 	int irq;
 	struct regmap *regmap;
 	bool quirk_dummyread;
@@ -55,6 +59,10 @@ struct msc313_rsa {
 
 	struct regmap_field *busy;
 	struct regmap_field *done;
+
+	/* key config */
+	struct regmap_field *hwkey;
+	struct regmap_field *pubkey;
 };
 
 static struct reg_field ctrl_ind32start = REG_FIELD(REG_CTRL, 0, 0);
@@ -78,6 +86,21 @@ static const struct of_device_id msc313_rsa_of_match[] = {
 	{},
 };
 MODULE_DEVICE_TABLE(of, msc313_rsa_of_match);
+
+static struct msc313_rsa *msc313_rsa_find_dev(void)
+{
+	struct msc313_rsa *tmp = NULL;
+	struct msc313_rsa *rsa = NULL;
+
+	spin_lock_bh(&dev_list_lock);
+		list_for_each_entry(tmp, &dev_list, dev_list) {
+			rsa = tmp;
+			break;
+		}
+	spin_unlock_bh(&dev_list_lock);
+
+	return rsa;
+}
 
 static void msc313_rsa_reset(struct msc313_rsa *rsa)
 {
@@ -148,6 +171,8 @@ static int msc313_rsa_read_memory(struct msc313_rsa *rsa, u16 addr, u8 *buffer, 
 
 	regmap_field_write(rsa->ind32start, 0);
 
+	dev_info(rsa->dev, "out: %64phN\n", buffer);
+
 	return 0;
 }
 
@@ -183,10 +208,7 @@ static void msc313_rsa_test(struct msc313_rsa *rsa)
 
 	msc313_rsa_write_memory(rsa, 0, test_in, ARRAY_SIZE(test_in));
 
-
-
 	dev_info(rsa->dev, "in: %64phN\n", test_in);
-	dev_info(rsa->dev, "out: %64phN\n", test_out);
 
 	msc313_rsa_do_one(rsa, test_out, sizeof(test_out));
 }
@@ -207,13 +229,18 @@ static int msc313_rsa_verify(struct akcipher_request *req)
 
 static int msc313_rsa_encrypt(struct akcipher_request *req)
 {
+	struct msc313_rsa *rsa = msc313_rsa_find_dev();
 	printk("%s\n", __func__);
+	u8 test_out[64] = { };
+
+	msc313_rsa_do_one(rsa, test_out, sizeof(test_out));
 
 	return 0;
 }
 
 static int msc313_rsa_decrypt(struct akcipher_request *req)
 {
+	struct msc313_rsa *rsa = msc313_rsa_find_dev();
 	printk("%s\n", __func__);
 
 	return 0;
@@ -222,14 +249,20 @@ static int msc313_rsa_decrypt(struct akcipher_request *req)
 static int msc313_rsa_set_pub_key(struct crypto_akcipher *tfm, const void *key,
 		   unsigned int keylen)
 {
-	printk("%s\n", __func__);
+	struct msc313_rsa *rsa = msc313_rsa_find_dev();
+	printk("%s, %u\n", __func__, keylen);
+
+	regmap_field_write(rsa->pubkey, 1);
 
 	return 0;
 }
 static int msc313_rsa_set_priv_key(struct crypto_akcipher *tfm, const void *key,
 		    unsigned int keylen)
 {
-	printk("%s\n", __func__);
+	struct msc313_rsa *rsa = msc313_rsa_find_dev();
+	printk("%s, %u\n", __func__, keylen);
+
+	regmap_field_write(rsa->pubkey, 0);
 
 	return 0;
 }
@@ -294,6 +327,10 @@ static int msc313_rsa_probe(struct platform_device *pdev)
 	rsa->busy = devm_regmap_field_alloc(dev, rsa->regmap, status_field_busy);
 	rsa->done = devm_regmap_field_alloc(dev, rsa->regmap, status_field_done);
 
+	/* keyconfig */
+	rsa->hwkey = devm_regmap_field_alloc(dev, rsa->regmap, keyconfig_field_hw);
+	rsa->pubkey = devm_regmap_field_alloc(dev, rsa->regmap, keyconfig_field_public);
+
 	rsa->clk = devm_clk_get(&pdev->dev, NULL);
 	if (IS_ERR(rsa->clk)) {
 		return PTR_ERR(rsa->clk);
@@ -308,6 +345,10 @@ static int msc313_rsa_probe(struct platform_device *pdev)
 	msc313_rsa_reset(rsa);
 
 	msc313_rsa_test(rsa);
+
+	spin_lock(&dev_list_lock);
+	list_add_tail(&rsa->dev_list, &dev_list);
+	spin_unlock(&dev_list_lock);
 
 	crypto_register_akcipher(&rsa_alg);
 
