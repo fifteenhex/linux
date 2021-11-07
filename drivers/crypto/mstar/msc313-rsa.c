@@ -63,6 +63,7 @@ struct msc313_rsa {
 	/* key config */
 	struct regmap_field *hwkey;
 	struct regmap_field *pubkey;
+	struct regmap_field *keylen;
 };
 
 static struct reg_field ctrl_ind32start = REG_FIELD(REG_CTRL, 0, 0);
@@ -75,7 +76,7 @@ static struct reg_field start_field_start = REG_FIELD(REG_START, 0, 0);
 static struct reg_field keyconfig_reset = REG_FIELD(REG_KEYCONFIG, 0, 0);
 static struct reg_field keyconfig_field_hw = REG_FIELD(REG_KEYCONFIG, 1, 1);
 static struct reg_field keyconfig_field_public = REG_FIELD(REG_KEYCONFIG, 2, 2);
-static struct reg_field keyconfig_field_length = REG_FIELD(REG_KEYCONFIG, 8, 15);
+static struct reg_field keyconfig_field_length = REG_FIELD(REG_KEYCONFIG, 8, 13);
 
 static struct reg_field status_field_busy = REG_FIELD(REG_STATUS, 0, 0);
 static struct reg_field status_field_done = REG_FIELD(REG_STATUS, 1, 1);
@@ -124,11 +125,12 @@ static int msc313_rsa_write_memory(struct msc313_rsa *rsa, u16 addr, const u8 *b
 	if (len % 4 != 0)
 		return -EINVAL;
 
+	regmap_write(rsa->regmap, REG_ADDR, addr);
+
 	regmap_field_write(rsa->write, 1);
 	regmap_field_write(rsa->autoinc, 1);
 	regmap_field_write(rsa->autostart, 1);
 	regmap_field_write(rsa->ind32start, 1);
-	regmap_write(rsa->regmap, REG_ADDR, addr);
 
 	for(i = 0; i < len; i += 4){
 		regmap_write(rsa->regmap, REG_FILE_IN, buffer[i] | (buffer[i + 1] << 8));
@@ -150,10 +152,11 @@ static int msc313_rsa_read_memory(struct msc313_rsa *rsa, u16 addr, u8 *buffer, 
 	if (len % 4 != 0)
 		return -EINVAL;
 
+	regmap_write(rsa->regmap, REG_ADDR, addr);
+
 	regmap_field_write(rsa->write, 0);
 	regmap_field_write(rsa->autoinc, 1);
 	regmap_field_write(rsa->autostart, 1);
-	regmap_write(rsa->regmap, REG_ADDR, addr);
 	regmap_field_write(rsa->ind32start, 1);
 
 	for(i = 0; i < len; i += 4){
@@ -330,6 +333,7 @@ static int msc313_rsa_probe(struct platform_device *pdev)
 	/* keyconfig */
 	rsa->hwkey = devm_regmap_field_alloc(dev, rsa->regmap, keyconfig_field_hw);
 	rsa->pubkey = devm_regmap_field_alloc(dev, rsa->regmap, keyconfig_field_public);
+	rsa->keylen = devm_regmap_field_alloc(dev, rsa->regmap, keyconfig_field_length);
 
 	rsa->clk = devm_clk_get(&pdev->dev, NULL);
 	if (IS_ERR(rsa->clk)) {
