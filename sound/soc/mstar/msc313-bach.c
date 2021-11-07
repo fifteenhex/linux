@@ -405,14 +405,16 @@ static int msc313_bach_pcm_trigger(struct snd_soc_component *component,
 	switch (cmd) {
 	case SNDRV_PCM_TRIGGER_START:
 	case SNDRV_PCM_TRIGGER_RESUME:
-		regmap_field_write(bach->dma_channels[1].en, 1);
+		//~dgp disabled this for now because it causes an interrupt storm
 		//regmap_field_write(bach->dma_channels[0].rd_underrun_int_en, 1);
+		regmap_field_write(bach->dma_channels[0].en, 1);
 		break;
 
 	case SNDRV_PCM_TRIGGER_STOP:
 	case SNDRV_PCM_TRIGGER_SUSPEND:
-		regmap_field_write(bach->dma_channels[1].en, 0);
+		//~dgp disabled this for now because it causes an interrupt storm
 		//regmap_field_write(bach->dma_channels[0].rd_underrun_int_en, 0);
+		regmap_field_write(bach->dma_channels[0].en, 0);
 		break;
 	default:
 		ret = -EINVAL;
@@ -447,10 +449,12 @@ static const struct regmap_config msc313_bach_regmap_config = {
 static irqreturn_t msc313_bach_irq(int irq, void *data)
 {
 	struct msc313_bach *bach = data;
+	int i;
 
 	//printk("bach irq\n");
 
-	regmap_field_force_write(bach->dma_channels[0].rd_underrun_int_clear, 1);
+	for (i = 0; i < ARRAY_SIZE(bach->dma_channels); i++)
+		regmap_field_force_write(bach->dma_channels[i].rd_underrun_int_clear, 1);
 
 	return IRQ_HANDLED;
 }
@@ -581,7 +585,7 @@ static const struct of_device_id msc313_bach_of_match[] = {
 		{ .compatible = "mstar,msc313-bach", },
 		{ },
 };
-MODULE_DEVICE_TABLE(of, infinity_audio_of_match);
+MODULE_DEVICE_TABLE(of, msc313_bach_of_match);
 
 static struct platform_driver msc313_bach_driver = {
 	.driver = {
