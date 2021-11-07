@@ -95,9 +95,8 @@ config OF_DMA_DEFAULT_COHERENT
 	bool
 
 config OF_COMPATIBLE_MAX_LEN
-	int "compatible string max length"
+	int "compatible string max length" if EXPERT
 	default 128
-	depends on EXPERT
 	help
 	  The maximum length for a device tree compatible string in bytes.
 	  Currently 64 bytes is probably safe but the default is 128.
@@ -107,9 +106,8 @@ config OF_COMPATIBLE_MAX_LEN
 	  you eek out a few more kilobytes of free memory.
 
 config OF_NAME_TYPE
-	bool "name and type in of_device_id"
+	bool "name and type in of_device_id" if EXPERT
 	default y
-	depends on EXPERT
 	help
 	  Whether or not of_device_id should have a name and type field.
 	  These fields use 64 bytes combined but nothing actually sets
