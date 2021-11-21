@@ -122,6 +122,12 @@
 		reg = <0x6800 0x200>;
 	};
 
+	movedma: movedma@201600 {
+		compatible = "sstar,ssd20xd-movedma";
+		reg = <0x201600 0x200>;
+		interrupts-extended = <&intc_irq GIC_SPI 60 IRQ_TYPE_LEVEL_HIGH>;
+	};
+
 	smpctrl: smpctrl@204000 {
 		reg = <0x204000 0x200>;
 		status = "disabled";
