@@ -6,6 +6,14 @@
 
 #include "mstar-infinity2m.dtsi"
 
+/ {
+	xtal_timer: timer_xtal {
+		#clock-cells = <0>;
+		compatible = "fixed-clock";
+		clock-frequency = <432000000>;
+	};
+};
+
 &gpio {
 	compatible = "sstar,ssd20xd-gpio";
 	status = "okay";
@@ -38,4 +46,19 @@
 		function = "pm_led";
 		groups = "pm_led_mode1";
 	};
+};
+
+&timer0 {
+	compatible = "mstar,ssd20xd-timer";
+	clocks = <&xtal_timer>;
+};
+
+&timer1 {
+	compatible = "mstar,ssd20xd-timer";
+	clocks = <&xtal_timer>;
+};
+
+&timer2 {
+	compatible = "mstar,ssd20xd-timer";
+	clocks = <&xtal_timer>;
 };
