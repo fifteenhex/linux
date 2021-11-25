@@ -30,7 +30,9 @@
 #define MSC313E_REG_TIMER_MAX_HIGH	0x0c
 #define MSC313E_REG_COUNTER_LOW		0x10
 #define MSC313E_REG_COUNTER_HIGH	0x14
+#define MSC313E_REG_TIMER_DIVIDE	0x18
 
+#define MSC313E_CLK_DIVIDER		9
 #define TIMER_SYNC_TICKS		3
 
 struct msc313e_delay {
@@ -165,6 +167,12 @@ static int __init msc313e_clkevt_init(struct device_node *np)
 	if (ret)
 		return ret;
 
+	if (of_device_is_compatible(np, "mstar,ssd20xd-timer")) {
+		to->of_clk.rate = clk_get_rate(to->of_clk.clk) / MSC313E_CLK_DIVIDER;
+		to->of_clk.period = DIV_ROUND_UP(to->of_clk.rate, HZ);
+		writew(MSC313E_CLK_DIVIDER - 1, timer_of_base(to) + MSC313E_REG_TIMER_DIVIDE);
+	}
+
 	msc313e_clkevt.cpumask = cpu_possible_mask;
 	msc313e_clkevt.irq = to->of_irq.irq;
 	to->clkevt = msc313e_clkevt;
@@ -226,3 +234,4 @@ static int __init msc313e_timer_init(struct device_node *np)
 }
 
 TIMER_OF_DECLARE(msc313, "mstar,msc313e-timer", msc313e_timer_init);
+TIMER_OF_DECLARE(ssd20xd, "mstar,ssd20xd-timer", msc313e_timer_init);
