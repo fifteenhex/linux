@@ -193,6 +193,12 @@ static int __init msc313e_clksrc_init(struct device_node *np)
 	if (ret)
 		return ret;
 
+	if (of_device_is_compatible(np, "mstar,ssd20xd-timer")) {
+		to.of_clk.rate = clk_get_rate(to.of_clk.clk) / MSC313E_CLK_DIVIDER;
+		to.of_clk.period = DIV_ROUND_UP(to.of_clk.rate, HZ);
+		writew(MSC313E_CLK_DIVIDER - 1, timer_of_base(&to) + MSC313E_REG_TIMER_DIVIDE);
+	}
+
 	msc313e_delay.base = timer_of_base(&to);
 	msc313e_delay.delay.read_current_timer = msc313e_read_delay_timer_read;
 	msc313e_delay.delay.freq = timer_of_rate(&to);
