@@ -19,7 +19,8 @@
 
 	chosen {
 		stdout-path = "serial0:115200n8";
-		bootargs = "console=ttyS0,115200 clk_ignore_unused earlyprintk drm.debug=0x1ff";
+		//drm.debug=0x1ff
+		bootargs = "console=ttyS0,115200 clk_ignore_unused earlyprintk root=/dev/sda1 rw rootwait";
 	};
 };
 
