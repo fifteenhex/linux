@@ -780,7 +780,7 @@
 				compatible = "mstar,msc313-lpll";
 				reg = <0x206700 0x100>;
 				#clock-cells = <1>;
-				clocks = <&mpll 1>;
+				clocks = <&mpll MSTAR_MSC313_MPLL_DIV2>;
 			};
 
 			gpio: gpio@207800 {
