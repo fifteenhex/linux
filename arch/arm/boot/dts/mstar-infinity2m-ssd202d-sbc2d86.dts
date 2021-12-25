@@ -54,6 +54,18 @@
         pinctrl-0 = <&pwm0_mode3_pins>;
 };
 
+&op2 {
+	status = "okay";
+	ports {
+		port@0 {
+			reg = <0>;
+			op2_out: endpoint {
+				remote-endpoint = <&dsi_in>;
+			};
+		};
+	};
+};
+
 &dsi {
 	status = "okay";
 	panel@0 {
@@ -77,5 +89,11 @@
 				remote-endpoint = <&panel_in>;
 			};
                 };
+                port@1 {
+			reg = <1>;
+			dsi_in: endpoint {
+				remote-endpoint = <&op2_out>;
+			};
+		};
         };
 };
