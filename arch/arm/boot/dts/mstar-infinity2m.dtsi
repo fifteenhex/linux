@@ -251,6 +251,7 @@
 		interrupts-extended = <&intc_irq GIC_SPI 21 IRQ_TYPE_LEVEL_HIGH>;
 		interconnects = <&miu 0>;
 		interconnect-names = "dma-mem";
+		status = "disabled";
 	};
 
 	sata: ahci@345000 {

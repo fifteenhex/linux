@@ -32,7 +32,6 @@
 	        pinctrl-0 = <&pwm1_mode4_pins>;
 		pwms = <&pwm 1 1000000>;
 	};
-
 /*
 	vcc_vbus: regulator@2 {
 		compatible = "regulator-fixed";
@@ -171,4 +170,8 @@
 
 &bach {
 	audio-aux-devs = <&speaker_amp>;
+};
+
+&vpu {
+	status = "okay";
 };
