@@ -32,19 +32,21 @@ static const struct of_device_id msc313_upll_of_match[] = {
 	{}
 };
 
-static int msc313_upll_is_enabled(struct clk_hw *hw){
+static int msc313_upll_is_enabled(struct clk_hw *hw)
+{
 	struct mstar_pll_output *output = to_pll_output(hw);
 	return ioread16(output->pll->base + REG_ENABLED) & BIT(0);
 }
 
-static unsigned long msc313_upll_recalc_rate(struct clk_hw *hw, unsigned long parent_rate){
+static unsigned long msc313_upll_recalc_rate(struct clk_hw *hw, unsigned long parent_rate)
+{
 	struct mstar_pll_output *output = to_pll_output(hw);
 	return output->rate;
 }
 
 static const struct clk_ops msc313_upll_ops = {
-		.is_enabled = msc313_upll_is_enabled,
-		.recalc_rate = msc313_upll_recalc_rate,
+	.is_enabled = msc313_upll_is_enabled,
+	.recalc_rate = msc313_upll_recalc_rate,
 };
 
 static int msc313_upll_probe(struct platform_device *pdev)
