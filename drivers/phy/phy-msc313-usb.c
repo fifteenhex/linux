@@ -81,9 +81,10 @@ static void msc313_usb_phy_switch_port(struct msc313_usb_phy *phy)
 
 }
 
-static void msc313_usb_phy_do_calibration(struct msc313_usb_phy *phy){
+static void msc313_usb_phy_do_calibration(struct msc313_usb_phy *phy)
+{
 	unsigned int calval;
-	dev_info(phy->dev, "starting calibration...");
+	dev_info(phy->dev, "starting calibration...\n");
 	regmap_update_bits(phy->utmi, MSTAR_UTMI_REG_CAL,
 			MSTAR_UTMI_REG_CAL_START, MSTAR_UTMI_REG_CAL_START);
 	mdelay(1);
@@ -91,14 +92,14 @@ static void msc313_usb_phy_do_calibration(struct msc313_usb_phy *phy){
 			MSTAR_UTMI_REG_CAL_START, 0);
 	if(regmap_read_poll_timeout(phy->utmi, MSTAR_UTMI_REG_CAL,
 			calval, calval & MSTAR_UTMI_REG_CAL_END, 0, 1000000)){
-		dev_info(phy->dev, "calibration timeout");
+		dev_info(phy->dev, "calibration timeout\n");
 	}
 	else {
 		calval >>= MSTAR_UTMI_REG_CAL_DATA_SHIFT;
 		if(calval > 0 && calval < 0xfff)
-			dev_info(phy->dev, "calibration finished.");
+			dev_info(phy->dev, "calibration finished.\n");
 		else
-			dev_warn(phy->dev, "calibration failed.");
+			dev_warn(phy->dev, "calibration failed.\n");
 	}
 }
 
