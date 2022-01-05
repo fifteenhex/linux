@@ -122,7 +122,7 @@
 
 		key_power {
 			label = "key_power";
-			gpios = <&gpio SSD20XD_GPIO_GPIO86 GPIO_ACTIVE_LOW>;
+			gpios = <&gpio SSD20XD_GPIO_GPIO86 GPIO_ACTIVE_HIGH>;
 			linux,code = <0x100>; /* BTN_0 */
 		};
 	};
