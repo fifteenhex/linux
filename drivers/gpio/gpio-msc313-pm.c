@@ -35,11 +35,13 @@
 #define OFF_GPIO6	0x18
 #define OFF_GPIO7	0x1c
 #define OFF_GPIO8	0x20
+#define OFF_LED0	0x28
+#define OFF_LED1	0x2c
+#define OFF_IRIN	0x50
 #define OFF_SPI_CZ	0x60
 #define OFF_SPI_CK	0x64
 #define OFF_SPI_DI	0x68
 #define OFF_SPI_DO	0x6c
-//#define OFF_IR_IN	0xa0
 #define OFF_SPI_HLD	0x114
 #define OFF_SD_CZ	0x11c
 
@@ -49,6 +51,9 @@
 #define NAME_GPIO5	"pm_gpio5"
 #define NAME_GPIO6	"pm_gpio6"
 #define NAME_GPIO8	"pm_gpio8"
+#define NAME_LED0	"pm_led0"
+#define NAME_LED1	"pm_led1"
+#define NAME_IRIN	"pm_irin"
 #define NAME_SPI_CZ	"pm_spi_cz"
 #define NAME_SPI_CK	"pm_spi_ck"
 #define NAME_SPI_DI	"pm_spi_di"
@@ -73,15 +78,33 @@ struct msc313_pm_gpio_data {
 #ifdef CONFIG_MACH_INFINITY
 static const char *msc313_names[] = {
 	NAME_GPIO4,
+	NAME_IRIN,
 	NAME_SD_SDZ
 };
 
 static const unsigned msc313_offsets[] = {
 	OFF_GPIO4,
+	OFF_IRIN,
 	OFF_SD_CZ
 };
 
 CHIP_DATA(msc313);
+
+static const char *ssd20xd_names[] = {
+	NAME_LED0,
+	NAME_LED1,
+	NAME_IRIN,
+	NAME_SD_SDZ,
+};
+
+static const unsigned ssd20xd_offsets[] = {
+	OFF_LED0,
+	OFF_LED1,
+	OFF_IRIN,
+	OFF_SD_CZ,
+};
+
+CHIP_DATA(ssd20xd);
 #endif /* infinity */
 
 #ifdef CONFIG_MACH_MERCURY
@@ -323,8 +346,8 @@ static const struct of_device_id msc313_pm_gpio_of_match[] = {
 	},
 	{
 		/* SSD201, SSD202 */
-		.compatible	= "mstar,ssd20xd-gpio-pm",
-		.data		= &info_msc313,
+		.compatible	= "sstar,ssd20xd-gpio-pm",
+		.data		= &info_ssd20xd,
 	},
 #endif
 //#ifdef CONFIG_MACH_PIONEER
