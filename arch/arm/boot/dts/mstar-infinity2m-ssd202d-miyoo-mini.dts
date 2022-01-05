@@ -19,6 +19,107 @@
 		stdout-path = "serial0:115200n8";
 		bootargs = "console=ttyS0,115200 clk_ignore_unused earlyprintk";
 	};
+
+	gpio-keys {
+		compatible = "gpio-keys-polled";
+		poll-interval = <100>;
+
+		key_up {
+			label = "key_up";
+			gpios = <&gpio SSD20XD_GPIO_GPIO1 GPIO_ACTIVE_LOW>;
+			linux,code = <0x100>; /* BTN_0 */
+		};
+
+		key_down {
+			label = "key_down";
+			gpios = <&gpio_pm SSD20XD_PM_LED1 GPIO_ACTIVE_LOW>;
+			linux,code = <0x100>; /* BTN_0 */
+		};
+
+		key_left {
+			label = "key_left";
+			gpios = <&gpio_pm SSD20XD_PM_LED0 GPIO_ACTIVE_LOW>;
+			linux,code = <0x100>; /* BTN_0 */
+		};
+
+		key_right {
+			label = "key_right";
+			gpios = <&gpio SSD20XD_GPIO_GPIO5 GPIO_ACTIVE_LOW>;
+			linux,code = <0x100>; /* BTN_0 */
+		};
+
+		key_a {
+			label = "key_a";
+			gpios = <&gpio SSD20XD_GPIO_GPIO7 GPIO_ACTIVE_LOW>;
+			linux,code = <0x100>; /* BTN_0 */
+		};
+
+		key_b {
+			label = "key_b";
+			gpios = <&gpio SSD20XD_GPIO_GPIO6 GPIO_ACTIVE_LOW>;
+			linux,code = <0x100>; /* BTN_0 */
+		};
+
+		key_y {
+			label = "key_y";
+			gpios = <&gpio SSD20XD_GPIO_GPIO8 GPIO_ACTIVE_LOW>;
+			linux,code = <0x100>; /* BTN_0 */
+		};
+
+		key_x {
+			label = "key_x";
+			gpios = <&gpio SSD20XD_GPIO_GPIO9 GPIO_ACTIVE_LOW>;
+			linux,code = <0x100>; /* BTN_0 */
+		};
+
+		key_start {
+			label = "key_start";
+			gpios = <&gpio SSD20XD_GPIO_GPIO10 GPIO_ACTIVE_LOW>;
+			linux,code = <0x100>; /* BTN_0 */
+		};
+
+		key_select {
+			label = "key_select";
+			gpios = <&gpio SSD20XD_GPIO_GPIO11 GPIO_ACTIVE_LOW>;
+			linux,code = <0x100>; /* BTN_0 */
+		};
+
+		key_menu {
+			label = "key_menu";
+			gpios = <&gpio SSD20XD_GPIO_GPIO12 GPIO_ACTIVE_LOW>;
+			linux,code = <0x100>; /* BTN_0 */
+		};
+
+		key_l {
+			label = "key_l";
+			gpios = <&gpio SSD20XD_GPIO_GPIO14 GPIO_ACTIVE_LOW>;
+			linux,code = <0x100>; /* BTN_0 */
+		};
+
+		key_l2 {
+			label = "key_l2";
+			gpios = <&gpio SSD20XD_GPIO_GPIO13 GPIO_ACTIVE_LOW>;
+			linux,code = <0x100>; /* BTN_0 */
+		};
+
+		key_r {
+			label = "key_r";
+			gpios = <&gpio SSD20XD_GPIO_UART0_RX GPIO_ACTIVE_LOW>;
+			linux,code = <0x100>; /* BTN_0 */
+		};
+
+		key_r2 {
+			label = "key_r2";
+			gpios = <&gpio SSD20XD_GPIO_GPIO90 GPIO_ACTIVE_LOW>;
+			linux,code = <0x100>; /* BTN_0 */
+		};
+
+		key_power {
+			label = "key_power";
+			gpios = <&gpio SSD20XD_GPIO_GPIO86 GPIO_ACTIVE_LOW>;
+			linux,code = <0x100>; /* BTN_0 */
+		};
+	};
 };
 
 &pm_uart {
