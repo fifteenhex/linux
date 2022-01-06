@@ -6493,6 +6493,32 @@ static const struct panel_desc_dsi tsd_tst070wsbe_196c = {
 	.flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_LPM |
 		 MIPI_DSI_MODE_VIDEO_BURST |
 		 MIPI_DSI_MODE_VIDEO_SYNC_PULSE,
+
+static const struct drm_display_mode samsung_lms279cc01_mode = {
+	.clock = 154500,
+	.hdisplay = 640,
+	.hsync_start = 640 + 112,
+	.hsync_end = 640 + 112 + 16,
+	.htotal = 640 + 112 + 16 + 32,
+	.vdisplay =  480,
+	.vsync_start = 480 + 16,
+	.vsync_end = 480 + 16 + 2,
+	.vtotal = 480 + 16 + 2 + 16,
+	.flags = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC,
+};
+
+static const struct panel_desc_dsi samsung_lms279cc01 = {
+	.desc = {
+		.modes = &samsung_lms279cc01_mode,
+		.num_modes = 1,
+		.bpc = 8,
+		.size = {
+			.width = 57,
+			.height = 44,
+		},
+		.connector_type = DRM_MODE_CONNECTOR_DSI,
+	},
+	.flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_CLOCK_NON_CONTINUOUS,
 	.format = MIPI_DSI_FMT_RGB888,
 	.lanes = 4,
 };
@@ -6520,6 +6546,11 @@ static const struct of_device_id dsi_of_match[] = {
 		.compatible = "team-source-display,tst070wsbe-196c",
 		.data = &tsd_tst070wsbe_196c
 	}, {
+
+		.compatible = "samsung,lms279cc01",
+		.data = &samsung_lms279cc01
+	},
+	{
 		/* sentinel */
 	}
 };
