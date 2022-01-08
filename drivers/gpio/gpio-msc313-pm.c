@@ -35,8 +35,6 @@
 #define OFF_GPIO6	0x18
 #define OFF_GPIO7	0x1c
 #define OFF_GPIO8	0x20
-#define OFF_LED0	0x28
-#define OFF_LED1	0x2c
 #define OFF_IRIN	0x50
 #define OFF_SPI_CZ	0x60
 #define OFF_SPI_CK	0x64
@@ -44,6 +42,8 @@
 #define OFF_SPI_DO	0x6c
 #define OFF_SPI_HLD	0x114
 #define OFF_SD_CZ	0x11c
+#define OFF_LED0	0x128
+#define OFF_LED1	0x12c
 
 #define NAME_GPIO0	"pm_gpio0"
 #define NAME_GPIO2	"pm_gpio2"
@@ -51,8 +51,6 @@
 #define NAME_GPIO5	"pm_gpio5"
 #define NAME_GPIO6	"pm_gpio6"
 #define NAME_GPIO8	"pm_gpio8"
-#define NAME_LED0	"pm_led0"
-#define NAME_LED1	"pm_led1"
 #define NAME_IRIN	"pm_irin"
 #define NAME_SPI_CZ	"pm_spi_cz"
 #define NAME_SPI_CK	"pm_spi_ck"
@@ -60,6 +58,8 @@
 #define NAME_SPI_DO	"pm_spi_do"
 #define NAME_SPI_HLD	"pm_spi_hld"
 #define NAME_SD_SDZ	"pm_sd_sdz"
+#define NAME_LED0	"pm_led0"
+#define NAME_LED1	"pm_led1"
 
 struct msc313_pm_gpio_data {
 	const char **names;
@@ -91,17 +91,17 @@ static const unsigned msc313_offsets[] = {
 CHIP_DATA(msc313);
 
 static const char *ssd20xd_names[] = {
-	NAME_LED0,
-	NAME_LED1,
 	NAME_IRIN,
 	NAME_SD_SDZ,
+	NAME_LED0,
+	NAME_LED1,
 };
 
 static const unsigned ssd20xd_offsets[] = {
-	OFF_LED0,
-	OFF_LED1,
 	OFF_IRIN,
 	OFF_SD_CZ,
+	OFF_LED0,
+	OFF_LED1,
 };
 
 CHIP_DATA(ssd20xd);
@@ -200,13 +200,16 @@ static void msc313e_pm_gpio_set(struct gpio_chip *chip, unsigned offset, int val
 		reg |= BIT_OUT;
 	else
 		reg &= ~BIT_OUT;
+
 	writew_relaxed(reg, addr);
 }
 
 static int msc313e_pm_gpio_get(struct gpio_chip *chip, unsigned offset)
 {
 	struct msc313_pm_gpio *priv = gpiochip_get_data(chip);
+
 	u16 reg = readw_relaxed(priv->base + priv->info->offsets[offset]);
+
 	return reg & BIT_IN ? 1 : 0;
 }
 
@@ -214,9 +217,11 @@ static int msc313e_pm_gpio_direction_input(struct gpio_chip *chip, unsigned offs
 {
 	struct msc313_pm_gpio *priv = gpiochip_get_data(chip);
 	void __iomem *addr = priv->base + priv->info->offsets[offset];
+
 	u16 reg = readw_relaxed(addr);
 	reg |= BIT_OEN;
 	writew_relaxed(reg, addr);
+
 	return 0;
 }
 
@@ -226,8 +231,10 @@ static int msc313e_pm_gpio_direction_output(struct gpio_chip *chip, unsigned off
 	struct msc313_pm_gpio *priv = gpiochip_get_data(chip);
 	void __iomem *addr = priv->base + priv->info->offsets[offset];
 	u16 reg = readw_relaxed(addr);
+
 	reg &= ~BIT_OEN;
 	writew_relaxed(reg, addr);
+
 	return 0;
 }
 
