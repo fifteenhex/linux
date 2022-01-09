@@ -147,6 +147,7 @@
 	};
 
 	ge: ge@224000 {
+		compatible = "sstar,ssd20xd-ge";
 		// TBC, address from DTS
 		reg = <0x224000 0x200>;
 		interrupts-extended = <&intc_irq GIC_SPI 25 IRQ_TYPE_LEVEL_HIGH>;
