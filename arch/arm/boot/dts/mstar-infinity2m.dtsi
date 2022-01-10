@@ -146,10 +146,12 @@
 		ports = <&mopg>,<&mops>,<&gop0>,<&gop1>,<&op2>,<&displaytop>,<&dsi>;
 	};
 
-	ge: ge@224000 {
+	ge: ge@281200 {
 		compatible = "sstar,ssd20xd-ge";
 		// TBC, address from DTS
-		reg = <0x224000 0x200>;
+		//reg = <0x224000 0x200>; seems wrong
+		// TBC, address from hal
+		reg = <0x281200 0x200>;
 		interrupts-extended = <&intc_irq GIC_SPI 25 IRQ_TYPE_LEVEL_HIGH>;
 	};
 
