@@ -75,6 +75,7 @@ static int mstar_op2_bind(struct device *dev, struct device *master,
 
 	/* create a fake encoder for ttl output */
 	return mstar_ttl_init(drm, dev->of_node);
+	//return 0;
 }
 
 static void mstar_op2_unbind(struct device *dev, struct device *master,
