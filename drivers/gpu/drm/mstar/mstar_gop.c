@@ -32,6 +32,8 @@ static struct reg_field gop_scan_type_field = REG_FIELD(MSTAR_GOP_REG_CONFIG, 3,
 static struct reg_field gop_colorspace_field = REG_FIELD(MSTAR_GOP_REG_CONFIG, 10, 10);
 static struct reg_field gop_hsmask_field = REG_FIELD(MSTAR_GOP_REG_CONFIG, 14, 14);
 static struct reg_field gop_alphainv_field = REG_FIELD(MSTAR_GOP_REG_CONFIG, 15, 15);
+// bits 12 and 13 are meant to control flipping but they don't seem to be writable on ssd202d
+
 
 /* Length of the global window in pixels/2 */
 static struct reg_field stretch_window_size_h_field = REG_FIELD(0xc0, 0, 11);
