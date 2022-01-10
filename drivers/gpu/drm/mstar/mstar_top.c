@@ -108,8 +108,8 @@ static int mstar_top_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	top->vsync_pos_flag = regmap_field_alloc(regmap, irq_vsync_pos_flag_field);
-	top->vsync_pos_mask = regmap_field_alloc(regmap, irq_vsync_pos_mask_field);
+	top->vsync_pos_flag = devm_regmap_field_alloc(dev, regmap, irq_vsync_pos_flag_field);
+	top->vsync_pos_mask = devm_regmap_field_alloc(dev, regmap, irq_vsync_pos_mask_field);
 
 	dev_set_drvdata(dev, top);
 
