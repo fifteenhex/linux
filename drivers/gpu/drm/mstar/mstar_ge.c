@@ -9,6 +9,7 @@
 #include <linux/of_irq.h>
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
+#include <linux/clk.h>
 
 #define DRIVER_NAME "mstar-ge"
 
@@ -20,6 +21,7 @@
 #define REG_DSTH		0x9c
 #define REG_SRCPITCH		0xc0
 #define REG_DSTPITCH		0xcc
+#define REG_COLORFMT		0xd0
 #define REG_ROT			0x164
 #define REG_CMD			0x180
 #define REG_BITBLT_SRCWIDTH	0x1b8
@@ -27,9 +29,10 @@
 
 static const struct reg_field en_field = REG_FIELD(REG_CTRL, 0, 0);
 
+static const struct reg_field irq_mask_field = REG_FIELD(REG_IRQ, 6, 7);
 static const struct reg_field irq_force_field = REG_FIELD(REG_IRQ, 8, 9);
 static const struct reg_field irq_clr_field = REG_FIELD(REG_IRQ, 10, 11);
-static const struct reg_field irq_status_field = REG_FIELD(REG_IRQ, 13, 12);
+static const struct reg_field irq_status_field = REG_FIELD(REG_IRQ, 12, 13);
 
 static const struct reg_field srcl_field = REG_FIELD(REG_SRCL, 0, 15);
 static const struct reg_field srch_field = REG_FIELD(REG_SRCH, 0, 7);
@@ -39,6 +42,10 @@ static const struct reg_field dsth_field = REG_FIELD(REG_DSTH, 0, 7);
 
 static const struct reg_field srcpitch_field = REG_FIELD(REG_SRCPITCH, 0, 13);
 static const struct reg_field dstpitch_field = REG_FIELD(REG_DSTPITCH, 0, 13);
+
+static const struct reg_field src_colorfmt_field = REG_FIELD(REG_COLORFMT, 0, 4);
+static const struct reg_field dst_colorfmt_field = REG_FIELD(REG_COLORFMT, 8, 12);
+#define COLOR_FORMAT_ARGB8888	0xf
 
 static const struct reg_field rot_field = REG_FIELD(REG_ROT, 0, 1);
 #define ROTATION_0	0
@@ -57,11 +64,13 @@ static const struct reg_field bitblt_srcheight_field = REG_FIELD(REG_BITBLT_SRCH
 
 struct mstar_ge {
 	struct device *dev;
+	struct clk *clk;
 	struct regmap_field *en;
-	struct regmap_field *irq_force, *irq_clr, *irq_status;
+	struct regmap_field *irq_mask, *irq_force, *irq_clr, *irq_status;
 	struct regmap_field *srcl, *srch;
 	struct regmap_field *dstl, *dsth;
 	struct regmap_field *srcpitch, *dstpitch;
+	struct regmap_field *srcclrfmt, *dstclrfmt;
 	struct regmap_field *rot;
 	struct regmap_field *prim_type;
 	struct regmap_field *bitblt_src_width, *bitblt_src_height;
@@ -98,7 +107,7 @@ static int mstar_ge_do_bitblt(struct mstar_ge *ge)
 		return ret;
 
 	dmadst = dma_map_single(ge->dev, dst, bufsz, DMA_TO_DEVICE);
-	ret = dma_mapping_error(ge->dev, dmasrc);
+	ret = dma_mapping_error(ge->dev, dmadst);
 	if(ret)
 		goto err_unmap_src;
 
@@ -110,11 +119,13 @@ static int mstar_ge_do_bitblt(struct mstar_ge *ge)
 	regmap_field_write(ge->dsth, dmadst >> 16);
 	regmap_field_write(ge->srcpitch, pitch);
 	regmap_field_write(ge->dstpitch, pitch);
+	regmap_field_write(ge->srcclrfmt, COLOR_FORMAT_ARGB8888);
+	regmap_field_write(ge->dstclrfmt, COLOR_FORMAT_ARGB8888);
 
 	regmap_field_write(ge->prim_type, PRIM_TYPE_BITBLT);
 	//regmap_field_write(ge->en, 0);
 
-	dev_info(ge->dev, "bitblt done\n");
+	dev_info(ge->dev, "bitblt done: %px %px\n", dmasrc, dmadst);
 
 	kfree(src);
 	kfree(dst);
@@ -179,6 +190,7 @@ static int mstar_ge_probe(struct platform_device *pdev)
 		return PTR_ERR(regmap);
 
 	ge->en = devm_regmap_field_alloc(dev, regmap, en_field);
+	ge->irq_mask = devm_regmap_field_alloc(dev, regmap, irq_mask_field);
 	ge->irq_force = devm_regmap_field_alloc(dev, regmap, irq_force_field);
 	ge->irq_clr = devm_regmap_field_alloc(dev, regmap, irq_clr_field);
 	ge->irq_status = devm_regmap_field_alloc(dev, regmap, irq_status_field);
@@ -188,16 +200,25 @@ static int mstar_ge_probe(struct platform_device *pdev)
 	ge->dsth = devm_regmap_field_alloc(dev, regmap, dsth_field);
 	ge->srcpitch = devm_regmap_field_alloc(dev, regmap, srcpitch_field);
 	ge->dstpitch = devm_regmap_field_alloc(dev, regmap, dstpitch_field);
+	ge->srcclrfmt = devm_regmap_field_alloc(dev, regmap, src_colorfmt_field);
+	ge->dstclrfmt = devm_regmap_field_alloc(dev, regmap, dst_colorfmt_field);
 	ge->rot = devm_regmap_field_alloc(dev, regmap, rot_field);
 	ge->prim_type = devm_regmap_field_alloc(dev, regmap, prim_type_field);
 	ge->bitblt_src_width = devm_regmap_field_alloc(dev, regmap, bitblt_srcwidth_field);
 	ge->bitblt_src_height = devm_regmap_field_alloc(dev, regmap, bitblt_srcheight_field);
 
+	ge->clk = devm_clk_get(dev, "ge");
+	if (IS_ERR(ge->clk))
+		return PTR_ERR(ge->clk);
+
+	clk_prepare_enable(ge->clk);
+
 	irq = irq_of_parse_and_map(pdev->dev.of_node, 0);
 	if (!irq)
 		return -ENODEV;
 
-	ret = devm_request_irq(&pdev->dev, irq, mstar_ge_irq, IRQF_SHARED, dev_name(&pdev->dev), ge);
+	regmap_field_write(ge->irq_mask, 0);
+	ret = devm_request_irq(dev, irq, mstar_ge_irq, IRQF_SHARED, dev_name(dev), ge);
 	if (ret)
 		return ret;
 
