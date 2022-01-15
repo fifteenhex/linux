@@ -19,13 +19,10 @@
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_vblank.h>
 
+#include "mstar_drm.h"
 #include "mstar_framebuffer.h"
 
 #define DRIVER_NAME "mstar-drm"
-
-struct mstar_drv {
-	struct device *dev;
-};
 
 DEFINE_DRM_GEM_CMA_FOPS(mstar_drv_fops);
 
