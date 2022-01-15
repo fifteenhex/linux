@@ -16,6 +16,7 @@
 #include <linux/interrupt.h>
 #include <linux/of_irq.h>
 
+#include "mstar_drm.h"
 #include "mstar_gop.h"
 
 #define DRIVER_NAME "mstar-gop"
@@ -104,6 +105,7 @@ struct mstar_gop_window {
 
 struct mstar_gop {
 	struct device *dev;
+	struct drm_device *drm_device;
 	struct clk *fclk; /* vendor code says this is only needed when setting the palette */
 	const struct mstar_gop_data *data;
 
@@ -144,7 +146,8 @@ static const char* dsts[] = {
 	"unknown",
 };
 
-static void mstar_gop_dump(struct mstar_gop *gop){
+static void mstar_gop_dump(struct mstar_gop *gop)
+{
 	unsigned int val, rst, scan_type, colorspace, dst;
 	unsigned int stretchh, stretchv, coordinateh, coordinatev;
 	int i;
@@ -174,9 +177,10 @@ static void mstar_gop_dump(struct mstar_gop *gop){
 
 	for (i = 0; i < gop->data->num_windows; i++){
 		struct mstar_gop_window *window = &gop->windows[i];
-		u32 en, addr, hstart, hend, vstart, vend, pitch;
+		u32 en, format, addr, hstart, hend, vstart, vend, pitch;
 
 		regmap_field_read(window->en, &en);
+		regmap_field_read(window->format, &format);
 		regmap_field_read(window->addrh, &val);
 		addr = val << 16;
 		regmap_field_read(window->addrl, &val);
@@ -192,10 +196,12 @@ static void mstar_gop_dump(struct mstar_gop *gop){
 		dev_info(gop->dev,
 			"window 1:\n"
 			"en: %d\n"
+			"format: %d\n"
 			"addr: 0x%08x\n"
 			"hstart: %d, hend %d, vstart: %d, vend: %d\n"
 			"pitch: %d\n",
 			en,
+			format,
 			addr,
 			hstart * 4, hend * 4, vstart, vend,
 			pitch << gop->data->addr_shift
@@ -265,6 +271,7 @@ static void gop_plane_atomic_update(struct drm_plane *plane,
 	struct drm_framebuffer *fb = new_state->fb;
 	struct drm_gem_cma_object *gem = drm_fb_cma_get_gem_obj(fb, 0);
 	u32 addr;
+	struct mstar_drv *drv = gop->drm_device->dev_private;
 
 	if (!gem)
 		return;
@@ -327,6 +334,8 @@ static int mstar_gop_bind(struct device *dev, struct device *master,
 	struct mstar_gop *gop = dev_get_drvdata(dev);
 	struct drm_device *drm_device = data;
 	int i, ret;
+
+	gop->drm_device = drm_device;
 
 	for (i = 0; i < gop->data->num_windows; i++){
 		struct mstar_gop_window *window = &gop->windows[i];
