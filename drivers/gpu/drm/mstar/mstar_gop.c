@@ -5,6 +5,7 @@
 #include <drm/drm_fourcc.h>
 #include <drm/drm_fb_cma_helper.h>
 #include <drm/drm_gem_cma_helper.h>
+#include <drm/drm_gem_atomic_helper.h>
 #include <drm/drm_plane.h>
 #include <linux/component.h>
 #include <linux/clk.h>
@@ -17,6 +18,7 @@
 #include <linux/of_irq.h>
 
 #include "mstar_drm.h"
+#include "mstar_ge.h"
 #include "mstar_gop.h"
 
 #define DRIVER_NAME "mstar-gop"
@@ -99,6 +101,12 @@ struct mstar_gop_window {
 	struct regmap_field *vstart;
 	struct regmap_field *vend;
 	struct regmap_field *pitch;
+
+	/* hack for doing mirroring in the kernel */
+	bool doflipping;
+	struct mstar_ge_job flip_job;
+	void *postprocessed;
+	size_t postprocessed_sz;
 };
 
 #define plane_to_gop_window(plane) container_of(plane, struct mstar_gop_window, drm_plane)
@@ -256,9 +264,72 @@ static int gop_ssd20xd_gop1_gop_color_to_drm(void)
 	return -ENOTSUPP;
 }
 
+static int gop_plane_prepare_fb(struct drm_plane *plane,
+			  struct drm_plane_state *new_state)
+{
+	struct mstar_gop_window *window = plane_to_gop_window(plane);
+	struct drm_framebuffer *fb = new_state->fb;
+	size_t fbsz;
+	int ret;
+
+	if (!new_state->fb)
+		return 0;
+
+	ret = drm_gem_plane_helper_prepare_fb(plane, new_state);
+	if (ret)
+		return ret;
+
+	fbsz = fb->pitches[0] * fb->height;
+
+	window->postprocessed = kzalloc(fbsz, GFP_KERNEL);
+	if (!window->postprocessed)
+		return -ENOMEM;
+
+	printk("allocated plane %d\n", fbsz);
+	window->postprocessed_sz = fbsz;
+
+
+	window->flip_job.op = MSTAR_GE_OP_BITBLT;
+	window->flip_job.src_width = fb->width;
+	window->flip_job.src_height = fb->height;
+	window->flip_job.src_pitch = fb->pitches[0];
+	window->flip_job.dst_width = fb->width;
+	window->flip_job.dst_height = fb->height;
+	window->flip_job.dst_pitch = fb->pitches[0];
+	window->flip_job.src_fourcc = DRM_FORMAT_RGB565;
+	window->flip_job.dst_fourcc = DRM_FORMAT_RGB565;
+	window->flip_job.bitblt.rotation = ROTATION_180;
+
+	window->doflipping = true;
+
+	return 0;
+}
+
+static void gop_plane_cleanup_fb(struct drm_plane *plane,
+		struct drm_plane_state *old_state)
+{
+	struct mstar_gop_window *window = plane_to_gop_window(plane);
+
+	printk("plane clean up\n");
+
+	if (window->postprocessed)
+		kfree(window->postprocessed);
+
+}
+
 static int gop_plane_atomic_check(struct drm_plane *plane,
 				  struct drm_atomic_state *state)
 {
+	struct drm_plane_state *new_state = drm_atomic_get_new_plane_state(state, plane);
+	struct mstar_gop_window *window = plane_to_gop_window(plane);
+	struct mstar_drv *drv = window->gop->drm_device->dev_private;
+	bool needpostprocess = true;
+
+	if (needpostprocess && !drv->ge) {
+		printk("need post processing but GE isn't available\n");
+		return -EINVAL;
+	}
+
 	return 0;
 }
 
@@ -272,6 +343,7 @@ static void gop_plane_atomic_update(struct drm_plane *plane,
 	struct drm_gem_cma_object *gem = drm_fb_cma_get_gem_obj(fb, 0);
 	u32 addr;
 	struct mstar_drv *drv = gop->drm_device->dev_private;
+	bool needpostprocess = true;
 
 	if (!gem)
 		return;
@@ -300,7 +372,16 @@ static void gop_plane_atomic_update(struct drm_plane *plane,
 
 	regmap_field_write(window->pitch, fb->pitches[0] >> gop->data->addr_shift);
 
-	addr = gem->paddr >> window->gop->data->addr_shift;
+	/*
+	 * If we are doing flipping we put the framebuffer address into the
+	 * GE job.
+	 */
+	if (window->doflipping) {
+		window->flip_job.src_addr = gem->paddr;
+	}
+	//else
+		addr = gem->paddr >> window->gop->data->addr_shift;
+
 	regmap_field_write(window->addrh, addr >> 16);
 	regmap_field_write(window->addrl, addr);
 
@@ -310,6 +391,8 @@ static void gop_plane_atomic_update(struct drm_plane *plane,
 }
 
 static const struct drm_plane_helper_funcs gop_plane_helper_funcs = {
+	.prepare_fb = gop_plane_prepare_fb,
+	.cleanup_fb = gop_plane_cleanup_fb,
 	.atomic_check = gop_plane_atomic_check,
 	.atomic_update = gop_plane_atomic_update,
 };
@@ -432,6 +515,8 @@ static int mstar_gop_probe(struct platform_device *pdev)
 		window->vstart = devm_regmap_field_alloc(dev, regmap, vstart_field);
 		window->vend = devm_regmap_field_alloc(dev, regmap, vend_field);
 		window->pitch = devm_regmap_field_alloc(dev, regmap, pitch_field);
+
+		mstar_ge_job_init(&window->flip_job);
 	}
 
 	irq = irq_of_parse_and_map(pdev->dev.of_node, 0);
