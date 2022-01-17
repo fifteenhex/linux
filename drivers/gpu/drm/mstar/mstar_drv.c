@@ -84,11 +84,12 @@ static int mstar_drv_bind(struct device *dev)
 	}
 
 	/* drm_vblank_init calls kcalloc, which can fail */
-	//ret = drm_vblank_init(drm, drm->mode_config.num_crtc);
-	//if (ret)
-	//	goto cleanup_mode_config;
+	printk("num crtc %d\n",drm->mode_config.num_crtc);
+	ret = drm_vblank_init(drm, drm->mode_config.num_crtc);
+	if (ret)
+		goto cleanup_mode_config;
 
-//	drm->irq_enabled = true;
+	//drm->irq_enabled = true;
 
 	/* Remove early framebuffers (ie. simplefb) */
 	remove_conflicting_framebuffers(NULL, "xx", false);
