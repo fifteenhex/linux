@@ -12,13 +12,10 @@
 #include <linux/interrupt.h>
 #include <linux/of_irq.h>
 
-#define DRIVER_NAME "mstar-top"
+#include "mstar_drm.h"
+#include "mstar_top.h"
 
-struct mstar_top {
-	struct drm_device *drm_device;
-	struct regmap_field *vsync_pos_flag;
-	struct regmap_field *vsync_pos_mask;
-};
+#define DRIVER_NAME "mstar-top"
 
 static const struct reg_field irq_vsync_pos_flag_field = REG_FIELD(0x8, 3, 3);
 static const struct reg_field irq_vsync_pos_mask_field = REG_FIELD(0xc, 3, 3);
@@ -37,21 +34,20 @@ static irqreturn_t mstar_top_irq(int irq, void *data)
 
 	regmap_field_force_write(top->vsync_pos_flag, 1);
 
-#if 0
-	if (top->drm_device && drm_dev_has_vblank(top->drm_device)) {
-		drm_for_each_crtc(crtc, top->drm_device){
-		drm_crtc_handle_vblank(crtc);
-			spin_lock_irqsave(&crtc->dev->event_lock, flags);
-			if (crtc->state && crtc->state->event) {
-				printk("send event! %px\n",crtc->state->event);
-				drm_crtc_send_vblank_event(crtc, crtc->state->event);
-				drm_crtc_vblank_put(crtc);
-				crtc->state->event = NULL;
-			}
-			spin_unlock_irqrestore(&crtc->dev->event_lock, flags);
+	//printk("v irq 4\n");
+	if (top->drm_device) {
+		drm_for_each_crtc(crtc, top->drm_device) {
+			drm_crtc_handle_vblank(crtc);
+			//spin_lock_irqsave(&crtc->dev->event_lock, flags);
+			//if (crtc->state && crtc->state->event) {
+			//	printk("send event! %px\n",crtc->state->event);
+			//	drm_crtc_send_vblank_event(crtc, crtc->state->event);
+			//	drm_crtc_vblank_put(crtc);
+			//	crtc->state->event = NULL;
+			//}
+			//spin_unlock_irqrestore(&crtc->dev->event_lock, flags);
 		}
 	}
-#endif
 
 	return IRQ_HANDLED;
 }
@@ -61,8 +57,10 @@ static int mstar_top_bind(struct device *dev, struct device *master,
 {
 	struct mstar_top *top = dev_get_drvdata(dev);
 	struct drm_device *drm_device = data;
+	struct mstar_drv *drv = drm_device->dev_private;
 
 	top->drm_device = drm_device;
+	drv->top = top;
 
 	return 0;
 }
@@ -70,12 +68,26 @@ static int mstar_top_bind(struct device *dev, struct device *master,
 static void mstar_top_unbind(struct device *dev, struct device *master,
 			    void *data)
 {
+	struct drm_device *drm_device = data;
+	struct mstar_drv *drv = drm_device->dev_private;
+
+	drv->top = NULL;
 }
 
 static const struct component_ops mstar_top_ops = {
 	.bind	= mstar_top_bind,
 	.unbind	= mstar_top_unbind,
 };
+
+void mstar_top_enable_vblank(struct mstar_top *top)
+{
+	regmap_field_write(top->vsync_pos_mask, 0);
+}
+
+void mstar_top_disable_vblank(struct mstar_top *top)
+{
+	regmap_field_write(top->vsync_pos_mask, 1);
+}
 
 static int mstar_top_probe(struct platform_device *pdev)
 {
@@ -112,8 +124,6 @@ static int mstar_top_probe(struct platform_device *pdev)
 	top->vsync_pos_mask = devm_regmap_field_alloc(dev, regmap, irq_vsync_pos_mask_field);
 
 	dev_set_drvdata(dev, top);
-
-	regmap_field_write(top->vsync_pos_mask, 0);
 
 	return component_add(&pdev->dev, &mstar_top_ops);
 }
