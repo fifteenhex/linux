@@ -1,5 +1,7 @@
+#include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_crtc.h>
+#include <drm/drm_vblank.h>
 #include <linux/component.h>
 #include <linux/module.h>
 #include <linux/of_device.h>
@@ -7,7 +9,9 @@
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
 
+#include "mstar_drm.h"
 #include "mstar_ttl.h"
+#include "mstar_top.h"
 
 #define DRIVER_NAME "mstar-op2"
 
@@ -21,13 +25,37 @@ static const struct regmap_config mstar_op2_regmap_config = {
 	.reg_stride = 4,
 };
 
+static int mstar_op2_enable_vblank(struct drm_crtc *crtc)
+{
+	struct mstar_drv *drv = crtc->dev->dev_private;
+
+	printk("enable vblank\n");
+
+	if (drv->top)
+		mstar_top_enable_vblank(drv->top);
+
+	return 0;
+}
+
+static void mstar_op2_disable_vblank(struct drm_crtc *crtc)
+{
+	struct mstar_drv *drv = crtc->dev->dev_private;
+
+	printk("disable vblank\n");
+
+	if (drv->top)
+		mstar_top_disable_vblank(drv->top);
+}
+
 static const struct drm_crtc_funcs mstar_op2_crtc_funcs = {
-	.reset = drm_atomic_helper_crtc_reset,
-	.destroy = drm_crtc_cleanup,
-	.set_config = drm_atomic_helper_set_config,
-	.page_flip = drm_atomic_helper_page_flip,
-	.atomic_duplicate_state = drm_atomic_helper_crtc_duplicate_state,
-	.atomic_destroy_state = drm_atomic_helper_crtc_destroy_state,
+	.reset			= drm_atomic_helper_crtc_reset,
+	.destroy		= drm_crtc_cleanup,
+	.set_config		= drm_atomic_helper_set_config,
+	.page_flip		= drm_atomic_helper_page_flip,
+	.atomic_duplicate_state	= drm_atomic_helper_crtc_duplicate_state,
+	.atomic_destroy_state	= drm_atomic_helper_crtc_destroy_state,
+	.enable_vblank		= mstar_op2_enable_vblank,
+	.disable_vblank		= mstar_op2_disable_vblank,
 };
 
 static int mstar_op2_mode_set(struct drm_crtc *crtc, struct drm_display_mode *mode,
@@ -37,8 +65,38 @@ static int mstar_op2_mode_set(struct drm_crtc *crtc, struct drm_display_mode *mo
 	return 0;
 }
 
+static void mstar_op2_atomic_enable(struct drm_crtc *crtc, struct drm_atomic_state *state)
+{
+	drm_crtc_vblank_on(crtc);
+}
+
+static void mstar_op2_atomic_disable(struct drm_crtc *crtc, struct drm_atomic_state *state)
+{
+	drm_crtc_vblank_off(crtc);
+}
+
+static void mstar_op2_atomic_flush(struct drm_crtc *crtc, struct drm_atomic_state *state)
+{
+	struct drm_crtc_state *crtc_state = drm_atomic_get_new_crtc_state(state, crtc);
+	struct drm_pending_vblank_event *event = crtc_state->event;
+
+	if (event) {
+		crtc_state->event = NULL;
+
+		spin_lock_irq(&crtc->dev->event_lock);
+		if (drm_crtc_vblank_get(crtc) == 0)
+			drm_crtc_arm_vblank_event(crtc, event);
+		else
+			drm_crtc_send_vblank_event(crtc, event);
+		spin_unlock_irq(&crtc->dev->event_lock);
+	}
+}
+
 static const struct drm_crtc_helper_funcs mstar_op2_helper_funcs = {
-	.mode_set = mstar_op2_mode_set,
+	.mode_set	= mstar_op2_mode_set,
+	.atomic_flush	= mstar_op2_atomic_flush,
+	.atomic_enable	= mstar_op2_atomic_enable,
+	.atomic_disable	= mstar_op2_atomic_disable,
 };
 
 static int mstar_op2_bind(struct device *dev, struct device *master,
@@ -49,7 +107,7 @@ static int mstar_op2_bind(struct device *dev, struct device *master,
 	struct drm_plane *plane = NULL, *primary = NULL, *cursor = NULL;
 	int ret;
 
-	drm_for_each_plane(plane, drm){
+	drm_for_each_plane(plane, drm) {
 		if (plane->type == DRM_PLANE_TYPE_PRIMARY)
 			primary = plane;
 		else if (plane->type == DRM_PLANE_TYPE_CURSOR)
@@ -133,8 +191,8 @@ static struct platform_driver mstar_op2_driver = {
 	.probe = mstar_op2_probe,
 	.remove = mstar_op2_remove,
 	.driver = {
-		   .name = DRIVER_NAME,
-		   .of_match_table = mstar_op2_ids,
+		.name = DRIVER_NAME,
+		.of_match_table = mstar_op2_ids,
 	},
 };
 module_platform_driver(mstar_op2_driver);
