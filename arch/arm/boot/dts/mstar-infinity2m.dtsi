@@ -143,7 +143,7 @@
 
 	display: display@0 {
 		compatible = "sstar,ssd20xd-drm";
-		ports = <&mopg>,<&mops>,<&gop0>,<&gop1>,<&op2>,<&displaytop>,<&dsi>;
+		ports = <&mopg>,<&mops>,<&gop0>,<&gop1>,<&op2>,<&displaytop>,<&dsi>,<&ge>;
 	};
 
 	ge: ge@281200 {
