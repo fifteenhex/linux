@@ -142,7 +142,7 @@
 };
 
 &display {
-	ports = <&mopg>,<&mops>,<&gop0>,<&gop1>,<&op2>,<&displaytop>,<&ge>;
+	ports = <&mopg>,<&mops>,<&gop0>,<&gop1>,<&op2>,<&displaytop>;
 };
 
 &op2 {
