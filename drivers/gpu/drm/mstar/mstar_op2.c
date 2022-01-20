@@ -132,8 +132,8 @@ static int mstar_op2_bind(struct device *dev, struct device *master,
 	op2->drm_crtc.port = of_graph_get_port_by_id(dev->of_node, 0);
 
 	/* create a fake encoder for ttl output */
-	//return mstar_ttl_init(drm, dev->of_node);
-	return 0;
+	return mstar_ttl_init(drm, dev->of_node);
+	//return 0;
 }
 
 static void mstar_op2_unbind(struct device *dev, struct device *master,
