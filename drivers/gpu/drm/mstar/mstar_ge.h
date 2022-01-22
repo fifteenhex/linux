@@ -18,16 +18,27 @@ struct mstar_ge_bitblt {
 	unsigned int rotation;
 };
 
-struct mstar_ge_job {
+#define MSTAR_GE_IOCTL_INFO	0
+
+struct mstar_ge_info {
+	u32 caps;
+};
+
+struct mstar_ge_opdata {
 	enum mstar_ge_op op;
-	dma_addr_t src_addr, dst_addr;
+	void *src, *dst;
 	u32 src_width, src_height, dst_width, dst_height;
 	u32 src_pitch, dst_pitch;
 	u32 src_fourcc, dst_fourcc;
-	u32 tag;
 	union {
 		struct mstar_ge_bitblt bitblt;
 	};
+};
+
+struct mstar_ge_job {
+	u32 tag;
+	struct mstar_ge_opdata opdata;
+	dma_addr_t src_addr, dst_addr;
 	struct list_head queue;
 };
 
@@ -36,8 +47,8 @@ static inline void mstar_ge_job_init(struct mstar_ge_job *job)
 	INIT_LIST_HEAD(&job->queue);
 }
 
-#define mstar_ge_job_srcsz(j) (j->src_pitch * j->src_height)
-#define mstar_ge_job_dstsz(j) (j->src_pitch * j->src_height)
+#define mstar_ge_job_srcsz(j) (j->opdata.src_pitch * j->opdata.src_height)
+#define mstar_ge_job_dstsz(j) (j->opdata.dst_pitch * j->opdata.dst_height)
 
 int mstar_ge_queue_job(struct mstar_ge *ge, struct mstar_ge_job *job);
 
