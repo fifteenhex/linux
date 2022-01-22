@@ -409,16 +409,16 @@ int mstar_ge_queue_job(struct mstar_ge *ge, struct mstar_ge_job *job)
 
 	/* src is optional */
 	if(job->src_addr)
-		mstar_ge_set_src(ge, job->src_addr, job->src_pitch);
+		mstar_ge_set_src(ge, job->src_addr, job->opdata.src_pitch);
 
-	mstar_ge_set_dst(ge, job->dst_addr, job->dst_pitch);
+	mstar_ge_set_dst(ge, job->dst_addr, job->opdata.dst_pitch);
 
-	regmap_field_write(ge->srcclrfmt, mstar_ge_drm_color_to_gop(job->src_fourcc) |
-			(mstar_ge_drm_color_to_gop(job->dst_fourcc) << 8));
+	regmap_field_write(ge->srcclrfmt, mstar_ge_drm_color_to_gop(job->opdata.src_fourcc) |
+			(mstar_ge_drm_color_to_gop(job->opdata.dst_fourcc) << 8));
 
-	switch(job->op){
+	switch(job->opdata.op){
 	case MSTAR_GE_OP_BITBLT:
-		mstar_ge_do_bitblt(ge, job->src_width, job->src_height, &job->bitblt);
+		mstar_ge_do_bitblt(ge, job->opdata.src_width, job->opdata.src_height, &job->opdata.bitblt);
 		break;
 	}
 
@@ -481,17 +481,16 @@ static int mstar_ge_test_allocbuffers(struct mstar_ge *ge,
 	return 0;
 }
 
-static int mstar_ge_test_mapbuffers(struct mstar_ge *ge,
-		void *src, void *dst, struct mstar_ge_job *j)
+static int mstar_ge_test_mapbuffers(struct mstar_ge *ge, struct mstar_ge_job *j)
 {
 	int ret;
 
-	j->src_addr = dma_map_single(ge->dev, src, mstar_ge_job_srcsz(j), DMA_TO_DEVICE);
+	j->src_addr = dma_map_single(ge->dev, j->opdata.src, mstar_ge_job_srcsz(j), DMA_TO_DEVICE);
 	ret = dma_mapping_error(ge->dev, j->src_addr);
 	if(ret)
 		return ret;
 
-	j->dst_addr = dma_map_single(ge->dev, dst, mstar_ge_job_dstsz(j), DMA_FROM_DEVICE);
+	j->dst_addr = dma_map_single(ge->dev, j->opdata.dst, mstar_ge_job_dstsz(j), DMA_FROM_DEVICE);
 	ret = dma_mapping_error(ge->dev, j->dst_addr);
 	if(ret)
 		dma_unmap_single(ge->dev, j->dst_addr, mstar_ge_job_srcsz(j), DMA_TO_DEVICE);
@@ -512,29 +511,31 @@ static int mstar_ge_test(struct mstar_ge *ge)
 	int ret;
 
 	mstar_ge_job_init(&j);
-	j.op = MSTAR_GE_OP_BITBLT;
-	j.src_width = 8;
-	j.src_height = 8;
-	j.src_pitch = j.src_width * 2;
-	j.dst_width = 8;
-	j.dst_height = 8;
-	j.dst_pitch = j.dst_width * 2;
-	j.src_fourcc = DRM_FORMAT_RGB565;
-	j.dst_fourcc = DRM_FORMAT_RGB565;
-	j.bitblt.rotation = ROTATION_180;
+	j.opdata.op = MSTAR_GE_OP_BITBLT;
+	j.opdata.src_width = 8;
+	j.opdata.src_height = 8;
+	j.opdata.src_pitch = j.opdata.src_width * 2;
+	j.opdata.dst_width = 8;
+	j.opdata.dst_height = 8;
+	j.opdata.dst_pitch = j.opdata.dst_width * 2;
+	j.opdata.src_fourcc = DRM_FORMAT_RGB565;
+	j.opdata.dst_fourcc = DRM_FORMAT_RGB565;
+	j.opdata.bitblt.rotation = ROTATION_180;
 
 	ret = mstar_ge_test_allocbuffers(ge, &src, &dst, &j);
 	if (ret)
 		return ret;
 
-	mstar_get_filltestbuf(src, j.src_height, j.src_pitch);
+	mstar_get_filltestbuf(src, j.opdata.src_height, j.opdata.src_pitch);
 
 	dev_info(ge->dev, "src before\n");
-	asciiart(src, j.src_width, j.src_height);
+	asciiart(src, j.opdata.src_width, j.opdata.src_height);
 	dev_info(ge->dev, "dst before\n");
-	asciiart(dst, j.dst_width, j.dst_height);
+	asciiart(dst, j.opdata.dst_width, j.opdata.dst_height);
 
-	ret = mstar_ge_test_mapbuffers(ge, src, dst, &j);
+	j.opdata.src = src;
+	j.opdata.dst = dst;
+	ret = mstar_ge_test_mapbuffers(ge, &j);
 	if (ret)
 		goto free_src;
 
@@ -543,9 +544,9 @@ static int mstar_ge_test(struct mstar_ge *ge)
 	mstar_ge_test_unmapbuffers(ge, &j);
 
 	dev_info(ge->dev, "src after job\n");
-	asciiart(src, j.src_width, j.src_height);
+	asciiart(src, j.opdata.src_width, j.opdata.src_height);
 	dev_info(ge->dev, "dst after job\n");
-	asciiart(dst, j.dst_width, j.dst_height);
+	asciiart(dst, j.opdata.dst_width, j.opdata.dst_height);
 
 free_src:
 	kfree(src);
@@ -557,8 +558,20 @@ free_src:
 static long mstar_ge_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 {
 	struct mstar_ge *ge = container_of(f->private_data, struct mstar_ge, ge_dev);
+	int ret = 0;
 
-	return 0;
+	switch(cmd){
+	case MSTAR_GE_IOCTL_INFO: {
+		struct mstar_ge_info info;
+		info.caps = 1;
+		copy_to_user((void *) arg, &info, sizeof(info));
+	}
+		break;
+	default:
+		ret = -EINVAL;
+	}
+
+	return ret;
 }
 
 static const struct file_operations ge_fops = {
