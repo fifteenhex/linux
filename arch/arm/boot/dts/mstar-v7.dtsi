@@ -624,6 +624,14 @@
 				status = "disabled";
 			};
 
+			uart1: uart@221200 {
+				compatible = "mstar,msc313-uart";
+				reg = <0x221200 0x100>;
+				interrupts-extended = <&intc_irq GIC_SPI 35 IRQ_TYPE_LEVEL_HIGH>;
+				reg-shift = <3>;
+				status = "disabled";
+			};
+
 			i2c0: i2c0@223000 {
 				compatible = "mstar,msc313e-i2c";
 				reg = <0x223000 0x200>;
