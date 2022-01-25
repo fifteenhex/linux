@@ -80,6 +80,9 @@ properties:
               - starfive,jh7110-uart
               - ultrarisc,dp1000-uart
           - const: snps,dw-apb-uart
+      - items:
+          - const: mstar,msc313-uart
+          - const: snps,dw-apb-uart
       - const: snps,dw-apb-uart
 
   reg:
