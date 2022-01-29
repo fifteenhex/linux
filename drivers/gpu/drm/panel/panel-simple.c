@@ -1326,17 +1326,16 @@ static const struct panel_desc chefree_ch101olhlwh_002 = {
 	.connector_type = DRM_MODE_CONNECTOR_LVDS,
 };
 
-/* incorrect !! */
 static const struct drm_display_mode chenchen_cc0702i50r_mode = {
 	.clock = 51200,
 	.hdisplay = 1024,
 	.hsync_start = 1024 + 160,
-	.hsync_end = 1024 + 160 + 4,
-	.htotal = 1024 + 160 + 4 + 156,
+	.hsync_end = 1024 + 160 + 70,
+	.htotal = 1024 + 160 + 70 + 90,
 	.vdisplay = 600,
-	.vsync_start = 600 + 17,
-	.vsync_end = 600 + 17 + 1,
-	.vtotal = 600 + 17 + 1 + 17,
+	.vsync_start = 600 + 23,
+	.vsync_end = 600 + 23 + 10,
+	.vtotal = 600 + 23 + 10 + 2,
 };
 
 static const struct panel_desc chenchen_cc0702i50r = {
