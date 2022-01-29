@@ -96,7 +96,7 @@
 		backlight = <&backlight>;
 		port {
 			panel_in: endpoint {
-				remote-endpoint = <&op2_out>;
+				remote-endpoint = <&op2_ttl>;
 			};
 		};
 	};
@@ -147,15 +147,10 @@
 
 &op2 {
 	status = "okay";
+};
 
-	ports {
-		port@0 {
-			reg = <0>;
-			op2_out: endpoint {
-				remote-endpoint = <&panel_in>;
-			};
-		};
-	};
+&op2_ttl {
+	remote-endpoint = <&panel_in>;
 };
 
 &pwm {
