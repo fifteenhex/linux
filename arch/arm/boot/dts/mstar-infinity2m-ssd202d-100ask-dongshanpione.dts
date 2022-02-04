@@ -72,6 +72,28 @@
 		regulator-max-microvolt = <1500000>;
 		regulator-boot-on;
 	};
+
+	backlight: backlight {
+		compatible = "pwm-backlight";
+		pwms = <&pwm 0 50000>;
+		brightness-levels = <0 4 8 16 32 64 128 255>;
+		default-brightness-level = <6>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pwm0_mode3_pins>;
+	};
+
+	panel@0 {
+		compatible = "std,std7.0tft1024600-13-f";
+		reg = <0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&ttl_mode1_pins>;
+		backlight = <&backlight>;
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&op2_ttl>;
+			};
+		};
+	};
 };
 
 &cpu0 {
@@ -128,4 +150,22 @@
 
 &uhc2 {
 	status = "okay";
+};
+
+// split me!
+&display {
+	ports = <&mopg>,<&mops>,<&gop0>,<&gop1>,<&op2>,<&displaytop>;
+};
+
+&op2 {
+	mstar,op2-channelswap = /bits/ 8 <0x1 0x2 0x3>;
+	assigned-clocks = <&clkgen MSC313_CLKGEN_MUXES SSD20XD_CLKGEN_SC_PIXEL 0>,
+			  <&sc_gp_ctrl_muxes SSD20XD_SC_GP_HDMI_GATE_MUX>;
+	assigned-clock-parents = <&clkgen MSC313_CLKGEN_DIVIDERS MSC313_CLKGEN_GATE_9 GATE9_DIVIDEBY_4>,
+				 <&clkgen MSC313_CLKGEN_DEGLITCHES SSD20XD_CLKGEN_SC_PIXEL 0>;
+	status = "okay";
+};
+
+&op2_ttl {
+	remote-endpoint = <&panel_in>;
 };
