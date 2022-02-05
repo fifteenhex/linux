@@ -952,6 +952,7 @@
 				interconnect-names = "dma-mem";
 				interconnects = <&miu 0>;
 				mstar,audiotop = <&audiotop>;
+				status = "disabled";
 			};
 		};
 
