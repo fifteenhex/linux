@@ -169,3 +169,17 @@
 &op2_ttl {
 	remote-endpoint = <&panel_in>;
 };
+
+&i2c1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c1_mode1_pins>;
+	status = "okay";
+
+	ts@5d {
+		compatible = "goodix,gt911";
+		reg = <0x14>;
+		interrupts-extended = <&gpio SSD20XD_GPIO_GPIO5 IRQ_TYPE_EDGE_FALLING>;
+		reset-gpios = <&gpio SSD20XD_GPIO_GPIO1 GPIO_ACTIVE_HIGH>;
+		interrupt-gpios = <&gpio SSD20XD_GPIO_GPIO5 GPIO_ACTIVE_HIGH>;
+	};
+};
