@@ -145,8 +145,6 @@ static int mstar_op2_enable_vblank(struct drm_crtc *crtc)
 {
 	struct mstar_drv *drv = crtc->dev->dev_private;
 
-	printk("enable vblank\n");
-
 	if (drv->top)
 		mstar_top_enable_vblank(drv->top);
 
@@ -156,8 +154,6 @@ static int mstar_op2_enable_vblank(struct drm_crtc *crtc)
 static void mstar_op2_disable_vblank(struct drm_crtc *crtc)
 {
 	struct mstar_drv *drv = crtc->dev->dev_private;
-
-	printk("disable vblank\n");
 
 	if (drv->top)
 		mstar_top_disable_vblank(drv->top);
