@@ -80,6 +80,8 @@ static int panel_bridge_attach(struct drm_bridge *bridge,
 		return ret;
 	}
 
+	ret = drm_connector_init_panel_orientation_property(connector);
+
 	drm_connector_attach_encoder(&panel_bridge->connector,
 					  bridge->encoder);
 
