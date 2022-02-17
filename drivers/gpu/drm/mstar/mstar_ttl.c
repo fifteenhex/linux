@@ -9,10 +9,10 @@ struct mstar_ttl {
 
 int mstar_ttl_init(struct drm_device *drm, struct device_node *of_node)
 {
-	struct mstar_ttl *ttl;
 	struct drm_bridge *bridge;
 	struct drm_panel *panel;
 	struct device_node *ep;
+	struct mstar_ttl *ttl;
 	int ret;
 
 	printk("%s:%d\n", __func__, __LINE__);
@@ -40,26 +40,25 @@ int mstar_ttl_init(struct drm_device *drm, struct device_node *of_node)
 
 	ttl->encoder.possible_crtcs = 1;
 
-	if (panel) {
-		bridge = drm_panel_bridge_add_typed(panel,
-						    DRM_MODE_CONNECTOR_Unknown);
-		if (IS_ERR(bridge))
-			return PTR_ERR(bridge);
-	}
+	if (!panel)
+		goto cleanup;
+
+	bridge = drm_panel_bridge_add_typed(panel,
+			DRM_MODE_CONNECTOR_Unknown);
+	if (IS_ERR(bridge))
+		return PTR_ERR(bridge);
+
+	ret = drm_bridge_attach(&ttl->encoder, bridge, NULL, 0);
+	if (!ret)
+		return 0;
+
+cleanup_panel:
+	if (panel)
+		drm_panel_bridge_remove(bridge);
 
 	printk("%s:%d\n", __func__, __LINE__);
 
-	if (bridge) {
-		ret = drm_bridge_attach(&ttl->encoder, bridge, NULL, 0);
-		if (!ret)
-			return 0;
-
-		if (panel)
-			drm_panel_bridge_remove(bridge);
-	}
-
-	printk("%s:%d\n", __func__, __LINE__);
-
+cleanup:
 	drm_encoder_cleanup(&ttl->encoder);
 
 	return ret;
