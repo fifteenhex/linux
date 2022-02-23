@@ -28,7 +28,7 @@
 
 	gpio-keys {
 		compatible = "gpio-keys-polled";
-		poll-interval = <100>;
+		poll-interval = <10>;
 
 		key_up {
 			label = "key_up";
