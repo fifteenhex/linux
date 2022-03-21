@@ -173,6 +173,7 @@
 &i2c1 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2c1_mode1_pins>;
+	clock-frequency = <400000>;
 	status = "okay";
 
 	ts@5d {
