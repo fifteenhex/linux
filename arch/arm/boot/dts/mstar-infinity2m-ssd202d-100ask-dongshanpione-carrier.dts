@@ -22,3 +22,9 @@
 &bach {
 	status = "okay";
 };
+
+&mspi0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&spi0_mode5_pins>;
+	status = "okay";
+};
