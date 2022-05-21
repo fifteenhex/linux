@@ -47,4 +47,19 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&spi0_mode5_pins>;
 	status = "okay";
+#if 0	
+	spidev0: spi@0 {
+        compatible = "lwn,bk4";
+        spi-max-frequency = <1000000>;
+        reg = <0>;
+	};
+#endif
+	display@0{
+		compatible = "adafruit,yx240qv29", "ilitek,ili9341";
+		reg = <0>;
+		spi-max-frequency = <1000000>;
+		dc-gpios = <&gpio SSD20XD_GPIO_UART0_TX GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&gpio SSD20XD_GPIO_UART0_RX GPIO_ACTIVE_HIGH>;
+		vcc-supply = <&vcc_ext_3v3>;
+	};
 };
