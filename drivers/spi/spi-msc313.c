@@ -69,12 +69,14 @@
 #define REG_DONE	0x6c
 #define REG_DONECLR	0x70
 #define REG_CS		0x7c
+
 /* DMA registers might only exist on SSD20XD and later */
 #define REG_DMALEN_L	0xc0
 #define REG_DMALEN_H	0xc4
 #define REG_DMAEN	0xc8
 #define REG_DMARW	0xcc
-#define REG_FDREADBUF	0xE0
+
+#define REG_FDREADBUF	0xe0
 
 #define DIV_SHIFT	8
 #define DIV_WIDTH	3
@@ -89,6 +91,10 @@ static struct reg_field trigger_field = REG_FIELD(REG_TRIGGER, 0, 0);
 static struct reg_field done_done_field = REG_FIELD(REG_DONE, 0, 0);
 static struct reg_field doneclr_field = REG_FIELD(REG_DONECLR, 0, 0);
 static struct reg_field cs_field = REG_FIELD(REG_CS, 0, 0);
+
+/* DMA */
+static struct reg_field dmalenl_field = REG_FIELD(REG_DMALEN_L, 0, 15);
+static struct reg_field dmalenh_field = REG_FIELD(REG_DMALEN_H, 0, 7);
 static struct reg_field dmaen_field = REG_FIELD(REG_DMAEN, 0, 0);
 static struct reg_field dmarw_field = REG_FIELD(REG_DMARW, 0, 0);
 
@@ -108,15 +114,16 @@ struct msc313_spi {
 	struct regmap_field *trigger;
 	struct regmap_field *cs;
 
-	/* dma */
-	struct regmap_field *dmaen;
-	struct regmap_field *dmarw;
-
 	wait_queue_head_t wait;
 
 	bool tfrdone;
 
 	spinlock_t lock;
+
+	/* dma */
+	struct regmap_field *dmalenl, *dmalenh;
+	struct regmap_field *dmaen;
+	struct regmap_field *dmarw;
 
 	struct dma_chan *dmachan;
 	wait_queue_head_t dma_wait;
@@ -197,13 +204,18 @@ static int msc313_spi_transfer_one_dma(struct spi_controller *ctlr, struct spi_d
 	struct dma_slave_config config;
 	u8 *rxbuf = transfer->rx_buf;
 	dma_addr_t dmaaddr = 0;
-	enum dma_data_direction dmadir = rxbuf ? DMA_FROM_DEVICE : DMA_TO_DEVICE;
-	enum dma_transfer_direction dmatrans = rxbuf ? DMA_DEV_TO_MEM : DMA_MEM_TO_DEV;
+	bool read = rxbuf ? true : false;
+	enum dma_data_direction dmadir = read ? DMA_FROM_DEVICE : DMA_TO_DEVICE;
+	enum dma_transfer_direction dmatrans = read ? DMA_DEV_TO_MEM : DMA_MEM_TO_DEV;
 	int ret = 0;
 
 	printk("%s:%d\n", __func__, __LINE__);
 
+	/* Setup the spi controller side of the DMA */
 	regmap_field_write(mspi->dmaen, 1);
+	regmap_field_write(mspi->dmarw, read ? 1 :0);
+	regmap_field_write(mspi->dmalenl, len);
+	regmap_field_write(mspi->dmalenh, len >> 16);
 
 	dmaaddr = dma_map_single(mspi->dev, txbuf, len, dmadir);
 	ret = dma_mapping_error(mspi->dev, dmaaddr);
@@ -402,6 +414,8 @@ static int msc313_spi_probe(struct platform_device *pdev)
 
 
 	init_waitqueue_head(&spi->dma_wait);
+	spi->dmalenl = devm_regmap_field_alloc(spi->dev, spi->regmap, dmalenl_field);
+	spi->dmalenh = devm_regmap_field_alloc(spi->dev, spi->regmap, dmalenh_field);
 	spi->dmaen = devm_regmap_field_alloc(spi->dev, spi->regmap, dmaen_field);
 	spi->dmarw = devm_regmap_field_alloc(spi->dev, spi->regmap, dmarw_field);
 
