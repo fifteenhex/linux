@@ -108,7 +108,7 @@ struct msc313_bdma_desc {
 
 #define to_desc(desc) container_of(desc, struct msc313_bdma_desc, tx);
 
-static void msc313_bdma_tasklet(unsigned long data){
+static void msc313_bdma_tasklet(unsigned long data) {
 	struct msc313_bdma_chan *chan = (struct msc313_bdma_chan*) data;
 	struct msc313_bdma_desc *desc;
 	struct list_head *cur, *tmp;
@@ -188,7 +188,7 @@ static void msc313_bdma_write_low_high_pair(struct regmap_field *low,
 	regmap_field_write(high, value >> 16);
 }
 
-static void msc313_bdma_do_single(struct msc313_bdma_chan *chan, struct msc313_bdma_desc* desc)
+static void msc313_bdma_do_single(struct msc313_bdma_chan *chan, struct msc313_bdma_desc *desc)
 {
 	chan->inflight = desc;
 
