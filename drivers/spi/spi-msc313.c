@@ -198,8 +198,6 @@ static void msc313_spi_dma_callback(void *dma_async_param,
 {
 	struct msc313_spi *mspi = dma_async_param;
 
-	printk("%s:%d\n", __func__, __LINE__);
-
 	mspi->dma_done = true;
 	wake_up(&mspi->dma_wait);
 }
@@ -306,8 +304,6 @@ static int msc313_spi_transfer_one(struct spi_controller *ctlr, struct spi_devic
 	if (mspi->dmachan && ((txbuf && !rxbuf) || (rxbuf && !txbuf)) && len > FIFOSZ)
 		return msc313_spi_transfer_one_dma(ctlr, spi, transfer);
 
-	printk("non dma\n");
-
 	regmap_field_write(mspi->dmaen, 0);
 
 	while (len - txed > 0) {
@@ -369,8 +365,6 @@ static irqreturn_t msc313_spi_irq(int irq, void *data)
 	regmap_field_read(spi->done, &done);
 	if (!done)
 		return IRQ_NONE;
-
-	printk("%s:%d\n", __func__, __LINE__);
 
 	regmap_field_force_write(spi->doneclr, 1);
 	spi->tfrdone = true;
