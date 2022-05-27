@@ -36,29 +36,29 @@
 #define REG_DMAMODE		0x144
 #define REG_DEVSEL		0x148
 
-static struct reg_field en_field		= REG_FIELD(REG_EN, 0, 0);
-static struct reg_field offseten_field		= REG_FIELD(REG_OFFSETEN, 0, 0);
+static const struct reg_field en_field			= REG_FIELD(REG_EN, 0, 0);
+static const struct reg_field offseten_field		= REG_FIELD(REG_OFFSETEN, 0, 0);
 /* txfr config */
-static struct reg_field srcstartaddrl_field	= REG_FIELD(REG_SRC_START_ADDR_L, 0, 15);
-static struct reg_field srcstartaddrh_field	= REG_FIELD(REG_SRC_START_ADDR_H, 0, 15);
-static struct reg_field deststartaddrl_field	= REG_FIELD(REG_DST_START_ADDR_L, 0, 15);
-static struct reg_field deststartaddrh_field	= REG_FIELD(REG_DST_START_ADDR_H, 0, 15);
-static struct reg_field bytecntl_field		= REG_FIELD(REG_BYTE_CNT_L, 0, 15);
-static struct reg_field bytecnth_field		= REG_FIELD(REG_BYTE_CNT_H, 0, 11);
+static const struct reg_field srcstartaddrl_field	= REG_FIELD(REG_SRC_START_ADDR_L, 0, 15);
+static const struct reg_field srcstartaddrh_field	= REG_FIELD(REG_SRC_START_ADDR_H, 0, 15);
+static const struct reg_field deststartaddrl_field	= REG_FIELD(REG_DST_START_ADDR_L, 0, 15);
+static const struct reg_field deststartaddrh_field	= REG_FIELD(REG_DST_START_ADDR_H, 0, 15);
+static const struct reg_field bytecntl_field		= REG_FIELD(REG_BYTE_CNT_L, 0, 15);
+static const struct reg_field bytecnth_field		= REG_FIELD(REG_BYTE_CNT_H, 0, 11);
 /* */
-static struct reg_field swrst_field		= REG_FIELD(REG_SWRST, 0 , 0);
+static const struct reg_field swrst_field		= REG_FIELD(REG_SWRST, 0 , 0);
 /* irq */
-static struct reg_field irqmask_field		= REG_FIELD(REG_IRQMASK, 0, 0);
-static struct reg_field irqclear_field		= REG_FIELD(REG_IRQCLR, 0, 0);
+static const struct reg_field irqmask_field		= REG_FIELD(REG_IRQMASK, 0, 0);
+static const struct reg_field irqclear_field		= REG_FIELD(REG_IRQCLR, 0, 0);
 /* miu */
-static struct reg_field miuselen_field		= REG_FIELD(REG_MIUCFG, 0, 0);
-static struct reg_field miusrcsel_field		= REG_FIELD(REG_MIUCFG, 1, 1);
-static struct reg_field miudstsel_field		= REG_FIELD(REG_MIUCFG, 2, 2);
+static const struct reg_field miuselen_field		= REG_FIELD(REG_MIUCFG, 0, 0);
+static const struct reg_field miusrcsel_field		= REG_FIELD(REG_MIUCFG, 1, 1);
+static const struct reg_field miudstsel_field		= REG_FIELD(REG_MIUCFG, 2, 2);
 /* dma settings */
-static struct reg_field dmadir_field		= REG_FIELD(REG_DMADIR, 0, 0);
-static struct reg_field dmamode_field		= REG_FIELD(REG_DMAMODE, 0, 0);
+static const struct reg_field dmadir_field		= REG_FIELD(REG_DMADIR, 0, 0);
+static const struct reg_field dmamode_field		= REG_FIELD(REG_DMAMODE, 0, 0);
 #define DMAMODE_DEVICE	1
-static struct reg_field devsel_field		= REG_FIELD(REG_DEVSEL, 0, 0);
+static const struct reg_field devsel_field		= REG_FIELD(REG_DEVSEL, 0, 0);
 
 static const struct regmap_config ssd20xd_movedma_regmap_config = {
 	.reg_bits = 16,
@@ -116,8 +116,8 @@ struct ssd20xd_movedma_chan {
 	struct dma_chan chan;
 };
 
-#define to_chan(ch) container_of(ch, struct ssd20xd_movedma_chan, chan);
-#define to_desc(desc) container_of(desc, struct ssd20xd_movedma_desc, tx);
+#define to_chan(ch) container_of(ch, struct ssd20xd_movedma_chan, chan)
+#define to_desc(desc) container_of(desc, struct ssd20xd_movedma_desc, tx)
 
 static void ssd20xd_movedma_tasklet(unsigned long data) {
 	struct ssd20xd_movedma *movedma = (struct ssd20xd_movedma*) data;
@@ -136,7 +136,6 @@ static void ssd20xd_movedma_tasklet(unsigned long data) {
 		this_cpu_ptr(desc->tx.chan->local)->bytes_transferred += desc->len;
 		kfree(desc);
 	}
-
 	spin_unlock_irqrestore(&movedma->lock, flags);
 }
 
@@ -171,11 +170,14 @@ static void ssd20xd_movedma_do_single(struct ssd20xd_movedma_chan *chan, struct 
 {
 	struct ssd20xd_movedma *movedma = chan->movedma;
 	bool read = false;
+	unsigned long flags;
 
 	//printk("%s:%d\n", __func__, __LINE__);
 	//printk("movedma doing 0x%08x(0x%x) %s\n", desc->addr, desc->len, read ? "read" : "write");
 
+	spin_lock_irqsave(&movedma->lock, flags);
 	movedma->inflight = desc;
+	spin_unlock_irqrestore(&movedma->lock, flags);
 
 	regmap_field_force_write(movedma->swrst, 1);
 	mdelay(1);
@@ -201,8 +203,13 @@ static void ssd20xd_movedma_issue_pending(struct dma_chan *chan)
 	struct ssd20xd_movedma_desc *desc;
 	struct ssd20xd_movedma_chan *ch = to_chan(chan);
 	struct ssd20xd_movedma *movedma = ch->movedma;
+	unsigned long flags;
 
-	desc = list_first_entry_or_null(&movedma->queue, struct ssd20xd_movedma_desc, queue_node);
+	spin_lock_irqsave(&movedma->lock, flags);
+	desc = list_first_entry_or_null(&movedma->queue,
+			struct ssd20xd_movedma_desc, queue_node);
+	spin_unlock_irqrestore(&movedma->lock, flags);
+
 	if (desc)
 		ssd20xd_movedma_do_single(ch, desc);
 }
@@ -213,8 +220,12 @@ static dma_cookie_t ssd20xd_movedma_tx_submit(struct dma_async_tx_descriptor *tx
 	struct ssd20xd_movedma_desc *desc = to_desc(tx);
 	struct ssd20xd_movedma *movedma = chan->movedma;
 	dma_cookie_t cookie;
+	unsigned long flags;
 
+	spin_lock_irqsave(&movedma->lock, flags);
 	list_add_tail(&desc->queue_node, &movedma->queue);
+	spin_unlock_irqrestore(&movedma->lock, flags);
+
 	cookie = dma_cookie_assign(tx);
 
 	return cookie;
@@ -224,10 +235,8 @@ static struct dma_async_tx_descriptor* ssd20xd_movedma_prep_slave_sg(struct dma_
 		struct scatterlist *sgl, unsigned int sg_len, enum dma_transfer_direction direction,
 		unsigned long flags, void *context)
 {
-	struct ssd20xd_movedma_chan *ch;
 	struct ssd20xd_movedma_desc *desc;
 	u32 dmaaddr, dmalen;
-	int width;
 
 	if (sg_len != 1) {
 		printk("only one sg for now\n");
@@ -237,8 +246,6 @@ static struct dma_async_tx_descriptor* ssd20xd_movedma_prep_slave_sg(struct dma_
 	if (direction != DMA_DEV_TO_MEM && direction != DMA_MEM_TO_DEV)
 		return NULL;
 
-	ch = to_chan(chan);
-
 	dmaaddr = sg_dma_address(sgl);
 	dmalen = sg_dma_len(sgl);
 
@@ -247,17 +254,11 @@ static struct dma_async_tx_descriptor* ssd20xd_movedma_prep_slave_sg(struct dma_
 		return NULL;
 
 	dma_async_tx_descriptor_init(&desc->tx, chan);
-
 	desc->len = dmalen;
 	desc->addr = dmaaddr;
-
 	desc->tx.tx_submit = ssd20xd_movedma_tx_submit;
 
 	return &desc->tx;
-
-free_desc:
-	kfree(desc);
-	return NULL;
 }
 
 static int ssd20xd_movedma_probe(struct platform_device *pdev)
@@ -302,8 +303,7 @@ static int ssd20xd_movedma_probe(struct platform_device *pdev)
 	movedma->dma_device.device_issue_pending = ssd20xd_movedma_issue_pending;
 	movedma->dma_device.src_addr_widths = BIT(4);
 	movedma->dma_device.dst_addr_widths = BIT(4);
-	movedma->dma_device.directions = BIT(DMA_MEM_TO_MEM) |
-					 BIT(DMA_DEV_TO_MEM) |
+	movedma->dma_device.directions = BIT(DMA_DEV_TO_MEM) |
 					 BIT(DMA_MEM_TO_DEV);
 	movedma->dma_device.device_prep_slave_sg = ssd20xd_movedma_prep_slave_sg;
 
@@ -346,10 +346,6 @@ static int ssd20xd_movedma_probe(struct platform_device *pdev)
 
 	movedma->irqmask = devm_regmap_field_alloc(dev, movedma->regmap, irqmask_field);
 	movedma->irqclr = devm_regmap_field_alloc(dev, movedma->regmap, irqclear_field);
-
-	//ret = clk_prepare_enable(movedma->clk);
-	//if (ret)
-	//	return ret;
 
 	ret = dma_async_device_register(&movedma->dma_device);
 	if(ret)
