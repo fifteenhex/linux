@@ -64,6 +64,11 @@
 #define REG_DMAEN	0xc8
 #define REG_DMARW	0xcc
 
+static const struct reg_field dmalenl_field	= REG_FIELD(REG_DMALEN_L, 0, 15);
+static const struct reg_field dmalenh_field	= REG_FIELD(REG_DMALEN_H, 0, 7);
+static const struct reg_field dmaen_field	= REG_FIELD(REG_DMAEN, 0, 0);
+static const struct reg_field dmarw_field	= REG_FIELD(REG_DMARW, 0, 0);
+
 /* SPI registers that are present in all versions */
 #define REG_WRITEBUF	0x100
 #define REG_READBUF	0x110
@@ -84,21 +89,30 @@
 
 #define FIFOSZ		8
 
-static struct reg_field size_write_field     = REG_FIELD(REG_SIZE, 0, 3);
-static struct reg_field size_read_field      = REG_FIELD(REG_SIZE, 8, 11);
-static const struct reg_field ctrl_rst_field = REG_FIELD(REG_CTRL, 1, 1);
-static struct reg_field ctrl_cpha_field      = REG_FIELD(REG_CTRL, 6, 6);
-static struct reg_field ctrl_cpol_field      = REG_FIELD(REG_CTRL, 7, 7);
-static struct reg_field trigger_field        = REG_FIELD(REG_TRIGGER, 0, 0);
-static struct reg_field done_done_field      = REG_FIELD(REG_DONE, 0, 0);
-static struct reg_field doneclr_field        = REG_FIELD(REG_DONECLR, 0, 0);
-static struct reg_field cs_field             = REG_FIELD(REG_CS, 0, 0);
+/*
+ * There seems to be a minimum size for DMA transfers.
+ * If a <32 bytes transfer is triggered the following transfer
+ * will be short and the SPI controller will never signal
+ * complete.
+ *
+ * This doesn't seem to be just a case of the transfer
+ * has to be longer than N bytes as some mixes of sizes <32
+ * bytes don't trigger the issue.
+ *
+ * Anyhow, making sure everything is above 32 bytes
+ * long seems to work.
+ */
+#define DMA_MIN		32
 
-/* DMA */
-static struct reg_field dmalenl_field = REG_FIELD(REG_DMALEN_L, 0, 15);
-static struct reg_field dmalenh_field = REG_FIELD(REG_DMALEN_H, 0, 7);
-static struct reg_field dmaen_field = REG_FIELD(REG_DMAEN, 0, 0);
-static struct reg_field dmarw_field = REG_FIELD(REG_DMARW, 0, 0);
+static const struct reg_field size_write_field	= REG_FIELD(REG_SIZE, 0, 3);
+static const struct reg_field size_read_field	= REG_FIELD(REG_SIZE, 8, 11);
+static const struct reg_field ctrl_rst_field	= REG_FIELD(REG_CTRL, 1, 1);
+static const struct reg_field ctrl_cpha_field	= REG_FIELD(REG_CTRL, 6, 6);
+static const struct reg_field ctrl_cpol_field	= REG_FIELD(REG_CTRL, 7, 7);
+static const struct reg_field trigger_field	= REG_FIELD(REG_TRIGGER, 0, 0);
+static const struct reg_field done_done_field	= REG_FIELD(REG_DONE, 0, 0);
+static const struct reg_field doneclr_field	= REG_FIELD(REG_DONECLR, 0, 0);
+static const struct reg_field cs_field		= REG_FIELD(REG_CS, 0, 0);
 
 struct msc313_spi {
 	struct device *dev;
@@ -119,9 +133,7 @@ struct msc313_spi {
 	struct regmap_field *trigger;
 	struct regmap_field *cs;
 
-	wait_queue_head_t wait;
-
-	bool tfrdone;
+	struct completion tfr_done;
 
 	spinlock_t lock;
 
@@ -131,8 +143,7 @@ struct msc313_spi {
 	struct regmap_field *dmarw;
 
 	struct dma_chan *dmachan;
-	wait_queue_head_t dma_wait;
-	bool dma_done;
+	struct completion dma_done;
 	bool dma_success;
 };
 
@@ -191,6 +202,7 @@ static void msc313_spi_set_cs(struct spi_device *spi, bool enable)
 	struct msc313_spi *mspi = spi_master_get_devdata(spi->master);
 
 	regmap_field_write(mspi->cs, enable ? 1 : 0);
+
 }
 
 static void msc313_spi_dma_callback(void *dma_async_param,
@@ -198,16 +210,15 @@ static void msc313_spi_dma_callback(void *dma_async_param,
 {
 	struct msc313_spi *mspi = dma_async_param;
 
-	mspi->dma_done = true;
-	wake_up(&mspi->dma_wait);
+	complete(&mspi->dma_done);
 }
 
 static void msc313_spi_reset(struct msc313_spi *mspi)
 {
 	regmap_field_write(mspi->rst, 0);
-	mdelay(10);
+	udelay(10);
 	regmap_field_write(mspi->rst, 1);
-	mdelay(10);
+	udelay(10);
 }
 
 static int msc313_spi_transfer_one_dma(struct spi_controller *ctlr, struct spi_device *spi,
@@ -230,7 +241,8 @@ static int msc313_spi_transfer_one_dma(struct spi_controller *ctlr, struct spi_d
 	regmap_field_write(mspi->dmarw, read ? 1 : 0);
 	regmap_field_write(mspi->dmalenl, len);
 	regmap_field_write(mspi->dmalenh, len >> 16);
-	regmap_field_write(read ? mspi->rdsz : mspi->wrsz, 0);
+	regmap_field_write(mspi->rdsz, 0);
+	regmap_field_write(mspi->wrsz, 0);
 
 	dmaaddr = dma_map_single(mspi->dev, txbuf, len, dmadir);
 	ret = dma_mapping_error(mspi->dev, dmaaddr);
@@ -245,68 +257,49 @@ static int msc313_spi_transfer_one_dma(struct spi_controller *ctlr, struct spi_d
 	dmadesc->callback_result = msc313_spi_dma_callback;
 	dmadesc->callback_param = mspi;
 
-	//config.direction = dmatrans;
-	//if (rxbuf)
-	//	config.dst_addr = dmaaddr;
-	//else
-	//	config.src_addr = dmaaddr;
-	//dmaengine_slave_config(mspi->dmachan, &config);
+	reinit_completion(&mspi->dma_done);
+	reinit_completion(&mspi->tfr_done);
 
-	mspi->dma_done = false;
-	mspi->tfrdone = false;
 	dmaengine_submit(dmadesc);
 	dma_async_issue_pending(mspi->dmachan);
-
 	regmap_field_force_write(mspi->trigger, 1);
 
-	if (!wait_event_timeout(mspi->dma_wait, mspi->dma_done, HZ * 10)) {
+	/*
+	 * There seems to be a FIFO between MOVEDMA and SPI so
+	 * it's possible for DMA to finish before the SPI transfer
+	 * is done.
+	 */
+	if (!wait_for_completion_timeout(&mspi->dma_done, HZ)) {
 		dev_err(mspi->dev, "timeout waiting for dma\n");
 		ret = -EIO;
-		msc313_spi_reset(mspi);
 		goto out;
 	}
 
-	if (wait_event_timeout(mspi->wait, mspi->tfrdone, HZ * 10) == 0) {
-		dev_err(mspi->dev, "timeout waiting for tfrdone\n");
+	if (!wait_for_completion_timeout(&mspi->tfr_done, HZ)) {
+		dev_err(mspi->dev, "timeout waiting for tfrdone after dma, %08x(%08x) read: %d\n", dmaaddr, len, read);
 		ret = -EIO;
-		msc313_spi_reset(mspi);
 		goto out;
 	}
-
-#if 0
-	rmb();
-	if (isp->dma_success)
-		goto dma_exit;
-	else
-		dev_warn(&isp->master->dev, "dma failed, falling back to cpu read\n");
-#endif
-
 
 out:
+	regmap_field_write(mspi->dmaen, 0);
 	dma_unmap_single(mspi->dev, dmaaddr, len, dmadir);
 
 	return ret;
 }
 
-static int msc313_spi_transfer_one(struct spi_controller *ctlr, struct spi_device *spi,
+static int msc313_spi_transfer_one_pio(struct spi_controller *ctlr, struct spi_device *spi,
 			    struct spi_transfer *transfer)
 {
 	struct msc313_spi *mspi = spi_controller_get_devdata(ctlr);
 	const u8 *txbuf = transfer->tx_buf;
-	unsigned int len = transfer->len;
+	unsigned int len = transfer->len, rdbuf;
 	u8 *rxbuf = transfer->rx_buf;
 	int blksz, txed = 0;
-	unsigned int rdbuf;
-
-	clk_set_rate(mspi->divider->clk, transfer->speed_hz);
-
-	/* DMA only works for half duplex */
-	if (mspi->dmachan && ((txbuf && !rxbuf) || (rxbuf && !txbuf)) && len > FIFOSZ)
-		return msc313_spi_transfer_one_dma(ctlr, spi, transfer);
-
-	regmap_field_write(mspi->dmaen, 0);
 
 	while (len - txed > 0) {
+		reinit_completion(&mspi->tfr_done);
+
 		blksz = min(len - txed, (unsigned int) FIFOSZ);
 		if (txbuf) {
 			msc313_spi_loadtxbuff(mspi, txbuf, blksz);
@@ -326,14 +319,13 @@ static int msc313_spi_transfer_one(struct spi_controller *ctlr, struct spi_devic
 			return -EINVAL;
 
 		/* start the transfer */
-		mspi->tfrdone = false;
 		regmap_field_force_write(mspi->trigger, 1);
 		//for(int reg = 0; reg < 0x100; reg += 4) {
 		//	unsigned int val;
 		//	regmap_read(mspi->regmap, reg, &val);
 		//	printk("xx 0x%08x: 0x%08x\n", reg, val);
 		//}
-		if (wait_event_timeout(mspi->wait, mspi->tfrdone, HZ / 100) == 0) {
+		if (!wait_for_completion_timeout(&mspi->tfr_done, HZ / 100))  {
 			unsigned int done;
 
 			regmap_field_read(mspi->done, &done);
@@ -341,7 +333,6 @@ static int msc313_spi_transfer_one(struct spi_controller *ctlr, struct spi_devic
 					   "rxbuf %d, txlen %d, blksz %d, done %d, cpu %d, hz %d\n",
 					txbuf ? 1 : 0, rxbuf ? 1 : 0, transfer->len, blksz,
 							done, smp_processor_id(), transfer->speed_hz);
-
 			return -EIO;
 		}
 
@@ -357,18 +348,48 @@ static int msc313_spi_transfer_one(struct spi_controller *ctlr, struct spi_devic
 	return 0;
 }
 
+static int msc313_spi_transfer_one(struct spi_controller *ctlr, struct spi_device *spi,
+			    struct spi_transfer *transfer)
+{
+	struct msc313_spi *mspi = spi_controller_get_devdata(ctlr);
+	const u8 *txbuf = transfer->tx_buf;
+	unsigned int len = transfer->len;
+	u8 *rxbuf = transfer->rx_buf;
+	int ret;
+
+	clk_set_rate(mspi->divider->clk, transfer->speed_hz);
+
+	/* DMA only works for half duplex */
+	if (mspi->dmachan && ((txbuf && !rxbuf) || (rxbuf && !txbuf)) && len > DMA_MIN)
+		ret = msc313_spi_transfer_one_dma(ctlr, spi, transfer);
+	else
+		ret = msc313_spi_transfer_one_pio(ctlr, spi, transfer);
+
+	/*
+	 * A failed DMA transfer causes the controller to lock up
+	 * so if there was an error reset the controller
+	 */
+	if (ret)
+		msc313_spi_reset(mspi);
+
+	//mdelay(1);
+	//regmap_field_force_write(mspi->trigger, 0);
+	//mdelay(1);
+
+	return 0;
+}
+
 static irqreturn_t msc313_spi_irq(int irq, void *data)
 {
-	struct msc313_spi *spi = data;
+	struct msc313_spi *mspi = data;
 	unsigned int done;
 
-	regmap_field_read(spi->done, &done);
+	regmap_field_read(mspi->done, &done);
 	if (!done)
 		return IRQ_NONE;
 
-	regmap_field_force_write(spi->doneclr, 1);
-	spi->tfrdone = true;
-	wake_up(&spi->wait);
+	regmap_field_force_write(mspi->doneclr, 1);
+	complete(&mspi->tfr_done);
 
 	return IRQ_HANDLED;
 }
@@ -388,8 +409,8 @@ static const struct clk_div_table div_table[] = {
 static int msc313_spi_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
+	struct dma_chan *dmachan = NULL;
 	struct spi_master *master;
-	struct dma_chan *dmachan;
 	int ret, irq, numparents;
 	struct msc313_spi *spi;
 	const char *parents[1];
@@ -400,9 +421,11 @@ static int msc313_spi_probe(struct platform_device *pdev)
 	if (numparents != 1)
 		return -EINVAL;
 
-	dmachan = dma_request_chan(&pdev->dev, "movedma");
-	if (IS_ERR(dmachan))
-		return -EPROBE_DEFER;
+	if (of_device_is_compatible(dev->of_node, "sstar,ssd20xd-spi")) {
+		dmachan = dma_request_chan(&pdev->dev, "movedma");
+		if (IS_ERR(dmachan))
+			return -EPROBE_DEFER;
+	}
 
 	master = spi_alloc_master(&pdev->dev, sizeof(struct msc313_spi));
 	if (!master)
@@ -411,10 +434,11 @@ static int msc313_spi_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, master);
 
 	spi = spi_master_get_devdata(master);
-	init_waitqueue_head(&spi->wait);
 	spi->dev = &pdev->dev;
 	spi->master = master;
 	spi->dmachan = dmachan;
+	init_completion(&spi->tfr_done);
+	init_completion(&spi->dma_done);
 
 	base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(base))
@@ -437,8 +461,6 @@ static int msc313_spi_probe(struct platform_device *pdev)
 	spi->doneclr = devm_regmap_field_alloc(spi->dev, spi->regmap, doneclr_field);
 	spi->cs = devm_regmap_field_alloc(spi->dev, spi->regmap, cs_field);
 
-
-	init_waitqueue_head(&spi->dma_wait);
 	spi->dmalenl = devm_regmap_field_alloc(spi->dev, spi->regmap, dmalenl_field);
 	spi->dmalenh = devm_regmap_field_alloc(spi->dev, spi->regmap, dmalenh_field);
 	spi->dmaen = devm_regmap_field_alloc(spi->dev, spi->regmap, dmaen_field);
