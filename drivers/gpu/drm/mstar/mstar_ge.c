@@ -674,7 +674,8 @@ static int mstar_ge_probe(struct platform_device *pdev)
 
 	dev_set_drvdata(dev, ge);
 
-	mstar_ge_test(ge);
+	if (IS_ENABLED(DRM_MSTAR_GE_SELFTEST))
+		mstar_ge_test(ge);
 
 	ge->ge_dev.minor = MISC_DYNAMIC_MINOR;
 	ge->ge_dev.name	= DRIVER_NAME;
