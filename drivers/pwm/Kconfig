@@ -866,4 +866,10 @@ config PWM_XILINX
 	  counting) and provide safe interfaces to the underlying C core,
 	  allowing driver logic to be written in safe Rust.
 
+config PWM_MSC313E
+        tristate "MStar MSC313e PWM support"
+        depends on ARCH_MSTARV7
+        help
+          PWM drvier for MSC313e.
+
 endif
