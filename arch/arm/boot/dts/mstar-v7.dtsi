@@ -494,6 +494,7 @@
 					      "gate13",
 					      "gate14",
 					      "gate15",
+					      "ddrpll",
 					      "miupll",
 					      "lpll";
 
@@ -517,6 +518,7 @@
 					 <&unknownclk>,
 					 <&mpll MSTAR_MSC313_MPLL_DIV10>,
 					 <&unknownclk>,
+					 <&unknownclk>, //should be ddrpll
 					 <&miupll>,
 					 <&lpll 0>;
 			};
