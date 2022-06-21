@@ -56,6 +56,8 @@ struct msc313_rsa {
 	struct regmap *regmap;
 	bool quirk_dummyread;
 
+	spinlock_t lock;
+
 	struct regmap_field *reset;
 
 	/* sram control */
@@ -441,14 +443,19 @@ static int msc313_rsa_endecrypt(struct akcipher_request *req, bool decrypt)
 	if (!out)
 		return -ENOMEM;
 
+	spin_lock(&rsa->lock);
+
 	msc313_rsa_reset(rsa);
 	ret = msc313_rsa_load_key(rsa, ctx, decrypt);
 	if (ret)
-		return ret;
+		goto unlock;
 
 	/* If the input data is smaller than the keylen pad it with zeros. */
 	sg_copy_to_buffer(req->src, sg_nents(req->src), in + (keylen - req->src_len), keylen);
 	ret = msc313_rsa_do_one(rsa, ctx, in, out, keylen);
+
+unlock:
+	spin_unlock(&rsa->lock);
 
 	if (!ret)
 		sg_copy_from_buffer(req->dst, sg_nents(req->dst), out, keylen);
@@ -509,7 +516,7 @@ static void msc313_rsa_keyfixup(struct msc313_rsa_ctx* ctx)
 	/* right now only 2048 bit keys work */
 	case 256:
 		ctx->fallback = false;
-		break;
+	break;
 	default:
 		ctx->fallback = true;
 	}
@@ -611,6 +618,8 @@ static int msc313_rsa_probe(struct platform_device *pdev)
 	rsa = devm_kzalloc(&pdev->dev, sizeof(*rsa), GFP_KERNEL);
 	if (!rsa)
 		return -ENOMEM;
+
+	spin_lock_init(&rsa->lock);
 
 	// only for i2m?
 	rsa->quirk_dummyread = true;
