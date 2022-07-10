@@ -5,6 +5,7 @@ dtb-$(CONFIG_ARCH_MSTARV7) += \
 	mstar-infinity2m-ssd202d-100ask-dongshanpione-carrier.dtb \
 	mstar-infinity2m-ssd202d-100ask-dongshanpione.dtb \
 	mstar-infinity2m-ssd202d-gw302.dtb \
+	mstar-infinity2m-ssd202d-iht34.dtb \
 	mstar-infinity2m-ssd202d-miyoo-mini.dtb \
 	mstar-infinity2m-ssd202d-sbc2d70.dtb \
 	mstar-infinity2m-ssd202d-sbc2d86.dtb \
