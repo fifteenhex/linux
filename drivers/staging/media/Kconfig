@@ -61,4 +61,6 @@ source "drivers/staging/media/deprecated/tm6000/Kconfig"
 source "drivers/staging/media/deprecated/zr364xx/Kconfig"
 endif
 
+source "drivers/staging/media/wave5/Kconfig"
+
 endif
