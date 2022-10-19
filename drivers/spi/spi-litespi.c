@@ -113,10 +113,9 @@ static int litespi_setup(struct spi_device *spi)
 
 static int litespi_probe(struct platform_device *pdev)
 {
-	struct litespi_hw *hw;
 	struct spi_master *master;
 	struct device_node *np;
-	struct resource *res;
+	struct litespi_hw *hw;
 	int ret;
 	u32 val;
 
@@ -163,10 +162,9 @@ static int litespi_probe(struct platform_device *pdev)
 	hw->master->num_chipselect = val;
 
 	/* get base address */
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	hw->base_addr = devm_ioremap_resource(&pdev->dev, res);
-	if (!hw->base_addr)
-		return -ENXIO;
+	hw->base_addr = devm_platform_ioremap_resource(pdev, 0);
+	if (IS_ERR(hw->base_addr))
+		return PTR_ERR(hw->base_addr);
 
 	/* register controller */
 	ret = devm_spi_register_master(&pdev->dev, master);
