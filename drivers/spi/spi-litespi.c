@@ -22,10 +22,6 @@
 #define LITESPI_OFF_MISO	0x10
 #define LITESPI_OFF_CS		0x14
 
-#define LITESPI_SZ_CTRL		2
-#define LITESPI_SZ_STAT		1
-#define LITESPI_SZ_CS		1
-
 #define LITESPI_CTRL_SHIFT_BPW	8
 #define LITESPI_CTRL_START_BIT	0
 
@@ -37,14 +33,13 @@ struct litespi_hw {
 
 static inline void litespi_wait_xfer_end(struct litespi_hw *hw)
 {
-	while (!litex_get_reg(hw->base_addr + LITESPI_OFF_STAT,
-			      LITESPI_SZ_STAT))
+	while (!litex_read8(hw->base_addr + LITESPI_OFF_STAT))
 		cpu_relax();
 }
 
 static void litespi_rxtx(struct litespi_hw *hw, struct spi_transfer *t)
 {
-	u32 val;
+	u32 val = 0;
 	u8 bytes;
 	int i;
 
@@ -58,20 +53,17 @@ static void litespi_rxtx(struct litespi_hw *hw, struct spi_transfer *t)
 	for (i = 0; i < t->len; i += bytes) {
 		if (t->tx_buf) {
 			memcpy(&val, t->tx_buf, bytes);
-			litex_set_reg(hw->base_addr + LITESPI_OFF_MOSI, bytes,
-				      val);
 			t->tx_buf += bytes;
 		}
+		litex_write32(hw->base_addr + LITESPI_OFF_MOSI, val);
 
-		val = litex_get_reg(hw->base_addr + LITESPI_OFF_CTRL,
-				    LITESPI_SZ_CTRL);
-		litex_set_reg(hw->base_addr + LITESPI_OFF_CTRL, LITESPI_SZ_CTRL,
+		val = litex_read8(hw->base_addr + LITESPI_OFF_CTRL);
+		litex_write8(hw->base_addr + LITESPI_OFF_CTRL,
 			      val | BIT(LITESPI_CTRL_START_BIT));
 		litespi_wait_xfer_end(hw);
 
 		if (t->rx_buf) {
-			val = litex_get_reg(hw->base_addr + LITESPI_OFF_MISO,
-					    bytes);
+			val = litex_read32(hw->base_addr + LITESPI_OFF_MISO);
 			memcpy(t->rx_buf, &val, bytes);
 			t->rx_buf += bytes;
 		}
@@ -86,8 +78,8 @@ static int litespi_xfer_one(struct spi_master *master, struct spi_message *m)
 	mutex_lock(&hw->bus_mutex);
 
 	/* setup chip select */
-	litex_set_reg(hw->base_addr + LITESPI_OFF_CS, LITESPI_SZ_CS,
-		      BIT(m->spi->chip_select));
+	litex_write8(hw->base_addr + LITESPI_OFF_CS,
+		     BIT(m->spi->chip_select));
 
 	list_for_each_entry(t, &m->transfers, transfer_list) {
 		litespi_rxtx(hw, t);
@@ -111,7 +103,7 @@ static int litespi_setup(struct spi_device *spi)
 	litespi_wait_xfer_end(hw);
 
 	/* set word size and clear CS bits */
-	litex_set_reg(hw->base_addr + LITESPI_OFF_CTRL, LITESPI_SZ_CTRL,
+	litex_write16(hw->base_addr + LITESPI_OFF_CTRL,
 		      spi->bits_per_word << LITESPI_CTRL_SHIFT_BPW);
 
 	mutex_unlock(&hw->bus_mutex);
@@ -127,9 +119,6 @@ static int litespi_probe(struct platform_device *pdev)
 	struct resource *res;
 	int ret;
 	u32 val;
-
-	if (!litex_check_accessors())
-		return -EPROBE_DEFER;
 
 	/* check if device tree exists */
 	np = pdev->dev.of_node;
