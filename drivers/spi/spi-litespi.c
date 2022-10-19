@@ -119,6 +119,8 @@ static int litespi_probe(struct platform_device *pdev)
 	int ret;
 	u32 val;
 
+	printk("%s:%d\n", __func__, __LINE__);
+
 	/* check if device tree exists */
 	np = pdev->dev.of_node;
 	if (!np)
@@ -168,7 +170,7 @@ static int litespi_probe(struct platform_device *pdev)
 
 	/* register controller */
 	ret = devm_spi_register_master(&pdev->dev, master);
-	if (ret < 0) {
+	if (ret) {
 		spi_master_put(master);
 		return ret;
 	}
@@ -192,5 +194,6 @@ static struct platform_driver litespi_driver = {
 module_platform_driver(litespi_driver)
 
 MODULE_AUTHOR("Antmicro Ltd <www.antmicro.com>");
+MODULE_DESCRIPTION("LiteX SPI driver");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("platform:" DRIVER_NAME);
