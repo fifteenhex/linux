@@ -606,8 +606,8 @@
 					groups = "uart1_mode1";
 				};
 				uart1_pins: uart1 {
-					function = "uart1";
-					groups = "fuart_cts_rts";
+				function = "uart1";
+				groups = "uart1";
 				};
 				uart1_cts_pins: uart1_cts {
 					function = "uart1";
@@ -856,12 +856,14 @@
 			};
 
 			uart1: uart@221200 {
-				compatible = "mstar,msc313-uart", "snps,dw-apb-uart";
-				reg = <0x221200 0x100>;
-				reg-shift = <3>;
-				interrupts-extended = <&intc_irq GIC_SPI 35 IRQ_TYPE_LEVEL_HIGH>;
-				clocks = <&clkgen MSC313_CLKGEN_DEGLITCHES MSC313_CLKGEN_UART1 0>;
-				status = "disabled";
+			compatible = "mstar,msc313-uart", "snps,dw-apb-uart";
+			reg = <0x221200 0x100>;
+			reg-shift = <3>;
+			interrupts-extended = <&intc_irq GIC_SPI 35 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clkgen MSC313_CLKGEN_DEGLITCHES MSC313_CLKGEN_UART1 0>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&uart1_pins>;
+			status = "disabled";
 			};
 
 			mspi0: mspi@222000 {
