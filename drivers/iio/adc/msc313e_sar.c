@@ -492,11 +492,12 @@ static const char *gpionames[] = {
 
 static int msc313e_sar_probe_gpio(struct platform_device *pdev, struct msc313e_sar *sar)
 {
+	struct device *dev = &pdev->dev;
 	int i, ret;
 
 	sar->gpiochip.label            = DRIVER_NAME;
 	sar->gpiochip.owner            = THIS_MODULE,
-	sar->gpiochip.parent           = &pdev->dev;
+	sar->gpiochip.parent           = dev;
 	sar->gpiochip.request          = msc313e_sar_gpio_request;
 	sar->gpiochip.free             = msc313e_sar_gpio_free;
 	sar->gpiochip.direction_input  = msc313e_sar_gpio_direction_input;
@@ -509,12 +510,12 @@ static int msc313e_sar_probe_gpio(struct platform_device *pdev, struct msc313e_s
 	sar->gpiochip.names            = gpionames;
 
 	for(i = 0; i < sar->gpiochip.ngpio; i++){
-			sar->gpio_irqs[i] = of_irq_get_byname(pdev->dev.of_node, gpionames[i]);
+			sar->gpio_irqs[i] = of_irq_get_byname(dev->of_node, gpionames[i]);
 	}
 
-	ret = gpiochip_add_data(&sar->gpiochip, sar);
+	ret = devm_gpiochip_add_data(dev, &sar->gpiochip, sar);
 	if (ret < 0) {
-		dev_err(&pdev->dev,"failed to register gpio chip\n");
+		dev_err(dev,"failed to register gpio chip\n");
 		goto out;
 	}
 
