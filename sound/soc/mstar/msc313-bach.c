@@ -39,6 +39,8 @@
 #define MSC313_BACH_DMA_SUB_CHANNEL_UNDERRUNTHRESHOLD	0x14
 #define MSC313_BACK_DMA_SUB_CHANNEL_LEVEL		0x18
 
+#define MSC313_BACH_FIFO_GRANULARITY	8
+
 struct msc313_bach_dma_channel;
 
 struct msc313_bach_dma_sub_channel {
@@ -133,18 +135,36 @@ struct msc313_bach_substream_runtime {
 	ssize_t period_bytes;
 	ssize_t max_inflight;
 	unsigned max_level;
+	ssize_t underflow_level;
 
-	/* Updated by queuing */
+	/* Hardware queue state */
+	/* number of bytes that are in the buffer */
 	ssize_t pending_bytes;
+	/* number of bytes we have queued into the hardware so far */
 	ssize_t total_bytes;
+	/*
+	 * number of bytes that the hardware has completed, updated
+	 * when the irq fires
+	 */
+	ssize_t processed_bytes;
 
-	/* Updated by irq */
+	/* IRQ stats, updated by irq */
 	unsigned irqs;
 	unsigned empties;
 	unsigned underruns;
-	ssize_t processed_bytes;
 
+	/* Debugging */
+	unsigned long start_time;
+	unsigned long end_time;
 };
+
+/*
+ * The amount of bytes the channel is currently munching through is the difference
+ * between the bytes queued and the number of bytes that have been processed
+ * according to an IRQ coming.
+ */
+#define BACH_PCM_RUNTIME_INFLIGHT(_brt)	(_brt->total_bytes - _brt->processed_bytes)
+#define BACH_PMC_RUNTIME_BYTES_UNTIL_UNDERFLOW(__brt) (BACH_PCM_RUNTIME_INFLIGHT(__brt) - __brt->underflow_level)
 
 /* Bank 1 */
 #define REG_MUX0SEL	0xc
@@ -441,32 +461,34 @@ static void msc313_bach_dump_dmactrl(struct msc313_bach *bach)
 	}
 }
 
-static void msc313_bach_pcm_dumpruntime(struct msc313_bach_substream_runtime *bach_runtime)
+static void msc313_bach_pcm_dumpruntime(struct device *dev,
+					struct msc313_bach_substream_runtime *bach_runtime)
 {
 	struct msc313_bach_dma_sub_channel *sub_channel = bach_runtime->sub_channel;
 	int level;
 
 	level = msc313_bach_get_level(sub_channel);
 
-	printk("irqs %d, empties %d, underruns %d, pending_bytes: %u, processed_bytes: %u, total_bytes: %u\n",
-			bach_runtime->irqs,
-			bach_runtime->empties,
-			bach_runtime->underruns,
-			(unsigned) bach_runtime->pending_bytes,
-			(unsigned) bach_runtime->processed_bytes,
-			(unsigned) bach_runtime->total_bytes);
+	dev_dbg(dev, "irqs %d, empties %d, underruns %d, pending_bytes: %u, processed_bytes: %u, total_bytes: %u, play time %u ms\n",
+		     bach_runtime->irqs,
+		     bach_runtime->empties,
+		     bach_runtime->underruns,
+		     (unsigned) bach_runtime->pending_bytes,
+		     (unsigned) bach_runtime->processed_bytes,
+		     (unsigned) bach_runtime->total_bytes,
+		     jiffies_to_msecs(bach_runtime->end_time - bach_runtime->start_time));
 }
 
 static int msc313_bach_pcm_open(struct snd_soc_component *component,
 				struct snd_pcm_substream *substream)
 {
+	struct device *dev = component->dev;
 	struct msc313_bach *bach = snd_soc_card_get_drvdata(component->card);
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct msc313_bach_substream_runtime *bach_runtime;
 	struct msc313_bach_dma_channel *dma_channel = &bach->dma_channels[0];
-	int ret;
 
-	printk("%s:%d\n", __func__, __LINE__);
+	dev_info(dev, "%s:%d\n", __func__, __LINE__);
 
 	bach_runtime = kzalloc(sizeof(*bach_runtime), GFP_KERNEL);
 	if (!bach_runtime)
@@ -523,7 +545,54 @@ static int msc313_bach_pcm_close(struct snd_soc_component *component,
 	return 0;
 }
 
-static int msc313_bach_queue_bytes(struct msc313_bach *bach,
+/*
+ * Update when the next underflow interuppt happens and enable the interrupt
+ * if needed.
+ */
+static void msc313_bach_pcm_update_underflow(struct snd_pcm_runtime *runtime)
+{
+	struct msc313_bach_substream_runtime *bach_runtime = runtime->private_data;
+	struct msc313_bach_dma_sub_channel *sub_channel = bach_runtime->sub_channel;
+	struct msc313_bach_dma_channel *dma_channel = sub_channel->dma_channel;
+	unsigned stride = runtime->frame_bits >> 3;
+	unsigned miu_underrun_size;
+	ssize_t fullperiods;
+	ssize_t new_level;
+
+	if (!BACH_PCM_RUNTIME_INFLIGHT(bach_runtime))
+		return;
+
+	/*
+	 * We want an underrun interrupt before we are totally empty and
+	 * at something close to the period.. plus the level seems to have
+	 * 8 byte granularity? .. make it 8 samples before the end of the current
+	 * period.
+	 */
+	fullperiods = BACH_PCM_RUNTIME_INFLIGHT(bach_runtime) -
+			(BACH_PCM_RUNTIME_INFLIGHT(bach_runtime) % bach_runtime->period_bytes);
+	if (fullperiods)
+		fullperiods -= bach_runtime->period_bytes;
+
+	new_level = fullperiods ? fullperiods : stride * 8;
+
+	if (new_level != bach_runtime->underflow_level)
+		printk("underflow level is now %zu\n", new_level);
+
+	bach_runtime->underflow_level = new_level;
+	miu_underrun_size = TO_MIUSIZE(bach_runtime->underflow_level);
+
+	regmap_field_write(sub_channel->underrunthreshold, miu_underrun_size);
+
+	/* Enable or reenable the interrupt */
+	regmap_field_write(dma_channel->rd_underrun_int_en, 1);
+
+	//
+	regmap_field_write(dma_channel->rd_empty_int_en, 1);
+}
+
+#define DEBUG_STUCK_QUEUE
+
+static int msc313_bach_queue_push(struct msc313_bach *bach,
 				   struct snd_pcm_substream *substream,
 				   ssize_t new_bytes)
 {
@@ -533,7 +602,7 @@ static int msc313_bach_queue_bytes(struct msc313_bach *bach,
 	struct msc313_bach_dma_channel *dma_channel = sub_channel->dma_channel;
 	unsigned en, trigbit;
 	unsigned miu_trigger_level = TO_MIUSIZE(new_bytes);
-	int target_level, old_level, new_level, delay_level;
+	int target_level, old_level, new_level;
 
 	old_level = msc313_bach_get_level(sub_channel);
 
@@ -550,28 +619,32 @@ static int msc313_bach_queue_bytes(struct msc313_bach *bach,
 	bach_runtime->total_bytes += new_bytes;
 
 	new_level = msc313_bach_get_level(sub_channel);
-	mdelay(1);
-	delay_level = msc313_bach_get_level(sub_channel);
 
-	//printk("old level: %d, new level %d, delay level %d\n",
-	//		old_level, new_level, delay_level);
+#ifdef DEBUG_STUCK_QUEUE
+	{
+		int delay_level;
 
-	if (delay_level == new_level)
-		printk("level didn't change after waiting, dma is probably stuck\n");
+		udelay(200);
+		delay_level = msc313_bach_get_level(sub_channel);
 
-	/* should be safe to turn the underrun and empty irq back on */
-	regmap_field_write(dma_channel->rd_underrun_int_en, 1);
-	regmap_field_write(dma_channel->rd_empty_int_en, 1);
+		printk("old level: %d, new level %d, delay level %d\n",
+				old_level, new_level, delay_level);
+
+		if (delay_level == new_level)
+			printk("level didn't change after waiting, dma is probably stuck\n");
+	}
+#endif
 
 	//msc313_bach_pcm_dumpruntime(bach_runtime);
 
 	return 0;
 }
 
-static void msc313_bach_queue_pending(struct msc313_bach *bach,
+static void msc313_bach_queue_update(struct msc313_bach *bach,
 				     struct snd_pcm_substream *substream,
 				     struct msc313_bach_substream_runtime *bach_runtime) {
-	ssize_t new_bytes = 0;
+	struct snd_pcm_runtime *runtime = substream->runtime;
+	ssize_t new_bytes;
 
 	/*
 	 * Trying to queue before the channel is running results in either
@@ -580,32 +653,30 @@ static void msc313_bach_queue_pending(struct msc313_bach *bach,
 	if (!bach_runtime->running)
 		return;
 
-	/* Need at least a full period buffered */
-	if (bach_runtime->pending_bytes < bach_runtime->period_bytes)
-		return;
+	///* Need at least a full period buffered */
+	//if (bach_runtime->pending_bytes < bach_runtime->period_bytes)
+	//	goto out;
 
-	/* First queue, want two periods really */
-	if ((bach_runtime->total_bytes - bach_runtime->processed_bytes) == 0) {
-		new_bytes = bach_runtime->period_bytes * 2;
-		/* Don't actually have enough */
-		if (bach_runtime->pending_bytes < new_bytes)
-			new_bytes = bach_runtime->period_bytes;
-	}
+	///* Queue as many full periods as are available */
+	//new_bytes = bach_runtime->pending_bytes -
+	//		(bach_runtime->pending_bytes % bach_runtime->period_bytes);
 
-	/* One period in the tank, queue one more */
-	else if (bach_runtime->total_bytes - bach_runtime->processed_bytes ==
-			bach_runtime->period_bytes)
-		new_bytes = bach_runtime->period_bytes;
+	new_bytes = bach_runtime->pending_bytes -
+			(bach_runtime->pending_bytes % MSC313_BACH_FIFO_GRANULARITY);
 
 	if (new_bytes) {
-		msc313_bach_queue_bytes(bach, substream, new_bytes);
+		msc313_bach_queue_push(bach, substream, new_bytes);
 		bach_runtime->pending_bytes -= new_bytes;
 	}
+
+out:
+	msc313_bach_pcm_update_underflow(runtime);
 }
 
 static int msc313_bach_pcm_trigger(struct snd_soc_component *component,
 		struct snd_pcm_substream *substream, int cmd)
 {
+	struct device *dev = component->dev;
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct msc313_bach_substream_runtime *bach_runtime = runtime->private_data;
 	struct msc313_bach_dma_sub_channel *sub_channel = bach_runtime->sub_channel;
@@ -645,8 +716,9 @@ static int msc313_bach_pcm_trigger(struct snd_soc_component *component,
 		/* Start playback */
 		regmap_field_write(sub_channel->en, 1);
 		udelay(10);
+		bach_runtime->start_time = jiffies;
 		bach_runtime->running = true;
-		msc313_bach_queue_pending(bach, substream, bach_runtime);
+		msc313_bach_queue_update(bach, substream, bach_runtime);
 		break;
 	case SNDRV_PCM_TRIGGER_STOP:
 	case SNDRV_PCM_TRIGGER_SUSPEND:
@@ -656,7 +728,11 @@ static int msc313_bach_pcm_trigger(struct snd_soc_component *component,
 		/* Mask interrupts */
 		regmap_field_write(dma_channel->rd_underrun_int_en, 0);
 		regmap_field_write(dma_channel->rd_empty_int_en, 0);
+
 		bach_runtime->running = false;
+		bach_runtime->end_time = jiffies;
+
+		msc313_bach_pcm_dumpruntime(dev, bach_runtime);
 		break;
 	default:
 		ret = -EINVAL;
@@ -664,40 +740,52 @@ static int msc313_bach_pcm_trigger(struct snd_soc_component *component,
 
 	spin_unlock_irqrestore(&dma_channel->lock, flags);
 
-	return 0;
+	return ret;
 }
 
 static snd_pcm_uframes_t msc313_bach_pcm_pointer(struct snd_soc_component *component,
 						 struct snd_pcm_substream *substream)
 {
+	struct device *dev = component->dev;
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct msc313_bach_substream_runtime *bach_runtime = runtime->private_data;
 	struct msc313_bach_dma_sub_channel *sub_channel = bach_runtime->sub_channel;
 	struct msc313_bach_dma_channel *dma_channel = sub_channel->dma_channel;
-	ssize_t inflight, done;
+	ssize_t inflight, done = 0;
 	snd_pcm_uframes_t pos;
 	int i, level;
 	unsigned long flags;
 
 	spin_lock_irqsave(&dma_channel->lock, flags);
 
-	//printk("%s:%d\n", __func__, __LINE__);
-
-	/*
-	 * The amount of bytes the channel is currently munching through is the difference
-	 * between the bytes queued and the number of bytes that have been processed
-	 * according to an IRQ coming.
-	 */
-	inflight = bach_runtime->total_bytes - bach_runtime->processed_bytes;
+	inflight = BACH_PCM_RUNTIME_INFLIGHT(bach_runtime);
 	/*
 	 * The number of bytes that have been processed before the next IRQ comes will
 	 * be roughly the number of bytes that are waiting to be confirmed by an IRQ
 	 * minus current number of bytes the hardware says it still hasn't processed.
 	 */
 	level = msc313_bach_get_level(sub_channel);
-	done = inflight - FROM_MIUSIZE(level);
+	ssize_t infifo = FROM_MIUSIZE(level);
+	/* Make sure done doesn't become negative ..*/
+	if (inflight) {
+		if (infifo < inflight)
+			done = inflight - infifo;
+	}
 
-	pos = bytes_to_frames(runtime, (bach_runtime->processed_bytes + done) % runtime->dma_bytes);
+	pos = bytes_to_frames(runtime, (bach_runtime->processed_bytes + done) %
+			runtime->dma_bytes);
+
+	dev_dbg(dev, "stream position is %lu frames.\n"
+		      "total %zu bytes, processed %zu, bytes, pending bytes %zu,\n"
+		      "inflight %zu, done %lu bytes, infifo %d bytes\n",
+		      pos,
+		      bach_runtime->total_bytes,
+		      bach_runtime->processed_bytes,
+		      bach_runtime->pending_bytes,
+		      inflight,
+		      done,
+		      infifo);
+	msc313_bach_pcm_dumpruntime(dev, bach_runtime);
 
 	spin_unlock_irqrestore(&dma_channel->lock, flags);
 
@@ -719,17 +807,17 @@ static const int msc313_bach_src_rates[] = {
 static int msc313_bach_pcm_prepare(struct snd_soc_component *component,
 				   struct snd_pcm_substream *substream)
 {
+	struct device *dev = component->dev;
 	struct msc313_bach *bach = snd_soc_card_get_drvdata(component->card);
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct msc313_bach_substream_runtime *bach_runtime = runtime->private_data;
 	struct msc313_bach_dma_sub_channel *sub_channel = bach_runtime->sub_channel;
 	struct msc313_bach_dma_channel *dma_channel = sub_channel->dma_channel;
-	unsigned stride = runtime->frame_bits >> 3;
-	unsigned miu_underrun_size, miu_buffer_size, miu_addr;
+	unsigned miu_buffer_size, miu_addr;
 	unsigned mono = runtime->channels == 1 ? 1 : 0;
 	int i, ret;
 
-	printk("%s:%d\n", __func__, __LINE__);
+	dev_info(dev, "%s:%d\n", __func__, __LINE__);
 
 	bach_runtime->last_appl_ptr = 0;
 	bach_runtime->irqs = 0;
@@ -741,7 +829,6 @@ static int msc313_bach_pcm_prepare(struct snd_soc_component *component,
 	bach_runtime->period_bytes = frames_to_bytes(runtime, runtime->period_size);
 	bach_runtime->max_inflight = bach_runtime->period_bytes * 2;
 
-	miu_underrun_size = TO_MIUSIZE((bach_runtime->period_bytes + stride));
 	miu_buffer_size = TO_MIUSIZE(runtime->dma_bytes);
 	miu_addr = TO_MIUSIZE(runtime->dma_addr);
 	bach_runtime->max_level = TO_MIUSIZE(bach_runtime->period_bytes * 2);
@@ -751,16 +838,16 @@ static int msc313_bach_pcm_prepare(struct snd_soc_component *component,
 	regmap_field_force_write(sub_channel->init, 1);
 	regmap_field_force_write(sub_channel->init, 0);
 
-	printk("period size: %d\n", bach_runtime->period_bytes);
-	printk("dma addr %08x\n", (unsigned) runtime->dma_addr);
+	dev_info(dev, "sample rate: %d\n", substream->runtime->rate);
+	dev_info(dev, "period %d, (%d bytes)\n", runtime->period_size,
+			bach_runtime->period_bytes);
+	dev_info(dev, "dma addr %08x\n", (unsigned) runtime->dma_addr);
 
 	regmap_field_write(sub_channel->addr_hi, miu_addr >> 12);
 	regmap_field_write(sub_channel->addr_lo, miu_addr);
 	regmap_field_write(sub_channel->size, miu_buffer_size);
 
-	/* We want an interrupt underrun when we hit the last frame of the second period */
-	regmap_field_write(sub_channel->underrunthreshold, miu_underrun_size);
-	/* This shouldn't really matter,.. */
+	/* Don't care about over run,.. */
 	regmap_field_write(sub_channel->overrunthreshold, 0);
 
 	switch(substream->stream) {
@@ -801,7 +888,7 @@ static int msc313_bach_pcm_ack(struct snd_soc_component *component,
 	bach_runtime->last_appl_ptr = runtime->control->appl_ptr;
 	bach_runtime->pending_bytes += new_bytes;
 
-	msc313_bach_queue_pending(bach, substream, bach_runtime);
+	msc313_bach_queue_update(bach, substream, bach_runtime);
 
 	spin_unlock_irqrestore(&dma_channel->lock, flags);
 
@@ -836,7 +923,7 @@ static irqreturn_t msc313_bach_irq(int irq, void *data)
 		struct msc313_bach_substream_runtime *bach_runtime;
 		struct snd_pcm_substream *substream;
 		struct snd_pcm_runtime *runtime;
-		unsigned empty, underrun, overrun, irqflags;
+		unsigned empty, underrun, overrun;
 		int level;
 
 		spin_lock_irqsave(&dma_channel->lock, flags);
@@ -860,8 +947,6 @@ static irqreturn_t msc313_bach_irq(int irq, void *data)
 		regmap_field_force_write(bach->dma_channels[i].rd_int_clear, 1);
 		regmap_field_force_write(bach->dma_channels[i].rd_int_clear, 0);
 
-		//msc313_bach_pcm_dumpruntime(bach_runtime);
-
 		/*
 		 * Sometimes interrupts happen at odd times before expected.
 		 * Just ignore them.
@@ -876,10 +961,12 @@ static irqreturn_t msc313_bach_irq(int irq, void *data)
 		 * and queuing the first period.
 		 */
 		if (empty && level == 0) {
-			bach_runtime->empties++;
+			/* Disable the interrupt to stop it continually firing */
 			regmap_field_write(dma_channel->rd_empty_int_en, 0);
+
+			bach_runtime->empties++;
 			bach_runtime->processed_bytes = bach_runtime->total_bytes;
-			msc313_bach_pcm_dumpruntime(bach_runtime);
+			//msc313_bach_pcm_dumpruntime(bach->dev, bach_runtime);
 			spin_unlock_irqrestore(&dma_channel->lock, flags);
 			snd_pcm_stop_xrun(substream);
 			continue;
@@ -890,10 +977,18 @@ static irqreturn_t msc313_bach_irq(int irq, void *data)
 			 * Disable the underrun interrupt to stop it continually firing,
 			 * if something queues before empty happens it will be reenabled.
 			 */
-			bach_runtime->underruns++;
 			regmap_field_write(dma_channel->rd_underrun_int_en, 0);
-			bach_runtime->processed_bytes +=  bach_runtime->period_bytes;
-			msc313_bach_queue_pending(bach, substream, bach_runtime);
+
+			/*
+			 * update the stats and work out how far along in the buffer
+			 * we now are.
+			 */
+			bach_runtime->underruns++;
+			bach_runtime->processed_bytes +=
+					BACH_PMC_RUNTIME_BYTES_UNTIL_UNDERFLOW(bach_runtime);
+
+			msc313_bach_queue_update(bach, substream, bach_runtime);
+
 			spin_unlock_irqrestore(&dma_channel->lock, flags);
 			snd_pcm_period_elapsed(substream);
 			continue;
