@@ -28,8 +28,10 @@
 
 #define DRIVER_NAME "msc313-bach"
 
-#define TO_MIUSIZE(_x) (_x >> 3)
-#define FROM_MIUSIZE(_x) (_x << 3)
+#define MSC313_BACH_ALIGNMENT	16
+#define MSC313_BACH_FIFOSZ	8
+#define TO_MIUSIZE(_bach, _x) (_x >> _bach->data->addr_sz_shift)
+#define FROM_MIUSIZE(_bach,_x) (_x <<  _bach->data->addr_sz_shift)
 
 #define MSC313_BACH_DMA_SUB_CHANNEL_EN			0
 #define MSC313_BACH_DMA_SUB_CHANNEL_ADDR		0x4
@@ -39,8 +41,7 @@
 #define MSC313_BACH_DMA_SUB_CHANNEL_UNDERRUNTHRESHOLD	0x14
 #define MSC313_BACK_DMA_SUB_CHANNEL_LEVEL		0x18
 
-#define MSC313_BACH_FIFO_GRANULARITY	8
-
+struct msc313_bach;
 struct msc313_bach_dma_channel;
 
 struct msc313_bach_dma_sub_channel {
@@ -66,6 +67,7 @@ struct msc313_bach_dma_sub_channel {
 #define MSC313_SUB_CHANNEL_WRITER	1
 
 struct msc313_bach_dma_channel {
+	struct msc313_bach *bach;
 	/*
 	 * Enabling the channel might cause an interrupt
 	 * and bust everything, this lock must be taken
@@ -95,13 +97,21 @@ struct msc313_bach_dma_channel {
 	struct regmap_field *dma_wr_mono;
 	struct regmap_field *dma_rd_mono_copy;
 
+	struct regmap_field *rate_sel;
+
 	struct msc313_bach_dma_sub_channel reader_writer[2];
 };
 
 #define MSC313_BACH_SR0_SEL		0x4
 #define MSC313_BACH_DMA_TEST_CTRL7	0x1dc
 
+struct msc313_bach_data {
+	unsigned int addr_sz_shift;
+};
+
 struct msc313_bach {
+	const struct msc313_bach_data *data;
+
 	struct clk *clk;
 
 	struct snd_soc_dai_link_component cpu_dai_component;
@@ -112,10 +122,6 @@ struct msc313_bach {
 
 	struct regmap *audiotop;
 	struct regmap *bach;
-
-	/* Digital controls */
-	struct regmap_field *src2_sel;
-	struct regmap_field *src1_sel;
 
 	/* DMA */
 	struct regmap_field *dma_int_en;
@@ -532,7 +538,7 @@ static int msc313_bach_pcm_close(struct snd_soc_component *component,
 
 	switch(substream->stream){
 	case SNDRV_PCM_STREAM_PLAYBACK:
-		bach->dma_channels[0].reader_writer[0].substream = NULL;
+		dma_channel->reader_writer[MSC313_SUB_CHANNEL_READER].substream = NULL;
 		break;
 	case SNDRV_PCM_STREAM_CAPTURE:
 		break;
@@ -546,7 +552,7 @@ static int msc313_bach_pcm_close(struct snd_soc_component *component,
 }
 
 /*
- * Update when the next underflow interuppt happens and enable the interrupt
+ * Update when the next underflow interrupt happens and enable the interrupt
  * if needed.
  */
 static void msc313_bach_pcm_update_underflow(struct snd_pcm_runtime *runtime)
@@ -554,6 +560,7 @@ static void msc313_bach_pcm_update_underflow(struct snd_pcm_runtime *runtime)
 	struct msc313_bach_substream_runtime *bach_runtime = runtime->private_data;
 	struct msc313_bach_dma_sub_channel *sub_channel = bach_runtime->sub_channel;
 	struct msc313_bach_dma_channel *dma_channel = sub_channel->dma_channel;
+	struct msc313_bach *bach = dma_channel->bach;
 	unsigned stride = runtime->frame_bits >> 3;
 	unsigned miu_underrun_size;
 	ssize_t fullperiods;
@@ -579,7 +586,7 @@ static void msc313_bach_pcm_update_underflow(struct snd_pcm_runtime *runtime)
 		printk("underflow level is now %zu\n", new_level);
 
 	bach_runtime->underflow_level = new_level;
-	miu_underrun_size = TO_MIUSIZE(bach_runtime->underflow_level);
+	miu_underrun_size = TO_MIUSIZE(bach, bach_runtime->underflow_level);
 
 	regmap_field_write(sub_channel->underrunthreshold, miu_underrun_size);
 
@@ -592,16 +599,16 @@ static void msc313_bach_pcm_update_underflow(struct snd_pcm_runtime *runtime)
 
 #define DEBUG_STUCK_QUEUE
 
-static int msc313_bach_queue_push(struct msc313_bach *bach,
-				   struct snd_pcm_substream *substream,
-				   ssize_t new_bytes)
+static int msc313_bach_queue_push(struct snd_pcm_substream *substream,
+				  ssize_t new_bytes)
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct msc313_bach_substream_runtime *bach_runtime = runtime->private_data;
 	struct msc313_bach_dma_sub_channel *sub_channel = bach_runtime->sub_channel;
 	struct msc313_bach_dma_channel *dma_channel = sub_channel->dma_channel;
+	struct msc313_bach *bach = dma_channel->bach;
 	unsigned en, trigbit;
-	unsigned miu_trigger_level = TO_MIUSIZE(new_bytes);
+	unsigned miu_trigger_level = TO_MIUSIZE(bach, new_bytes);
 	int target_level, old_level, new_level;
 
 	old_level = msc313_bach_get_level(sub_channel);
@@ -653,19 +660,15 @@ static void msc313_bach_queue_update(struct msc313_bach *bach,
 	if (!bach_runtime->running)
 		return;
 
-	///* Need at least a full period buffered */
-	//if (bach_runtime->pending_bytes < bach_runtime->period_bytes)
-	//	goto out;
-
-	///* Queue as many full periods as are available */
-	//new_bytes = bach_runtime->pending_bytes -
-	//		(bach_runtime->pending_bytes % bach_runtime->period_bytes);
-
+	/*
+	 * Need at least a FIFO to update the level and it needs to
+	 * be a multiple
+	 */
 	new_bytes = bach_runtime->pending_bytes -
-			(bach_runtime->pending_bytes % MSC313_BACH_FIFO_GRANULARITY);
+			(bach_runtime->pending_bytes % MSC313_BACH_FIFOSZ);
 
 	if (new_bytes) {
-		msc313_bach_queue_push(bach, substream, new_bytes);
+		msc313_bach_queue_push(substream, new_bytes);
 		bach_runtime->pending_bytes -= new_bytes;
 	}
 
@@ -687,16 +690,15 @@ static int msc313_bach_pcm_trigger(struct snd_soc_component *component,
 
 	printk("%s:%d %d\n", __func__, __LINE__, cmd);
 
+	/*
+	 * Enabling the channel can cause interrupts before we are ready,
+	 * take the lock to force an irq to wait until we are finished.
+	 */
 	spin_lock_irqsave(&dma_channel->lock, flags);
 
 	switch (cmd) {
 	case SNDRV_PCM_TRIGGER_START:
 	case SNDRV_PCM_TRIGGER_RESUME:
-		/*
-		 * Enabling the channel can cause interrupts before we are ready,
-		 * take the lock to force an irq to wait until we are finished.
-		 */
-
 		/* Clear any pending interrupts */
 		regmap_field_force_write(dma_channel->rd_int_clear, 1);
 		regmap_field_force_write(dma_channel->rd_int_clear, 0);
@@ -751,6 +753,7 @@ static snd_pcm_uframes_t msc313_bach_pcm_pointer(struct snd_soc_component *compo
 	struct msc313_bach_substream_runtime *bach_runtime = runtime->private_data;
 	struct msc313_bach_dma_sub_channel *sub_channel = bach_runtime->sub_channel;
 	struct msc313_bach_dma_channel *dma_channel = sub_channel->dma_channel;
+	struct msc313_bach *bach = dma_channel->bach;
 	ssize_t inflight, done = 0;
 	snd_pcm_uframes_t pos;
 	int i, level;
@@ -765,7 +768,7 @@ static snd_pcm_uframes_t msc313_bach_pcm_pointer(struct snd_soc_component *compo
 	 * minus current number of bytes the hardware says it still hasn't processed.
 	 */
 	level = msc313_bach_get_level(sub_channel);
-	ssize_t infifo = FROM_MIUSIZE(level);
+	ssize_t infifo = FROM_MIUSIZE(bach, level);
 	/* Make sure done doesn't become negative ..*/
 	if (inflight) {
 		if (infifo < inflight)
@@ -819,6 +822,12 @@ static int msc313_bach_pcm_prepare(struct snd_soc_component *component,
 
 	dev_info(dev, "%s:%d\n", __func__, __LINE__);
 
+	if ((runtime->dma_addr % MSC313_BACH_ALIGNMENT) ||
+			(runtime->dma_bytes & MSC313_BACH_ALIGNMENT)) {
+		dev_err(dev, "dma_addr and/or dma_bytes not aligned\n");
+		return -EINVAL;
+	}
+
 	bach_runtime->last_appl_ptr = 0;
 	bach_runtime->irqs = 0;
 	bach_runtime->empties = 0;
@@ -829,9 +838,9 @@ static int msc313_bach_pcm_prepare(struct snd_soc_component *component,
 	bach_runtime->period_bytes = frames_to_bytes(runtime, runtime->period_size);
 	bach_runtime->max_inflight = bach_runtime->period_bytes * 2;
 
-	miu_buffer_size = TO_MIUSIZE(runtime->dma_bytes);
-	miu_addr = TO_MIUSIZE(runtime->dma_addr);
-	bach_runtime->max_level = TO_MIUSIZE(bach_runtime->period_bytes * 2);
+	miu_buffer_size = TO_MIUSIZE(bach, runtime->dma_bytes);
+	miu_addr = TO_MIUSIZE(bach, runtime->dma_addr);
+	bach_runtime->max_level = TO_MIUSIZE(bach, bach_runtime->period_bytes * 2);
 
 	/* This is needed to reset the buffer level */
 	regmap_field_force_write(sub_channel->trigger, 0);
@@ -841,7 +850,8 @@ static int msc313_bach_pcm_prepare(struct snd_soc_component *component,
 	dev_info(dev, "sample rate: %d\n", substream->runtime->rate);
 	dev_info(dev, "period %d, (%d bytes)\n", runtime->period_size,
 			bach_runtime->period_bytes);
-	dev_info(dev, "dma addr %08x\n", (unsigned) runtime->dma_addr);
+	dev_info(dev, "dma addr %08x, size %zu\n",
+			(unsigned) runtime->dma_addr, runtime->dma_bytes);
 
 	regmap_field_write(sub_channel->addr_hi, miu_addr >> 12);
 	regmap_field_write(sub_channel->addr_lo, miu_addr);
@@ -860,7 +870,7 @@ static int msc313_bach_pcm_prepare(struct snd_soc_component *component,
 	ret = -EINVAL;
 	for (i = 0; i < ARRAY_SIZE(msc313_bach_src_rates); i++) {
 		if (msc313_bach_src_rates[i] == substream->runtime->rate) {
-			regmap_field_write(bach->src1_sel, i);
+			regmap_field_write(dma_channel->rate_sel, i);
 			ret = 0;
 			break;
 		}
@@ -1071,9 +1081,12 @@ static void msc313_bach_the_horror(struct msc313_bach *bach)
 	regmap_write(bach->audiotop, 0xFC, 0x00000000);
 
 	regmap_write(bach->bach, 0x00, 0x000089FF);
-	regmap_write(bach->bach, 0x04, 0x0000FF88);
+
+	// sr_sel0
+	regmap_write(bach->bach, 0x04, 0x0000FF00);
+
 	regmap_write(bach->bach, 0x08, 0x00000003);
-	regmap_write(bach->bach, 0x0C, 0x000019B4);
+	regmap_write(bach->bach, REG_MUX0SEL, 0x000019B4);
 	regmap_write(bach->bach, 0x10, 0x0000F000);
 	regmap_write(bach->bach, 0x14, 0x00008000);
 	regmap_write(bach->bach, 0x18, 0x0000C09A);
@@ -1458,6 +1471,9 @@ static void msc313_bach_the_horror(struct msc313_bach *bach)
 
 }
 
+#define MSC313_BACH_SUBCHANNEL_OFFSET	0x4
+#define MSC313_BACH_SUBCHANNEL_SIZE	0x20
+
 static int msc313_bach_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -1465,20 +1481,33 @@ static int msc313_bach_probe(struct platform_device *pdev)
 	struct dma_device *dma_dev;
 	struct snd_soc_card *card;
 	struct msc313_bach *bach;
+	struct msc313_bach_data *match_data;
 	void __iomem *base;
 	int i, j, ret, irq;
-	struct reg_field src2_sel_field = REG_FIELD(MSC313_BACH_SR0_SEL, 0, 3);
-	struct reg_field src1_sel_field = REG_FIELD(MSC313_BACH_SR0_SEL, 4, 7);
-	struct reg_field dma1_rd_mono_field = REG_FIELD(MSC313_BACH_DMA_TEST_CTRL7, 15, 15);
-	struct reg_field dma1_wr_mono_field = REG_FIELD(MSC313_BACH_DMA_TEST_CTRL7, 14, 14);
-	struct reg_field dma1_rd_mono_copy_field = REG_FIELD(MSC313_BACH_DMA_TEST_CTRL7, 13, 13);
-	struct reg_field dma_int_en_field = REG_FIELD(REG_DMA_INT, 1, 1);
 
+	match_data = device_get_match_data(dev);
+	if (!match_data)
+		return -EINVAL;
+
+	/*
+	 * Arrays for per-channel controls that are embedded in registers with
+	 * controls for other channels.
+	 */
+	struct regmap_field *dma_rate_sels[ARRAY_SIZE(bach->dma_channels)];
+
+	const struct reg_field src2_sel_field = REG_FIELD(MSC313_BACH_SR0_SEL, 0, 3);
+	const struct reg_field src1_sel_field = REG_FIELD(MSC313_BACH_SR0_SEL, 4, 7);
+	const struct reg_field dma1_rd_mono_field = REG_FIELD(MSC313_BACH_DMA_TEST_CTRL7, 15, 15);
+	const struct reg_field dma1_wr_mono_field = REG_FIELD(MSC313_BACH_DMA_TEST_CTRL7, 14, 14);
+	const struct reg_field dma1_rd_mono_copy_field = REG_FIELD(MSC313_BACH_DMA_TEST_CTRL7, 13, 13);
+	const struct reg_field dma_int_en_field = REG_FIELD(REG_DMA_INT, 1, 1);
 
 	/* Get the resources we need to probe the components */
 	bach = devm_kzalloc(dev, sizeof(*bach), GFP_KERNEL);
 	if(IS_ERR(bach))
 		return PTR_ERR(bach);
+
+	bach->data = match_data;
 
 	bach->clk = devm_clk_get(&pdev->dev, NULL);
 	clk_prepare_enable(bach->clk);
@@ -1491,8 +1520,8 @@ static int msc313_bach_probe(struct platform_device *pdev)
 	if (IS_ERR(bach->bach))
 		return PTR_ERR(bach->bach);
 
-	bach->src1_sel = devm_regmap_field_alloc(dev, bach->bach, src1_sel_field);
-	bach->src2_sel = devm_regmap_field_alloc(dev, bach->bach, src2_sel_field);
+	dma_rate_sels[0] = devm_regmap_field_alloc(dev, bach->bach, src1_sel_field);
+	dma_rate_sels[1] = devm_regmap_field_alloc(dev, bach->bach, src2_sel_field);
 
 	bach->dma_int_en = devm_regmap_field_alloc(dev, bach->bach, dma_int_en_field);
 
@@ -1503,37 +1532,42 @@ static int msc313_bach_probe(struct platform_device *pdev)
 	for (i = 0; i < ARRAY_SIZE(bach->dma_channels); i++) {
 		struct msc313_bach_dma_channel *chan = &bach->dma_channels[i];
 		unsigned int chan_offset = 0x100 + (0x40 * i);
-		struct reg_field chan_rst_field = REG_FIELD(chan_offset + MSC313_BACH_DMA_CHANNEL_CTRL0, 0, 0);
-		struct reg_field chan_en_field = REG_FIELD(chan_offset + MSC313_BACH_DMA_CHANNEL_CTRL0, 1, 1);
-		struct reg_field live_count_en_field = REG_FIELD(chan_offset + MSC313_BACH_DMA_CHANNEL_CTRL0, 2, 2);
+		const struct reg_field chan_rst_field =
+				REG_FIELD(chan_offset + MSC313_BACH_DMA_CHANNEL_CTRL0, 0, 0);
+		const struct reg_field chan_en_field =
+				REG_FIELD(chan_offset + MSC313_BACH_DMA_CHANNEL_CTRL0, 1, 1);
+		const struct reg_field live_count_en_field =
+				REG_FIELD(chan_offset + MSC313_BACH_DMA_CHANNEL_CTRL0, 2, 2);
 
 		/* interrupt controls */
-		struct reg_field chan_rd_int_clear_field = REG_FIELD(chan_offset +
+		const struct reg_field chan_rd_int_clear_field = REG_FIELD(chan_offset +
 				MSC313_BACH_DMA_CHANNEL_CTRL0, 8, 8);
-		struct reg_field chan_rd_empty_int_en_field = REG_FIELD(chan_offset +
+		const struct reg_field chan_rd_empty_int_en_field = REG_FIELD(chan_offset +
 				MSC313_BACH_DMA_CHANNEL_CTRL0, 10, 10);
-		struct reg_field chan_rd_overrun_int_en_field = REG_FIELD(chan_offset +
+		const struct reg_field chan_rd_overrun_int_en_field = REG_FIELD(chan_offset +
 						MSC313_BACH_DMA_CHANNEL_CTRL0, 12, 12);
-		struct reg_field chan_rd_underrun_int_en_field = REG_FIELD(chan_offset +
+		const struct reg_field chan_rd_underrun_int_en_field = REG_FIELD(chan_offset +
 						MSC313_BACH_DMA_CHANNEL_CTRL0, 13, 13);
 
 		/* flags */
-		struct reg_field chan_wd_underrun_flag_field = REG_FIELD(chan_offset +
+		const struct reg_field chan_wd_underrun_flag_field = REG_FIELD(chan_offset +
 				MSC313_BACH_DMA_CHANNEL_CTRL8, 0, 0);
-		struct reg_field chan_wd_overrun_flag_field = REG_FIELD(chan_offset +
+		const struct reg_field chan_wd_overrun_flag_field = REG_FIELD(chan_offset +
 				MSC313_BACH_DMA_CHANNEL_CTRL8, 1, 1);
-		struct reg_field chan_rd_underrun_flag_field = REG_FIELD(chan_offset +
+		const struct reg_field chan_rd_underrun_flag_field = REG_FIELD(chan_offset +
 				MSC313_BACH_DMA_CHANNEL_CTRL8, 2, 2);
-		struct reg_field chan_rd_overrun_flag_field = REG_FIELD(chan_offset +
+		const struct reg_field chan_rd_overrun_flag_field = REG_FIELD(chan_offset +
 				MSC313_BACH_DMA_CHANNEL_CTRL8, 3, 3);
-		struct reg_field chan_rd_empty_flag_field = REG_FIELD(chan_offset +
+		const struct reg_field chan_rd_empty_flag_field = REG_FIELD(chan_offset +
 				MSC313_BACH_DMA_CHANNEL_CTRL8, 4, 4);
-		struct reg_field chan_wr_full_flag_field = REG_FIELD(chan_offset +
+		const struct reg_field chan_wr_full_flag_field = REG_FIELD(chan_offset +
 				MSC313_BACH_DMA_CHANNEL_CTRL8, 5, 5);
-		struct reg_field chan_wr_localbuf_full_flag_field = REG_FIELD(chan_offset +
+		const struct reg_field chan_wr_localbuf_full_flag_field = REG_FIELD(chan_offset +
 				MSC313_BACH_DMA_CHANNEL_CTRL8, 6, 6);
-		struct reg_field chan_rd_localbuf_empty_flag_field = REG_FIELD(chan_offset +
+		const struct reg_field chan_rd_localbuf_empty_flag_field = REG_FIELD(chan_offset +
 				MSC313_BACH_DMA_CHANNEL_CTRL8, 7, 7);
+
+		chan->bach = bach;
 
 		spin_lock_init(&chan->lock);
 
@@ -1554,6 +1588,9 @@ static int msc313_bach_probe(struct platform_device *pdev)
 		chan->wr_localbuf_full_flag = devm_regmap_field_alloc(dev, bach->bach, chan_wr_localbuf_full_flag_field);
 		chan->rd_localbuf_empty_flag = devm_regmap_field_alloc(dev, bach->bach, chan_rd_localbuf_empty_flag_field);
 
+		/* Wire up the per-channel stuff that shares registers between channels*/
+		chan->rate_sel = dma_rate_sels[i];
+
 		if (i == 0) {
 			chan->dma_rd_mono = devm_regmap_field_alloc(dev, bach->bach, dma1_rd_mono_field);
 			chan->dma_wr_mono = devm_regmap_field_alloc(dev, bach->bach, dma1_wr_mono_field);
@@ -1562,33 +1599,37 @@ static int msc313_bach_probe(struct platform_device *pdev)
 
 		for (j = 0; j < ARRAY_SIZE(chan->reader_writer); j++){
 			struct msc313_bach_dma_sub_channel *sub = &chan->reader_writer[j];
-			unsigned int sub_chan_offset = chan_offset + 4 + (0x20 * j);
+			unsigned int sub_chan_offset = chan_offset +
+					MSC313_BACH_SUBCHANNEL_OFFSET +
+					(MSC313_BACH_SUBCHANNEL_SIZE * j);
 
 			sub->dma_channel = chan;
 
 			/* Sub channel ctrl  fields */
-			struct reg_field sub_chan_count_field = REG_FIELD(sub_chan_offset +
-								MSC313_BACH_DMA_SUB_CHANNEL_EN, 12, 12);
-			struct reg_field sub_chan_trigger_field = REG_FIELD(sub_chan_offset +
-					MSC313_BACH_DMA_SUB_CHANNEL_EN, 13, 13);
-			struct reg_field sub_chan_init_field = REG_FIELD(sub_chan_offset +
-								MSC313_BACH_DMA_SUB_CHANNEL_EN, 14, 14);
-			struct reg_field sub_chan_en_field = REG_FIELD(sub_chan_offset +
-					MSC313_BACH_DMA_SUB_CHANNEL_EN, 15, 15);
+			const struct reg_field sub_chan_count_field =
+					REG_FIELD(sub_chan_offset + MSC313_BACH_DMA_SUB_CHANNEL_EN, 12, 12);
+			const struct reg_field sub_chan_trigger_field =
+					REG_FIELD(sub_chan_offset + MSC313_BACH_DMA_SUB_CHANNEL_EN, 13, 13);
+			const struct reg_field sub_chan_init_field =
+					REG_FIELD(sub_chan_offset + MSC313_BACH_DMA_SUB_CHANNEL_EN, 14, 14);
+			const struct reg_field sub_chan_en_field =
+					REG_FIELD(sub_chan_offset + MSC313_BACH_DMA_SUB_CHANNEL_EN, 15, 15);
 			/* Buffer address */
-			struct reg_field sub_chan_addr_lo_field = REG_FIELD(sub_chan_offset +
-								MSC313_BACH_DMA_SUB_CHANNEL_EN, 0, 11);
-			struct reg_field sub_chan_addr_hi_field = REG_FIELD(sub_chan_offset +
-								MSC313_BACH_DMA_SUB_CHANNEL_ADDR, 0, 14);
+			const struct reg_field sub_chan_addr_lo_field =
+					REG_FIELD(sub_chan_offset + MSC313_BACH_DMA_SUB_CHANNEL_EN, 0, 11);
+			const struct reg_field sub_chan_addr_hi_field =
+					REG_FIELD(sub_chan_offset + MSC313_BACH_DMA_SUB_CHANNEL_ADDR, 0, 14);
 			/* The rest .. */
-			struct reg_field sub_chan_size_field = REG_FIELD(sub_chan_offset +
-					MSC313_BACH_DMA_SUB_CHANNEL_SIZE, 0, 15);
-			struct reg_field sub_chan_trigger_level_field = REG_FIELD(sub_chan_offset +
-					MSC313_BACH_DMA_SUB_CHANNEL_TRIGGER, 0, 15);
-			struct reg_field sub_chan_overrunthreshold_field = REG_FIELD(sub_chan_offset + 0x10, 0, 15);
-			struct reg_field sub_chan_underrunthreshold_field = REG_FIELD(sub_chan_offset + 0x14, 0, 15);
-			struct reg_field sub_chan_level_field = REG_FIELD(sub_chan_offset +
-					MSC313_BACK_DMA_SUB_CHANNEL_LEVEL, 0, 15);
+			const struct reg_field sub_chan_size_field =
+					REG_FIELD(sub_chan_offset + MSC313_BACH_DMA_SUB_CHANNEL_SIZE, 0, 15);
+			const struct reg_field sub_chan_trigger_level_field =
+					REG_FIELD(sub_chan_offset + MSC313_BACH_DMA_SUB_CHANNEL_TRIGGER, 0, 15);
+			const struct reg_field sub_chan_overrunthreshold_field =
+					REG_FIELD(sub_chan_offset + 0x10, 0, 15);
+			const struct reg_field sub_chan_underrunthreshold_field =
+					REG_FIELD(sub_chan_offset + 0x14, 0, 15);
+			const struct reg_field sub_chan_level_field =
+					REG_FIELD(sub_chan_offset + MSC313_BACK_DMA_SUB_CHANNEL_LEVEL, 0, 15);
 
 			sub->count = devm_regmap_field_alloc(dev, bach->bach, sub_chan_count_field);
 			sub->trigger = devm_regmap_field_alloc(dev, bach->bach, sub_chan_trigger_field);
@@ -1680,8 +1721,23 @@ static int msc313_bach_probe(struct platform_device *pdev)
 	return ret;
 }
 
+static const struct msc313_bach_data msc313_data = {
+	.addr_sz_shift = 3,
+};
+
+static const struct msc313_bach_data ssd210_data = {
+	.addr_sz_shift = 4,
+};
+
 static const struct of_device_id msc313_bach_of_match[] = {
-		{ .compatible = "mstar,msc313-bach", },
+		{
+			.compatible = "mstar,msc313-bach",
+			.data = &msc313_data,
+		},
+		{
+			.compatible = "mstar,ssd210-bach",
+			.data = &ssd210_data,
+		},
 		{ },
 };
 MODULE_DEVICE_TABLE(of, msc313_bach_of_match);
