@@ -28,8 +28,13 @@
 
 #define DRIVER_NAME "msc313-bach"
 
+/*
+ * For older versions aligment is 8, for new versions,
+ * it's 16, just use 16.
+ */
 #define MSC313_BACH_ALIGNMENT	16
 #define MSC313_BACH_FIFOSZ	8
+/* The amount to shift depends on the IP version.. */
 #define TO_MIUSIZE(_bach, _x) (_x >> _bach->data->addr_sz_shift)
 #define FROM_MIUSIZE(_bach,_x) (_x <<  _bach->data->addr_sz_shift)
 
@@ -661,11 +666,10 @@ static void msc313_bach_queue_update(struct msc313_bach *bach,
 		return;
 
 	/*
-	 * Need at least a FIFO to update the level and it needs to
-	 * be a multiple
+	 * Queue in multiples of the alignment size
 	 */
 	new_bytes = bach_runtime->pending_bytes -
-			(bach_runtime->pending_bytes % MSC313_BACH_FIFOSZ);
+			(bach_runtime->pending_bytes % MSC313_BACH_ALIGNMENT);
 
 	if (new_bytes) {
 		msc313_bach_queue_push(substream, new_bytes);
