@@ -452,8 +452,10 @@ static int msc313e_sar_gpio_get(struct gpio_chip *chip, unsigned offset)
 {
 	struct msc313e_sar *sar = gpiochip_get_data(chip);
 	unsigned int val;
+
 	regmap_field_read(sar->field_gpio_in, &val);
-	return val >> offset;
+
+	return (val >> offset) & 1;
 }
 
 static int msc313e_sar_gpio_direction_input(struct gpio_chip *chip, unsigned offset)
