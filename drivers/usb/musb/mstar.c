@@ -3,7 +3,7 @@
  * MStar "glue layer" based on jz4740.c
  *
  * Copyright (C) 2013, Apelete Seketeli <apelete@seketeli.net>
- * Copyright (C) 2019, Daniel Palmer <daniel@0x0f.com>
+ * Copyright (C) 2023, Daniel Palmer <daniel@0x0f.com>
  */
 
 #include <linux/clk.h>
@@ -29,15 +29,18 @@ struct mstar_glue {
 
 static irqreturn_t mstar_musb_interrupt(int irq, void *__hci)
 {
-	unsigned long   flags;
-	irqreturn_t     retval = IRQ_NONE;
-	struct musb     *musb = __hci;
+	irqreturn_t retval = IRQ_NONE;
+	struct musb *musb = __hci;
+	unsigned long flags;
 
 	spin_lock_irqsave(&musb->lock, flags);
 
 	musb->int_usb = musb_readb(musb->mregs, MUSB_INTRUSB);
 	musb->int_tx = musb_readw(musb->mregs, MUSB_INTRTX);
 	musb->int_rx = musb_readw(musb->mregs, MUSB_INTRRX);
+
+	printk("musb irq: 0x%x, 0x%x, 0x%x\n",
+		musb->int_usb, musb->int_tx, musb->int_rx);
 
 	/*
 	 * The controller is gadget only, the state of the host mode IRQ bits is
@@ -55,23 +58,11 @@ static irqreturn_t mstar_musb_interrupt(int irq, void *__hci)
 	return retval;
 }
 
-#if 0
-static struct musb_fifo_cfg mstar_musb_fifo_cfg[] = {
-	{ .hw_ep_num = 1, .style = FIFO_TX, .maxpacket = 512, },
-	{ .hw_ep_num = 1, .style = FIFO_RX, .maxpacket = 512, },
-	{ .hw_ep_num = 2, .style = FIFO_TX, .maxpacket = 64, },
-};
-#endif
-
 static const struct musb_hdrc_config mstar_musb_config = {
 	/* Silicon does not implement USB OTG. */
 	.multipoint = 0,
 	/* Max EPs scanned, driver will decide which EP can be used. */
 	.num_eps    = 4,
-	/* RAMbits needed to configure EPs from table */
-	.ram_bits   = 9,
-	//.fifo_cfg = mstar_musb_fifo_cfg,
-	//.fifo_cfg_size = ARRAY_SIZE(mstar_musb_fifo_cfg),
 };
 
 static struct musb_hdrc_platform_data mstar_musb_platform_data = {
@@ -82,11 +73,11 @@ static struct musb_hdrc_platform_data mstar_musb_platform_data = {
 static int mstar_musb_init(struct musb *musb)
 {
 	struct device *dev = musb->controller->parent;
-	struct mstar_glue *glue = dev_get_drvdata(dev);
+	int err;
 
 	musb->phy = devm_of_phy_get_by_index(dev, dev->of_node, 0);
 	if (IS_ERR(musb->phy)) {
-		int err = PTR_ERR(musb->phy);
+		err = PTR_ERR(musb->phy);
 		if (err != -ENODEV) {
 			dev_err(dev, "Unable to get PHY\n");
 			return err;
@@ -95,13 +86,31 @@ static int mstar_musb_init(struct musb *musb)
 		musb->phy = NULL;
 	}
 
-	/*
-	 * Silicon does not implement ConfigData register.
-	 * Set dyn_fifo to avoid reading EP config from hardware.
-	 */
-	//musb->dyn_fifo = true;
+	err = phy_init(musb->phy);
+	if (err) {
+		dev_err(dev, "Failed to init PHY\n");
+		return err;
+	}
+
+	err = phy_power_on(musb->phy);
+	if (err) {
+		dev_err(dev, "Unable to power on PHY\n");
+		goto err_phy_shutdown;
+	}
 
 	musb->isr = mstar_musb_interrupt;
+
+	return 0;
+
+err_phy_shutdown:
+	phy_exit(musb->phy);
+	return err;
+}
+
+static int mstar_musb_exit(struct musb *musb)
+{
+	phy_power_off(musb->phy);
+	phy_exit(musb->phy);
 
 	return 0;
 }
@@ -133,7 +142,7 @@ static u8 mstar_musb_clearb(void __iomem *addr, u32 offset)
 	u8 ret = mstar_musb_readb(addr, offset);
 
 	mstar_musb_writeb(addr, offset, 0);
-	printk("%s:%d - 0x%p 0x%x: 0x%x\n", __func__, __LINE__, addr, offset, ret);
+	printk("%s:%d - 0x%p 0x%x: 0x%02x\n", __func__, __LINE__, addr, offset, ret);
 
 	return ret;
 }
@@ -142,7 +151,8 @@ static u16 mstar_musb_readw(void __iomem *addr, u32 offset)
 {
 	u16 ret = readw(addr + WORDADDR(offset));
 
-	printk("%s:%d - 0x%p 0x%x: 0x%x\n", __func__, __LINE__, addr, offset, ret);
+	printk("%s:%d - 0x%p 0x%x(0x%x): 0x%04x\n", __func__, __LINE__, addr,
+			offset, WORDADDR(offset), ret);
 
 	return ret;
 }
@@ -157,10 +167,53 @@ static u16 mstar_musb_clearw(void __iomem *addr, u32 offset)
 {
 	u16 ret = mstar_musb_readw(addr, offset);
 
-	printk("%s:%d - 0x%p 0x%x: 0x%x\n", __func__, __LINE__, addr, offset, ret);
+	printk("%s:%d - 0x%p 0x%x: 0x%04x\n", __func__, __LINE__, addr, offset, ret);
 	mstar_musb_writew(addr, offset, 0);
 
 	return ret;
+}
+
+static u32 mstar_musb_ep_offset(u8 epnum, u16 offset)
+{
+	WARN_ON(offset);
+
+	return 0x200 + (0x20 * epnum);
+}
+
+static u32 mstar_musb_fifo_offset(u8 epnum)
+{
+	return 0x40 + (0x8 * epnum);
+}
+
+static void mstar_musb_write_fifo(struct musb_hw_ep *hw_ep, u16 len,
+				    const u8 *src)
+{
+	struct musb *musb = hw_ep->musb;
+	void __iomem *fifo = hw_ep->fifo;
+
+	if (unlikely(len == 0))
+		return;
+
+	dev_dbg(musb->controller, "%cX ep%d fifo %p count %d buf %p\n",
+			'T', hw_ep->epnum, fifo, len, src);
+
+	for (int i = 0; i < len; i++)
+		writeb(src[i], fifo);
+}
+
+static void mstar_musb_read_fifo(struct musb_hw_ep *hw_ep, u16 len, u8 *dst)
+{
+	struct musb *musb = hw_ep->musb;
+	void __iomem *fifo = hw_ep->fifo;
+
+	if (unlikely(len == 0))
+		return;
+
+	dev_dbg(musb->controller, "%cX ep%d fifo %p count %d buf %p\n",
+			'R', hw_ep->epnum, fifo, len, dst);
+
+	for (int i = 0; i < len; i++)
+		dst[i] = readb(fifo);
 }
 
 /*
@@ -168,11 +221,14 @@ static u16 mstar_musb_clearw(void __iomem *addr, u32 offset)
  * so let's not set up the dma function pointers yet.
  */
 static const struct musb_platform_ops mstar_musb_ops = {
-	.quirks		= MUSB_DMA_INVENTRA | MUSB_INDEXED_EP,
-	.fifo_mode	= 2,
 	.init		= mstar_musb_init,
+	.exit		= mstar_musb_exit,
 
 	/* io */
+	.ep_offset	= mstar_musb_ep_offset,
+	.fifo_offset	= mstar_musb_fifo_offset,
+	.read_fifo	= mstar_musb_read_fifo,
+	.write_fifo	= mstar_musb_write_fifo,
 	.readb		= mstar_musb_readb,
 	.writeb		= mstar_musb_writeb,
 	.clearb		= mstar_musb_clearb,
