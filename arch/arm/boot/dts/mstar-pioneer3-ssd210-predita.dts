@@ -27,6 +27,15 @@
 		regulator-max-microvolt = <5000000>;
 		regulator-boot-on;
 	};
+
+	reg_vusbout: regulator_vbusout {
+		compatible = "regulator-fixed";
+		regulator-name = "vbusout";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		gpio = <&sar 0 0>;
+		enable-active-high;
+	};
 };
 
 &bach {
@@ -118,10 +127,17 @@
 };
 
 &usbphy0 {
+	dr_mode = "otg";
+	vbus-supply = <&reg_vusbout>;
+	id-gpio = <&sar 1 GPIO_ACTIVE_LOW>;
 	status = "okay";
 };
 
 &uhc0 {
+	status = "okay";
+};
+
+&otg0 {
 	status = "okay";
 };
 
