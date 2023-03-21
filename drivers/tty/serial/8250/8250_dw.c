@@ -316,6 +316,59 @@ static u32 dw8250_serial_in(struct uart_port *p, unsigned int offset)
 	return dw8250_modify_msr(p, offset, value);
 }
 
+static void msc313_pausedma(struct uart_8250_port *up)
+{
+	if (up->dma) {
+		if (up->dma->rxchan)
+			dmaengine_pause(up->dma->rxchan);
+		if (up->dma->txchan)
+			dmaengine_pause(up->dma->txchan);
+	}
+}
+
+static void msc313_resumedma(struct uart_8250_port *up)
+{
+	if (up->dma) {
+		if (up->dma->rxchan)
+			dmaengine_resume(up->dma->rxchan);
+		if (up->dma->txchan)
+			dmaengine_resume(up->dma->txchan);
+	}
+}
+
+static void dw8250_serial_outmsc313(struct uart_port *p, unsigned int offset, u32 value)
+{
+	struct uart_8250_port *up = up_to_u8250p(p);
+
+	msc313_pausedma(up);
+	dw8250_serial_out(p, offset, value);
+	msc313_resumedma(up);
+}
+
+static u32 dw8250_serial_inmsc313(struct uart_port *p, unsigned int offset)
+{
+	struct uart_8250_port *up = up_to_u8250p(p);
+	u32 value;
+
+	msc313_pausedma(up);
+	value = dw8250_serial_in(p, offset);
+	msc313_resumedma(up);
+
+	return value;
+}
+
+static unsigned int dw8250_serial_inmsc313(struct uart_port *p, int offset)
+{
+	struct uart_8250_port *up = up_to_u8250p(p);
+	int value;
+
+	msc313_pausedma(up);
+	value = dw8250_serial_in(p, offset);
+	msc313_resumedma(up);
+
+	return value;
+}
+
 #ifdef CONFIG_64BIT
 static u32 dw8250_serial_inq(struct uart_port *p, unsigned int offset)
 {
@@ -610,6 +663,14 @@ static void dw8250_quirks(struct uart_port *p, struct dw8250_data *data)
 		data->skip_autocfg = true;
 		/* According to the SSD202D uart module description */
 		p->fifosize = 32;
+
+		/*
+		 * Touching the registers while DMA is enabled
+		 * causes a bus lock up so use wrappers to make
+		 * sure DMA is paused before doing so.
+		 */
+		p->serial_in = dw8250_serial_inmsc313;
+		p->serial_out = dw8250_serial_outmsc313;
 	}
 	if (quirks & DW_UART_QUIRK_APMC0D08) {
 		p->iotype = UPIO_MEM32;
