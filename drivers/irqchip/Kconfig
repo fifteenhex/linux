@@ -423,7 +423,7 @@ config MESON_IRQ_GPIO
 
 config GOLDFISH_PIC
        bool "Goldfish programmable interrupt controller"
-       depends on MIPS && (GOLDFISH || COMPILE_TEST)
+       depends on (M68K || MIPS) && (GOLDFISH || COMPILE_TEST)
        select GENERIC_IRQ_CHIP
        select IRQ_DOMAIN
        help
