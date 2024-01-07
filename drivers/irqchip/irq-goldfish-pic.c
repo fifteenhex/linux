@@ -14,11 +14,9 @@
 #include <linux/irqdomain.h>
 #include <linux/of_address.h>
 #include <linux/of_irq.h>
+#include <linux/goldfish.h>
 
 #define GFPIC_NR_IRQS			32
-
-/* 8..39 Cascaded Goldfish PIC interrupts */
-#define GFPIC_IRQ_BASE			8
 
 #define GFPIC_REG_IRQ_PENDING		0x04
 #define GFPIC_REG_IRQ_DISABLE_ALL	0x08
@@ -38,7 +36,7 @@ static void goldfish_pic_cascade(struct irq_desc *desc)
 
 	chained_irq_enter(host_chip, desc);
 
-	pending = readl(gfpic->base + GFPIC_REG_IRQ_PENDING);
+	pending = gf_ioread32(gfpic->base + GFPIC_REG_IRQ_PENDING);
 	while (pending) {
 		hwirq = __fls(pending);
 		generic_handle_domain_irq(gfpic->irq_domain, hwirq);
@@ -50,6 +48,7 @@ static void goldfish_pic_cascade(struct irq_desc *desc)
 
 static const struct irq_domain_ops goldfish_irq_domain_ops = {
 	.xlate = irq_domain_xlate_onecell,
+	.map = irq_map_generic_chip,
 };
 
 static int __init goldfish_pic_of_init(struct device_node *of_node,
@@ -69,57 +68,59 @@ static int __init goldfish_pic_of_init(struct device_node *of_node,
 
 	parent_irq = irq_of_parse_and_map(of_node, 0);
 	if (!parent_irq) {
-		pr_err("Failed to map parent IRQ!\n");
+		pr_err("%pOF: Failed to map parent IRQ!\n",
+		       of_node);
 		ret = -EINVAL;
 		goto out_free;
 	}
 
 	gfpic->base = of_iomap(of_node, 0);
 	if (!gfpic->base) {
-		pr_err("Failed to map base address!\n");
+		pr_err("%pOF: Failed to map base address!\n",
+		       of_node);
 		ret = -ENOMEM;
 		goto out_unmap_irq;
 	}
 
 	/* Mask interrupts. */
-	writel(1, gfpic->base + GFPIC_REG_IRQ_DISABLE_ALL);
+	gf_iowrite32(1, gfpic->base + GFPIC_REG_IRQ_DISABLE_ALL);
 
-	gc = irq_alloc_generic_chip("GFPIC", 1, GFPIC_IRQ_BASE, gfpic->base,
-				    handle_level_irq);
-	if (!gc) {
-		pr_err("Failed to allocate chip structures!\n");
+	gfpic->irq_domain = irq_domain_add_simple(of_node, GFPIC_NR_IRQS, 0,
+			&goldfish_irq_domain_ops, NULL);
+	if (!gfpic->irq_domain) {
+		pr_err("%pOF: Failed to add irqdomain!\n", of_node);
 		ret = -ENOMEM;
 		goto out_iounmap;
 	}
 
+	ret = irq_alloc_domain_generic_chips(gfpic->irq_domain, GFPIC_NR_IRQS, 1, "pic",
+					     handle_level_irq, 0, 0, 0);
+	if (ret) {
+		pr_err("%pOF: Could not allocate generic interrupt chip.\n",
+		       of_node);
+		goto out_free_domain;
+	}
+
+	gc = irq_get_domain_generic_chip(gfpic->irq_domain, 0);
+
+	gc->reg_base = gfpic->base;
+	gc->reg_readl = gf_ioread32;
+	gc->reg_writel = gf_iowrite32;
 	ct = gc->chip_types;
 	ct->regs.enable = GFPIC_REG_IRQ_ENABLE;
 	ct->regs.disable = GFPIC_REG_IRQ_DISABLE;
 	ct->chip.irq_unmask = irq_gc_unmask_enable_reg;
 	ct->chip.irq_mask = irq_gc_mask_disable_reg;
 
-	irq_setup_generic_chip(gc, IRQ_MSK(GFPIC_NR_IRQS), 0,
-			       IRQ_NOPROBE | IRQ_LEVEL, 0);
-
-	gfpic->irq_domain = irq_domain_add_legacy(of_node, GFPIC_NR_IRQS,
-						  GFPIC_IRQ_BASE, 0,
-						  &goldfish_irq_domain_ops,
-						  NULL);
-	if (!gfpic->irq_domain) {
-		pr_err("Failed to add irqdomain!\n");
-		ret = -ENOMEM;
-		goto out_destroy_generic_chip;
-	}
-
 	irq_set_chained_handler_and_data(parent_irq,
 					 goldfish_pic_cascade, gfpic);
 
-	pr_info("Successfully registered.\n");
+	pr_info("%pOF: Successfully registered.\n",
+		of_node);
 	return 0;
 
-out_destroy_generic_chip:
-	irq_destroy_generic_chip(gc, IRQ_MSK(GFPIC_NR_IRQS),
-				 IRQ_NOPROBE | IRQ_LEVEL, 0);
+out_free_domain:
+	irq_domain_remove(gfpic->irq_domain);
 out_iounmap:
 	iounmap(gfpic->base);
 out_unmap_irq:
