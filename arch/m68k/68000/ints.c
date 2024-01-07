@@ -62,14 +62,13 @@ asmlinkage void trap45(void);
 asmlinkage void trap46(void);
 asmlinkage void trap47(void);
 asmlinkage irqreturn_t bad_interrupt(int, void *);
-asmlinkage irqreturn_t inthandler(void);
-asmlinkage irqreturn_t inthandler1(void);
-asmlinkage irqreturn_t inthandler2(void);
-asmlinkage irqreturn_t inthandler3(void);
-asmlinkage irqreturn_t inthandler4(void);
-asmlinkage irqreturn_t inthandler5(void);
-asmlinkage irqreturn_t inthandler6(void);
-asmlinkage irqreturn_t inthandler7(void);
+asmlinkage irqreturn_t inthandler65(void);
+asmlinkage irqreturn_t inthandler66(void);
+asmlinkage irqreturn_t inthandler67(void);
+asmlinkage irqreturn_t inthandler68(void);
+asmlinkage irqreturn_t inthandler69(void);
+asmlinkage irqreturn_t inthandler70(void);
+asmlinkage irqreturn_t inthandler71(void);
 
 /* The 68k family did not have a good way to determine the source
  * of interrupts until later in the family.  The EC000 core does
@@ -163,13 +162,13 @@ void __init trap_init(void)
 
 	_ramvec[32] = system_call;
 
-	_ramvec[65] = (e_vector) inthandler1;
-	_ramvec[66] = (e_vector) inthandler2;
-	_ramvec[67] = (e_vector) inthandler3;
-	_ramvec[68] = (e_vector) inthandler4;
-	_ramvec[69] = (e_vector) inthandler5;
-	_ramvec[70] = (e_vector) inthandler6;
-	_ramvec[71] = (e_vector) inthandler7;
+	_ramvec[65] = (e_vector) inthandler65;
+	_ramvec[66] = (e_vector) inthandler66;
+	_ramvec[67] = (e_vector) inthandler67;
+	_ramvec[68] = (e_vector) inthandler68;
+	_ramvec[69] = (e_vector) inthandler69;
+	_ramvec[70] = (e_vector) inthandler70;
+	_ramvec[71] = (e_vector) inthandler71;
 }
 
 void __init init_IRQ(void)
