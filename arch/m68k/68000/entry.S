@@ -19,10 +19,26 @@
 .text
 
 .globl system_call
+.globl system_call_68000
 .globl resume
 .globl ret_from_exception
 .globl sys_call_table
 .globl bad_interrupt
+
+/*
+ * Reorder the frame and insert the vector so 68000 looks
+ * like 68010+, must be undone before returning
+ */
+ .macro fixframe num
+	/* disable intrs */
+	move	#0x2700,%sr
+	/* restack pc and sr */
+	movew	%sp@, %sp@-
+	movew	%sp@(4), %sp@(2)
+	movew	%sp@(6), %sp@(4)
+	/* insert vector number*/
+	movew	#(\num * 4), %sp@(6)
+.endm
 
 badsys:
 	movel	#-ENOSYS,%sp@(PT_OFF_D0)
@@ -53,7 +69,12 @@ do_trace:
 	addql	#4,%sp
 	jra	ret_from_exception
 
+ENTRY(system_call_68000)
+	fixframe 32
+	bra _syscall
+
 ENTRY(system_call)
+_syscall:
 	SAVE_ALL_SYS
 
 	/* save top of frame*/
@@ -112,20 +133,24 @@ Lsignal_return:
 	addql	#4,%sp
 	jra	1b
 
+.macro inthandlerbody func
+	SAVE_ALL_INT
+
+	/* Push frame address onto stack */
+	pea	%sp@
+	/* process the IRQ*/
+	jbsr	\func
+	/* pop parameters off stack*/
+	addql	#4,%sp
+	bra	ret_from_exception
+.endm
+
 /* Create an interrupt vector sled */
  .macro inthandler num func
 	.globl inthandler\num
 	inthandler\num:
-	SAVE_ALL_INT
-
-	movel	%sp,%sp@-
-	/* put vector # on stack*/
-	movel	#\num,%sp@-
-	/* process the IRQ*/
-	jbsr	\func
-	/* pop parameters off stack*/
-	addql	#8,%sp
-	bra	ret_from_exception
+	fixframe \num
+	inthandlerbody \func
  .endm
 
 /* Dragonball interrupts */
