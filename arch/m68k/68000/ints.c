@@ -76,7 +76,7 @@ asmlinkage irqreturn_t inthandler71(void);
  * into one vector and look in the blasted mask register...
  * This code is designed to be fast, almost constant time, not clean!
  */
-asmlinkage void process_int(int vec, struct pt_regs *fp)
+asmlinkage void process_int(struct pt_regs *fp)
 {
 	int irq;
 	int mask;

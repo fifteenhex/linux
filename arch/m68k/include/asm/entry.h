@@ -202,6 +202,30 @@
 	movel	%sp@+,%d0
 	addql	#4,%sp			/* orig d0 */
 	addl	%sp@+,%sp		/* stk adj */
+#ifdef CONFIG_M68000
+	/* disable intrs */
+	move	#0x2700,%sr
+	/* Do we need to revert to 68000 frame? */
+	movel	%d0,%sp@-
+	movel	%a0,%sp@-
+	lea	_is68k, %a0
+	movew (%a0), %d0
+	beq	99f
+	/* restack pc and sr */
+	movew	%sp@(4 + 8), %sp@(6 + 8)
+	movew	%sp@(2 + 8), %sp@(4 + 8)
+	movew	%sp@(8), %sp@(2 + 8)
+
+	movel	%sp@+, %a0
+	movel	%sp@+, %d0
+	/* pop format */
+	addql	#2, %sp
+	rte
+
+99:
+	movel	%sp@+, %a0
+	movel	%sp@+, %d0
+#endif
 	rte
 .endm
 
