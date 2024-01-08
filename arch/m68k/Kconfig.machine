@@ -185,64 +185,6 @@ config VIRT
 	  This options enable a pure virtual machine based on m68k,
 	  VIRTIO MMIO devices and GOLDFISH interfaces (TTY, RTC, PIC).
 
-config PILOT
-	bool
-
-config PILOT3
-	bool "Pilot 1000/5000, PalmPilot Personal/Pro, or PalmIII support"
-	depends on !MMU
-	select M68328
-	select PILOT
-	help
-	  Support for the Palm Pilot 1000/5000, Personal/Pro and PalmIII.
-
-config XCOPILOT_BUGS
-	bool "(X)Copilot support"
-	depends on PILOT3
-	help
-	  Support the bugs of Xcopilot.
-
-config UCSIMM
-	bool "uCsimm module support"
-	depends on !MMU
-	select M68EZ328
-	help
-	  Support for the Arcturus Networks uCsimm module.
-
-config UCDIMM
-	bool "uCdimm module support"
-	depends on !MMU
-	select M68VZ328
-	help
-	  Support for the Arcturus Networks uCdimm module.
-
-config DRAGEN2
-	bool "DragonEngine II board support"
-	depends on !MMU
-	select M68VZ328
-	help
-	  Support for the DragonEngine II board.
-
-config DIRECT_IO_ACCESS
-	bool "Allow user to access IO directly"
-	depends on (UCSIMM || UCDIMM || DRAGEN2)
-	help
-	  Disable the CPU internal registers protection in user mode,
-	  to allow a user application to read/write them.
-
-config INIT_LCD
-	bool "Initialize LCD"
-	depends on (UCSIMM || UCDIMM || DRAGEN2)
-	help
-	  Initialize the LCD controller of the 68x328 processor.
-
-config MEMORY_RESERVE
-	int "Memory reservation (MiB)"
-	depends on (UCSIMM || UCDIMM)
-	default 0
-	help
-	  Reserve certain memory regions on 68x328 based boards.
-
 endif # M68KDT
 endif # M68KCLASSIC
 
