@@ -4,4 +4,4 @@
 
 struct pt_regs;
 
-asmlinkage void process_int(int vec, struct pt_regs *fp);
+asmlinkage void process_int(struct pt_regs *fp);
