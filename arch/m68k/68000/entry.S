@@ -222,17 +222,24 @@ ENTRY(bad_interrupt)
  * registers until their contents are no longer needed.
  */
 ENTRY(resume)
-	movel	%a0,%d1				/* save prev thread in d1 */
-	movew	%sr,%a0@(TASK_THREAD+THREAD_SR)	/* save sr */
+	/* save prev thread in d1 */
+	movel	%a0,%d1
+	/* save sr */
+	movew	%sr,%a0@(TASK_THREAD+THREAD_SR)
 	SAVE_SWITCH_STACK
-	movel	%sp,%a0@(TASK_THREAD+THREAD_KSP) /* save kernel stack */
-	movel	%usp,%a3			/* save usp */
+	/* save kernel stack */
+	movel	%sp,%a0@(TASK_THREAD+THREAD_KSP)
+	/* save usp */
+	movel	%usp,%a3
 	movel	%a3,%a0@(TASK_THREAD+THREAD_USP)
 
-	movel	%a1@(TASK_THREAD+THREAD_USP),%a3 /* restore user stack */
+	/* restore user stack */
+	movel	%a1@(TASK_THREAD+THREAD_USP),%a3
 	movel	%a3,%usp
-	movel	%a1@(TASK_THREAD+THREAD_KSP),%sp /* restore new thread stack */
+	/* restore new thread stack */
+	movel	%a1@(TASK_THREAD+THREAD_KSP),%sp
 	RESTORE_SWITCH_STACK
-	movew	%a1@(TASK_THREAD+THREAD_SR),%sr	/* restore thread status reg */
+	/* restore thread status reg */
+	movew	%a1@(TASK_THREAD+THREAD_SR),%sr
 	rts
 
