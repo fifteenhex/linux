@@ -205,7 +205,7 @@ int irq_gc_set_wake(struct irq_data *d, unsigned int on)
 }
 EXPORT_SYMBOL_GPL(irq_gc_set_wake);
 
-static u32 irq_readl_be(void __iomem *addr)
+static u32 irq_readl_be(const void __iomem *addr)
 {
 	return ioread32be(addr);
 }
