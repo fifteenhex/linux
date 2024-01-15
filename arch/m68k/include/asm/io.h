@@ -4,12 +4,13 @@
 
 #if defined(__uClinux__) || defined(CONFIG_COLDFIRE)
 #include <asm/io_no.h>
+#define gf_ioread32 ioread32
+#define gf_iowrite32 iowrite32
 #else
 #include <asm/io_mm.h>
-#endif
-
 #define gf_ioread32 ioread32be
 #define gf_iowrite32 iowrite32be
+#endif
 
 #include <asm-generic/io.h>
 
