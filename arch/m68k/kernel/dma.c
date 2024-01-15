@@ -8,7 +8,7 @@
 #include <linux/kernel.h>
 #include <asm/cacheflush.h>
 
-#ifndef CONFIG_COLDFIRE
+#if !defined(CONFIG_COLDFIRE) && !defined(CONFIG_M68KDT)
 void arch_dma_prep_coherent(struct page *page, size_t size)
 {
 	cache_push(page_to_phys(page), size);
