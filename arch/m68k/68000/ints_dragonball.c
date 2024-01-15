@@ -134,12 +134,16 @@ asmlinkage void process_int(struct pt_regs *fp)
 
 static void intc_irq_unmask(struct irq_data *d)
 {
+#ifdef CONFIG_ISDRAGONBALL
 	IMR &= ~(1 << d->irq);
+#endif
 }
 
 static void intc_irq_mask(struct irq_data *d)
 {
+#ifdef CONFIG_ISDRAGONBALL
 	IMR |= (1 << d->irq);
+#endif
 }
 
 static struct irq_chip intc_irq_chip = {
