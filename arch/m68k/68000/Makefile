@@ -10,11 +10,10 @@
 
 # 68328, 68EZ328, 68VZ328
 
-obj-y			+= entry.o ints.o timers.o m68328.o
+obj-y += entry.o
 obj-$(CONFIG_ROM)	+= romvec.o
-
 obj-$(CONFIG_DRAGEN2)	+= dragen2.o
 obj-$(CONFIG_UCSIMM)	+= ucsimm.o
 obj-$(CONFIG_UCDIMM)	+= ucsimm.o
-
-obj-y			+= head.o
+obj-$(CONFIG_ISDRAGONBALL) += m68328.o timers.o head.o ints_dragonball.o
+obj-$(CONFIG_M68KDT) += ints_generic.o
