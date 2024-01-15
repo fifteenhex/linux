@@ -69,6 +69,13 @@ do_trace:
 	addql	#4,%sp
 	jra	ret_from_exception
 
+/* get thread_info pointer */
+ .macro getthreadinfo reg
+	movel	%sp,%d1
+	andl	#-THREAD_SIZE,%d1
+	movel	%d1,\reg
+ .endm
+
 ENTRY(system_call_68000)
 	fixframe 32
 	bra _syscall
@@ -84,17 +91,19 @@ _syscall:
 
 	movel	%sp@(PT_OFF_ORIG_D0),%d0
 
-	movel	%sp,%d1			/* get thread_info pointer */
-	andl	#-THREAD_SIZE,%d1
-	movel	%d1,%a2
+	/* Doing a trace ? */
+	getthreadinfo %a2
 	btst	#(TIF_SYSCALL_TRACE%8),%a2@(TINFO_FLAGS+(31-TIF_SYSCALL_TRACE)/8)
 	jne	do_trace
+
 	cmpl	#NR_syscalls,%d0
 	jcc	badsys
+syscall:
 	lsl	#2,%d0
 	lea	sys_call_table,%a0
 	movel	%a0@(%d0), %a0
 	jbsr	%a0@
+ret_from_syscall:
 	movel	%d0,%sp@(PT_OFF_D0)	/* save the return value*/
 
 ret_from_exception:
@@ -110,16 +119,15 @@ Luser_return:
 	/* heavy interrupt load*/
 	andw	#ALLOWINT,%sr
 
-	movel	%sp,%d1			/* get thread_info pointer */
-	andl	#-THREAD_SIZE,%d1
-	movel	%d1,%a2
+	getthreadinfo %a2
 1:
-	move	%a2@(TINFO_FLAGS),%d1	/* thread_info->flags */
+	/* check if any of the flags are set */
+	movel	%a2@(TINFO_FLAGS),%d1	/* thread_info->flags */
 	jne	Lwork_to_do
 	RESTORE_ALL
 
 Lwork_to_do:
-	movel	%a2@(TINFO_FLAGS),%d1	/* thread_info->flags */
+	/* check if reschedule needs to be called */
 	btst	#TIF_NEED_RESCHED,%d1
 	jne	reschedule
 
