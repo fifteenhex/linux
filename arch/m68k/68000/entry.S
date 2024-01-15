@@ -161,7 +161,45 @@ Lsignal_return:
 	inthandlerbody \func
  .endm
 
+/* processor exceptions */
+.globl inthandler_cpuexception
+inthandler_cpuexception:
+	inthandlerbody process_int_oops
+/* shit happened vectors */
+inthandler 2 process_int_oops
+inthandler 3 process_int_oops
+inthandler 4 process_int_oops
+inthandler 5 process_int_oops
+inthandler 6 process_int_oops
+inthandler 7 process_int_oops
+inthandler 8 process_int_oops
+
+/* auto vectored interrupt handlers */
+/* 68010+ */
+.globl inthandler_autovec
+inthandler_autovec:
+	inthandlerbody process_int_autovec
+#ifdef CONFIG_M68000
+/* 68000 */
+inthandler 25 process_int_autovec
+inthandler 26 process_int_autovec
+inthandler 27 process_int_autovec
+inthandler 28 process_int_autovec
+inthandler 29 process_int_autovec
+inthandler 30 process_int_autovec
+inthandler 31 process_int_autovec
+#endif
+
+.globl inthandler_badtrap
+inthandler_badtrap:
+	inthandlerbody process_int_badtrap
+#ifdef CONFIG_M68000
+/* 68000 */
+inthandler 33 process_int_badtrap
+#endif
+
 /* Dragonball interrupts */
+#ifdef CONFIG_M68000
 inthandler 65 process_int
 inthandler 66 process_int
 inthandler 67 process_int
@@ -169,6 +207,7 @@ inthandler 68 process_int
 inthandler 69 process_int
 inthandler 70 process_int
 inthandler 71 process_int
+#endif
 
 /*
  * Handler for uninitialized and spurious interrupts.
