@@ -161,7 +161,7 @@ static inline void update_mmu_cache_range(struct vm_fault *vmf,
 /*
  * Macro to mark a page protection value as "uncacheable".
  */
-#ifdef CONFIG_COLDFIRE
+#if defined(CONFIG_COLDFIRE) || defined(CONFIG_M68KDT)
 # define pgprot_noncached(prot) (__pgprot(pgprot_val(prot) | CF_PAGE_NOCACHE))
 #else
 #ifdef SUN3_PAGE_NOCACHE
