@@ -15,6 +15,8 @@
  */
 #if defined(CONFIG_COLDFIRE)
 #define NR_IRQS 256
+#elif defined(CONFIG_M68KDT)
+#define NR_IRQS 126
 #elif defined(CONFIG_VME) || defined(CONFIG_SUN3) || \
       defined(CONFIG_SUN3X) || defined(CONFIG_VIRT)
 #define NR_IRQS 200
