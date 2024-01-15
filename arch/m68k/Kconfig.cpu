@@ -96,10 +96,14 @@ config M68060
 	  If you anticipate running this kernel on a computer with a MC68060
 	  processor, say Y. Otherwise, say N.
 
+config ISDRAGONBALL
+	bool
+
 config M68328
 	bool
 	depends on !MMU
 	select M68000
+	select ISDRAGONBALL
 	help
 	  Motorola 68328 processor support.
 
@@ -107,6 +111,7 @@ config M68EZ328
 	bool
 	depends on !MMU
 	select M68000
+	select ISDRAGONBALL
 	help
 	  Motorola 68EX328 processor support.
 
@@ -114,6 +119,7 @@ config M68VZ328
 	bool
 	depends on !MMU
 	select M68000
+	select ISDRAGONBALL
 	help
 	  Motorola 68VZ328 processor support.
 
