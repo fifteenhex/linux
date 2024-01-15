@@ -202,7 +202,7 @@ static inline void adjustformat(struct pt_regs *regs)
 	 * set format byte to make stack appear modulo 4, which it will
 	 * be when doing the rte
 	 */
-	regs->format = 0x4;
+//	regs->format = 0x4;
 }
 
 static inline void save_a5_state(struct sigcontext *sc, struct pt_regs *regs)
