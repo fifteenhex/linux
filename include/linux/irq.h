@@ -1061,7 +1061,7 @@ struct irq_chip_type {
 struct irq_chip_generic {
 	raw_spinlock_t		lock;
 	void __iomem		*reg_base;
-	u32			(*reg_readl)(void __iomem *addr);
+	u32			(*reg_readl)(const void __iomem *addr);
 	void			(*reg_writel)(u32 val, void __iomem *addr);
 	void			(*suspend)(struct irq_chip_generic *gc);
 	void			(*resume)(struct irq_chip_generic *gc);
