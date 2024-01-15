@@ -153,5 +153,6 @@ module_init(rtc_init);
 
 void __init time_init(void)
 {
-	mach_sched_init();
+	if (mach_sched_init)
+		mach_sched_init();
 }
