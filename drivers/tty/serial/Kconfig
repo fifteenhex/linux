@@ -699,7 +699,6 @@ config CONSOLE_POLL
 
 config SERIAL_68328
 	bool "68328 serial support"
-	depends on M68328 || M68EZ328 || M68VZ328
 	help
 	  This driver supports the built-in serial port of the Motorola 68328
 	  (standard, EZ and VZ varieties).
