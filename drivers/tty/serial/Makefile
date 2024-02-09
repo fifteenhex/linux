@@ -24,6 +24,7 @@ obj-$(CONFIG_SERIAL_21285) += 21285.o
 # Now bring in any enabled 8250/16450/16550 type drivers.
 obj-y += 8250/
 
+obj-$(CONFIG_SERIAL_68328)				+= 68328serial.o
 obj-$(CONFIG_SERIAL_ALTERA_JTAGUART)	+= altera_jtaguart.o
 obj-$(CONFIG_SERIAL_ALTERA_UART)	+= altera_uart.o
 obj-$(CONFIG_SERIAL_AMBA_PL010)		+= amba-pl010.o
