@@ -690,4 +690,11 @@ config SUNPLUS_SP7021_INTC
 	  chained controller, routing all interrupt source in P-Chip to
 	  the primary controller on C-Chip.
 
+config DRAGONBALL_INTC
+	bool "DragonBall interrupt controller"
+	depends on M68K || COMPILE_TEST
+	select IRQ_DOMAIN
+	help
+	  Support for the DragonBall interrupt controller
+
 endmenu
