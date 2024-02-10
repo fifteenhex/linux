@@ -763,4 +763,11 @@ config RALINK_TIMER
 	  Enables support for system tick counter present on
 	  Ralink SoCs RT3352 and MT7620.
 
+config DRAGONBALL_TIMER
+	bool "Clocksource using DragonBall timer"
+	depends on M68K || COMPILE_TEST
+	select CLKSRC_MMIO
+	help
+	  Support for the DragonBall timer
+
 endmenu
