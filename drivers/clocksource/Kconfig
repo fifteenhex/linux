@@ -743,4 +743,10 @@ config EP93XX_TIMER
 	  Enables support for the Cirrus Logic timer block
 	  EP93XX.
 
+config DRAGONBALL_TIMER
+	bool "Clocksource using DragonBall timer"
+	depends on M68K || COMPILE_TEST
+	help
+	  Support for the DragonBall timer
+
 endmenu
