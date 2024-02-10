@@ -1188,6 +1188,12 @@ config SPI_AMD
 	help
 	  Enables SPI controller driver for AMD SoC.
 
+config SPI_DRAGONBALL
+	tristate "DragonBall SPI controller"
+	depends on SPI_MASTER || COMPILE_TEST
+	help
+	  Enables SPI controller driver for DragonBall.
+
 #
 # Add new SPI master controllers in alphabetical order above this line
 #
