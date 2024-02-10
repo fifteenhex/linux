@@ -856,6 +856,13 @@ config GPIO_IDT3243X
 	  To compile this driver as a module, choose M here: the module will
 	  be called gpio-idt3243x.
 
+config GPIO_DRAGONBALL
+	tristate "DragonBall GPIO support"
+	depends on OF_GPIO
+	select GPIO_GENERIC
+	help
+	  DragonBall GPIO.
+
 endmenu
 
 menu "Port-mapped I/O GPIO drivers"
