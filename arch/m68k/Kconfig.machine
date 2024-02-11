@@ -11,6 +11,11 @@ config M68KDT
 	select TIMER_OF
 	select GENERIC_CLOCKEVENTS
 	select RTC_DRV_GENERIC
+	help
+	  Support for generic M68K machine with Device Tree
+
+config M68KDT_VIRT
+	bool "virt M68K DeviceTree machine"
 	select GOLDFISH
 	select RTC_CLASS
 	select RTC_DRV_GOLDFISH
@@ -18,8 +23,9 @@ config M68KDT
 	select GOLDFISH_TTY
 	select GOLDFISH_PIC
 	select VIRT_CTRL
+	default M68KDT
 	help
-	  Support for generic M68K machine with Device Tree
+	  Support for QEMU virt M68K machine with Device Tree
 
 if !M68KDT
 config AMIGA
