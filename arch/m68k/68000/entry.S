@@ -200,13 +200,13 @@ inthandler 33 process_int_badtrap
 
 /* Dragonball interrupts */
 #ifdef CONFIG_M68000
-inthandler 65 process_int
-inthandler 66 process_int
-inthandler 67 process_int
-inthandler 68 process_int
-inthandler 69 process_int
-inthandler 70 process_int
-inthandler 71 process_int
+inthandler 65 process_int_user
+inthandler 66 process_int_user
+inthandler 67 process_int_user
+inthandler 68 process_int_user
+inthandler 69 process_int_user
+inthandler 70 process_int_user
+inthandler 71 process_int_user
 #endif
 
 /*
