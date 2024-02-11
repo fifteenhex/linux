@@ -694,6 +694,7 @@ config DRAGONBALL_INTC
 	bool "DragonBall interrupt controller"
 	depends on M68K || COMPILE_TEST
 	select IRQ_DOMAIN
+	select GENERIC_IRQ_CHIP
 	help
 	  Support for the DragonBall interrupt controller
 
