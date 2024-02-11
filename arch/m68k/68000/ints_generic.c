@@ -118,10 +118,6 @@ asmlinkage void process_int_autovec(struct pt_regs *fp)
 	generic_handle_domain_irq(mc68000_irq_domain, irq);
 }
 
-asmlinkage void process_int(struct pt_regs *fp)
-{
-}
-
 void __init init_IRQ(void)
 {
 	irqchip_init();
@@ -130,7 +126,7 @@ void __init init_IRQ(void)
 #define MC68000_IRQ_NR 8
 
 static struct irq_chip intc_irq_chip = {
-	.name		= "mc680x0-intc",
+	.name		= "mc680x0-intc-vect",
 };
 
 static int mc68000_intc_domain_map(struct irq_domain *domain,
@@ -208,3 +204,67 @@ static int __init mc68000_intc_of_init(struct device_node *dn,
 	return mc680x0_intc_of_init(dn, parent);
 }
 IRQCHIP_DECLARE(m68000_intc, "motorola,mc68000-intc-vect", mc68000_intc_of_init);
+
+#define MC68000_IRQ_USER_NR 91
+#define USERSTART 64
+
+static struct irq_domain *mc68000_irq_user_domain = NULL;
+
+asmlinkage void process_int_user(struct pt_regs *fp)
+{
+	int irq = (fp->vector)/4;
+
+	BUG_ON(irq < USERSTART || irq > (USERSTART + MC68000_IRQ_USER_NR));
+
+	irq -= USERSTART;
+
+	generic_handle_domain_irq(mc68000_irq_user_domain, irq);
+}
+
+static struct irq_chip intc_user_irq_chip = {
+	.name		= "mc680x0-intc-user",
+};
+
+static int mc68000_intc_user_domain_map(struct irq_domain *domain,
+		unsigned int irq, irq_hw_number_t hw)
+{
+	irq_set_chip_and_handler(irq, &intc_user_irq_chip, handle_simple_irq);
+	irq_set_probe(irq);
+
+	return 0;
+}
+
+static const struct irq_domain_ops mc68000_irq_user_domain_ops = {
+	.xlate = irq_domain_xlate_onecell,
+	.map = mc68000_intc_user_domain_map,
+};
+
+static int __init mc680x0_intc_user_of_init(struct device_node *dn,
+				      struct device_node *parent)
+{
+	mc68000_irq_user_domain = irq_domain_add_simple(dn, MC68000_IRQ_NR,
+			0,&mc68000_irq_user_domain_ops, NULL);
+
+	if (!mc68000_irq_user_domain)
+		return -ENODEV;
+
+	return 0;
+}
+
+static int __init mc68010_intc_user_of_init(struct device_node *dn,
+									   struct device_node *parent)
+{
+	_is68k = 0;
+
+	return mc680x0_intc_user_of_init(dn, parent);
+}
+IRQCHIP_DECLARE(m68010_intc_user, "motorola,mc68010-intc-user", mc68010_intc_user_of_init);
+
+static int __init mc68000_intc_user_of_init(struct device_node *dn,
+									   struct device_node *parent)
+{
+	_is68k = 1;
+
+	return mc680x0_intc_user_of_init(dn, parent);
+}
+IRQCHIP_DECLARE(m68000_intc_user, "motorola,mc68000-intc-user", mc68000_intc_user_of_init);
