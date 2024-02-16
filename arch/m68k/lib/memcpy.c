@@ -7,83 +7,212 @@
 #include <linux/module.h>
 #include <linux/string.h>
 
-void *memcpy(void *to, const void *from, size_t n)
-{
-	void *xto = to;
-	size_t temp;
+#include "memmove.h"
 
-	if (!n)
-		return xto;
-	if ((long)to & 1) {
-		char *cto = to;
-		const char *cfrom = from;
-		*cto++ = *cfrom++;
-		to = cto;
-		from = cfrom;
-		n--;
-	}
-#if defined(CONFIG_M68000)
-	if ((long)from & 1) {
-		char *cto = to;
-		const char *cfrom = from;
-		for (; n; n--)
-			*cto++ = *cfrom++;
-		return xto;
-	}
+#if !defined(__mc68020__) && !defined(__mc68030__) && \
+    !defined(__mc68040__) && !defined(__mc68060__)
+#define WORD_ALIGN
 #endif
-	if (n > 2 && (long)to & 2) {
-		short *sto = to;
-		const short *sfrom = from;
-		*sto++ = *sfrom++;
-		to = sto;
-		from = sfrom;
-		n -= 2;
-	}
-	temp = n >> 2;
-	if (temp) {
-		long *lto = to;
-		const long *lfrom = from;
-#if defined(CONFIG_M68000) || defined(CONFIG_COLDFIRE)
-		for (; temp; temp--)
-			*lto++ = *lfrom++;
+
+#if !(defined(__mc68040__) || defined(__mc68060__))
+#define HEAVY_UNROLL	1
 #else
-		size_t temp1;
-		asm volatile (
-			"	movel %2,%3\n"
-			"	andw  #7,%3\n"
-			"	lsrl  #3,%2\n"
-			"	negw  %3\n"
-			"	jmp   %%pc@(1f,%3:w:2)\n"
-			"4:	movel %0@+,%1@+\n"
-			"	movel %0@+,%1@+\n"
-			"	movel %0@+,%1@+\n"
-			"	movel %0@+,%1@+\n"
-			"	movel %0@+,%1@+\n"
-			"	movel %0@+,%1@+\n"
-			"	movel %0@+,%1@+\n"
-			"	movel %0@+,%1@+\n"
-			"1:	dbra  %2,4b\n"
-			"	clrw  %2\n"
-			"	subql #1,%2\n"
-			"	jpl   4b"
-			: "=a" (lfrom), "=a" (lto), "=d" (temp), "=&d" (temp1)
-			: "0" (lfrom), "1" (lto), "2" (temp));
+#define HEAVY_UNROLL	0
+#define HAVE_MOVE16
 #endif
-		to = lto;
-		from = lfrom;
+
+void *memcpy(void *dst, const void *src, size_t len)
+{
+	const unsigned int blocksz = HEAVY_UNROLL ? 128 : 32;
+        size_t pos = 0, stop, residual;
+
+#ifdef WORD_ALIGN
+	/*
+	 * 000 cannot handle non-word aligned accesses for >byte thus
+	 * src and dst need word aligned before any fancy stuff so we need
+	 * to do a byte copy first in that case. If its not possible to align
+	 * both we fallback to byte by byte.
+	 */
+	{
+		unsigned int required_alignment = sizeof(unsigned short);
+		size_t dst_misalignment = (uintptr_t)dst & (required_alignment - 1);
+		const size_t src_misalignment = (uintptr_t)src & (required_alignment - 1);
+		char *cdst = (char *)(dst + pos);
+		const char *csrc = (const char *)(src + pos);
+
+		if (dst_misalignment != src_misalignment)
+			goto bytebybyte;
+
+		/* If we are already aligned just start chomping */
+		if (!dst_misalignment)
+			goto blockbyblock;
+
+		/* do a byte copy to get word aligned */
+		*cdst = *csrc;
+		pos++;
 	}
-	if (n & 2) {
-		short *sto = to;
-		const short *sfrom = from;
-		*sto++ = *sfrom++;
-		to = sto;
-		from = sfrom;
+#endif
+
+#ifdef HAVE_MOVE16
+	/*
+	 * If you have move16 it's super fast but the pointers need to be
+	 * aligned to 16 so it's not so simple to actually pull off...
+	 */
+	{
+		const size_t chunksz = 128;
+		const unsigned int chunkalign = 16;
+		const size_t dst_misalignment = (uintptr_t)dst & (chunkalign - 1);
+		const size_t src_misalignment = (uintptr_t)src & (chunkalign - 1);
+		void *tdst;
+		const void *tsrc;
+
+		/* Is the copy big enough? */
+		residual = len - pos;
+		if (residual < chunksz)
+			goto blockbyblock;
+
+		/* Is it even possible to align the pointers together? */
+		if (dst_misalignment != src_misalignment)
+			goto blockbyblock;
+
+		/* Already aligned, go go go */
+		if (!dst_misalignment)
+			goto chunkbychunk;
+
+		/* Fix up the alignment doing a few unsigned longs first */
+		stop = pos + chunkalign;
+		while (pos < stop) {
+			unsigned long *ldst = (unsigned long*)(dst + pos);
+			unsigned long *lsrc = (unsigned long*)(src + pos);
+			*ldst = *lsrc;
+			pos += sizeof(unsigned long);
+		}
+
+		/* Fix up overshoot from the above */
+		pos -= dst_misalignment;
+chunkbychunk:
+		residual = len - pos;
+		if (residual < chunksz)
+			goto blockbyblock;
+
+		/* send it */
+		stop = pos + (residual & ~(chunksz - 1));
+		while (pos < stop) {
+			tsrc = src + pos;
+			tdst = dst + pos;
+			asm volatile (".rept 8\n"
+				      "move16 (%[from])+, (%[to])+\n"
+				      ".endr\n"
+				      : [from] "+a" (tsrc), [to] "+a" (tdst));
+			pos += chunksz;
+		}
 	}
-	if (n & 1) {
-		char *cto = to;
-		const char *cfrom = from;
-		*cto = *cfrom;
+#endif
+
+	/*
+	 * On 040 unrolling does nothing after 16 to 32 bytes,
+	 * on 030 it makes a big difference until 128 bytes
+	 */
+blockbyblock:
+	/* Is the copy big enough ?*/
+	residual = len - pos;
+	if (residual < blocksz)
+		goto longbylong;
+
+	stop = pos + (residual & ~(blocksz - 1));
+	while (pos < stop) {
+		unsigned long *ldst = (unsigned long*)(dst + pos);
+		const unsigned long *lsrc = (const unsigned long*)(src + pos);
+
+		*ldst++ = *lsrc++;
+		*ldst++ = *lsrc++;
+		*ldst++ = *lsrc++;
+		*ldst++ = *lsrc++;
+		/* 16 bytes */
+
+		*ldst++ = *lsrc++;
+		*ldst++ = *lsrc++;
+		*ldst++ = *lsrc++;
+		*ldst++ = *lsrc++;
+		/* 32 bytes */
+
+#if HEAVY_UNROLL
+		*ldst++ = *lsrc++;
+		*ldst++ = *lsrc++;
+		*ldst++ = *lsrc++;
+		*ldst++ = *lsrc++;
+		/* 48 bytes */
+
+		*ldst++ = *lsrc++;
+		*ldst++ = *lsrc++;
+		*ldst++ = *lsrc++;
+		*ldst++ = *lsrc++;
+		/* 64 bytes */
+
+		*ldst++ = *lsrc++;
+		*ldst++ = *lsrc++;
+		*ldst++ = *lsrc++;
+		*ldst++ = *lsrc++;
+		/* 80 bytes */
+
+		*ldst++ = *lsrc++;
+		*ldst++ = *lsrc++;
+		*ldst++ = *lsrc++;
+		*ldst++ = *lsrc++;
+		/* 96 bytes */
+
+		*ldst++ = *lsrc++;
+		*ldst++ = *lsrc++;
+		*ldst++ = *lsrc++;
+		*ldst++ = *lsrc++;
+		/* 112 bytes */
+
+		*ldst++ = *lsrc++;
+		*ldst++ = *lsrc++;
+		*ldst++ = *lsrc++;
+		*ldst++ = *lsrc++;
+		/* 128 bytes */
+#endif
+
+		pos += blocksz;
 	}
-	return xto;
+
+longbylong:
+	/* is the copy big enough? */
+	residual = len - pos;
+	if (residual < sizeof(unsigned long))
+		goto wordbyword;
+
+	stop = pos + (residual & ~(sizeof(unsigned long) - 1));
+	while (pos < stop) {
+		unsigned long *ldst = (unsigned long*)(dst + pos);
+		const unsigned long *lsrc = (const unsigned long*)(src + pos);
+		*ldst = *lsrc;
+		pos += sizeof(unsigned long);
+	}
+
+wordbyword:
+	/* is the copy big enough? */
+	residual = len - pos;
+	if (residual < sizeof(unsigned short))
+		goto bytebybyte;
+
+	stop = pos + (residual & ~(sizeof(unsigned short) - 1));
+	while (pos < stop) {
+		unsigned short *sdst = (unsigned short*)(dst + pos);
+		const unsigned short *ssrc = (const unsigned short*)(src + pos);
+		*sdst = *ssrc;
+		pos += sizeof(unsigned short);
+	}
+
+bytebybyte:
+	while (pos < len) {
+		unsigned char *cdst = (unsigned char*)(dst + pos);
+		unsigned char *csrc = (unsigned char*)(src + pos);
+		*cdst = *csrc;
+		pos++;
+	}
+
+        return dst;
 }
 EXPORT_SYMBOL(memcpy);
