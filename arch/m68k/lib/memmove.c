@@ -68,26 +68,19 @@ static inline void backward_fallback(void *dest, const void *src, size_t n)
 void *memmove(void *dest, const void *src, size_t n)
 {
 	void *xdest = dest;
-	/*
-	 * Alignment of src and dest differ so it's impossible
-	 * to do a few byte or word operations at first then
-	 * switch to longs as one of the pointers will still
-	 * be misaligned.
-	 */
-	bool wonky = (((long) dest) & 1) + (((long) src) & 1) == 1;
 
 	if (!n)
 		return xdest;
 
 	if (dest < src) {
-		if (wonky)
+		if (WONKY(dest, src))
 			forward_fallback(dest, src, n);
 		else
 			forward_aligned_src(dest, src, n);
 	} else {
 		dest = (char *)dest + n;
 		src = (const char *)src + n;
-		if (wonky)
+		if (WONKY(dest, src))
 			backward_fallback(dest, src, n);
 		else
 			backward_aligned_src(dest, src, n);
