@@ -12,19 +12,11 @@
 void *memcpy(void *to, const void *from, size_t n)
 {
 	void *xto = to;
-	size_t temp;
-	/*
-	 * Alignment of src and dest differ so it's impossible
-	 * to do a few byte or word operations at first then
-	 * switch to longs as one of the pointers will still
-	 * be misaligned.
-	 */
-	bool wonky = (((long) to) & 1) + (((long) from) & 1) == 1;
 
 	if (!n)
 		return xto;
 
-	if (wonky)
+	if (WONKY(to, from))
 		forward_fallback(to, from, n);
 	else
 		forward_aligned_src(to, from, n);
