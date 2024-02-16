@@ -733,8 +733,26 @@ static void ds1305_remove(struct spi_device *spi)
 	}
 }
 
+static const struct spi_device_id ds1305_dev_ids[] = {
+	{ "ds1305" },
+	{ "ds1306" },
+	{},
+};
+MODULE_DEVICE_TABLE(spi, ds1305_dev_ids);
+
+static const struct of_device_id ds1305_of_match_table[] = {
+	{ .compatible = "dallas,ds1305", },
+	{ .compatible = "dallas,ds1306", },
+	{},
+};
+MODULE_DEVICE_TABLE(of, ds1305_of_match_table);
+
 static struct spi_driver ds1305_driver = {
-	.driver.name	= "rtc-ds1305",
+	.driver = {
+		.name	= "rtc-ds1305",
+		.of_match_table = ds1305_of_match_table,
+	},
+	.id_table	= ds1305_dev_ids,
 	.probe		= ds1305_probe,
 	.remove		= ds1305_remove,
 	/* REVISIT add suspend/resume */
