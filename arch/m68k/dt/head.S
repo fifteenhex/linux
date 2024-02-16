@@ -32,7 +32,32 @@ __HEAD
  * Entry point, where all begins!
  *****************************************************************************/
 
+#define MC68EZ328_UART			0xfffff900
+#define MC68EZ328_UART_USTCNT	0x0
+#define MC68EZ328_UART_USTCNT_87	(1 << 8)
+#define MC68EZ328_UART_USTCNT_TXEN	(1 << 13)
+#define MC68EZ328_UART_USTCNT_UEN	(1 << 15)
+#define MC68EZ328_UART_UBAUD	0x2
+#define MC68EZ328_UART_TXFLAGS	0x6
+#define MC68EZ328_UART_TXDATA	0x7
+
+.macro __putch val
+1:
+	//and.w	#(1 << 13),(MC68EZ328_UART + MC68EZ328_UART_TXFLAGS)
+	move.w	(MC68EZ328_UART + MC68EZ328_UART_TXFLAGS),%d0
+	and.w	#(1 << 13),%d0
+	beq		1b
+	move.b	#\val,(MC68EZ328_UART + MC68EZ328_UART_TXDATA)
+.endm
+
+.macro _putch val
+	__putch \val
+	__putch '\r'
+	__putch '\n'
+.endm
+
 _start:
+	_putch 'L'
 	/* disable all interrupts */
 	movew	#0x2700, %sr
 
@@ -66,6 +91,7 @@ _clear_bss:
  *****************************************************************************/
 	lea	init_thread_union,%a0
 	lea	THREAD_SIZE(%a0),%sp
+	_putch 'n'
 	jsr	start_kernel			/* start Linux kernel */
 _exit:
 	jmp	_exit				/* should never get here */
