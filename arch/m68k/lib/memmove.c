@@ -7,96 +7,90 @@
 #include <linux/module.h>
 #include <linux/string.h>
 
+#include "memmove.h"
+
+static inline void backward_aligned_src(void *dest, const void *src, size_t n) __attribute__((always_inline));
+static inline void backward_aligned_src(void *dest, const void *src, size_t n)
+{
+	size_t temp;
+
+	if ((long)dest & 1) {
+		char *cdest = dest;
+		const char *csrc = src;
+		*--cdest = *--csrc;
+		dest = cdest;
+		src = csrc;
+		n--;
+	}
+	if (n > 2 && (long)dest & 2) {
+		short *sdest = dest;
+		const short *ssrc = src;
+		*--sdest = *--ssrc;
+		dest = sdest;
+		src = ssrc;
+		n -= 2;
+	}
+	temp = n >> 2;
+	if (temp) {
+		long *ldest = dest;
+		const long *lsrc = src;
+		temp--;
+		do
+			*--ldest = *--lsrc;
+		while (temp--);
+		dest = ldest;
+		src = lsrc;
+	}
+	if (n & 2) {
+		short *sdest = dest;
+		const short *ssrc = src;
+		*--sdest = *--ssrc;
+		dest = sdest;
+		src = ssrc;
+	}
+	if (n & 1) {
+		char *cdest = dest;
+		const char *csrc = src;
+		*--cdest = *--csrc;
+	}
+}
+
+static inline void backward_fallback(void *dest, const void *src, size_t n) __attribute__((always_inline));
+static inline void backward_fallback(void *dest, const void *src, size_t n)
+{
+	char *cdest = dest;
+	const char *csrc = src;
+
+	for(; n > 0; n--)
+		*--cdest = *--csrc;
+}
+
 void *memmove(void *dest, const void *src, size_t n)
 {
 	void *xdest = dest;
-	size_t temp;
+	/*
+	 * Alignment of src and dest differ so it's impossible
+	 * to do a few byte or word operations at first then
+	 * switch to longs as one of the pointers will still
+	 * be misaligned.
+	 */
+	bool wonky = (((long) dest) & 1) + (((long) src) & 1) == 1;
 
 	if (!n)
 		return xdest;
 
 	if (dest < src) {
-		if ((long)dest & 1) {
-			char *cdest = dest;
-			const char *csrc = src;
-			*cdest++ = *csrc++;
-			dest = cdest;
-			src = csrc;
-			n--;
-		}
-		if (n > 2 && (long)dest & 2) {
-			short *sdest = dest;
-			const short *ssrc = src;
-			*sdest++ = *ssrc++;
-			dest = sdest;
-			src = ssrc;
-			n -= 2;
-		}
-		temp = n >> 2;
-		if (temp) {
-			long *ldest = dest;
-			const long *lsrc = src;
-			temp--;
-			do
-				*ldest++ = *lsrc++;
-			while (temp--);
-			dest = ldest;
-			src = lsrc;
-		}
-		if (n & 2) {
-			short *sdest = dest;
-			const short *ssrc = src;
-			*sdest++ = *ssrc++;
-			dest = sdest;
-			src = ssrc;
-		}
-		if (n & 1) {
-			char *cdest = dest;
-			const char *csrc = src;
-			*cdest = *csrc;
-		}
+		if (wonky)
+			forward_fallback(dest, src, n);
+		else
+			forward_aligned_src(dest, src, n);
 	} else {
 		dest = (char *)dest + n;
 		src = (const char *)src + n;
-		if ((long)dest & 1) {
-			char *cdest = dest;
-			const char *csrc = src;
-			*--cdest = *--csrc;
-			dest = cdest;
-			src = csrc;
-			n--;
-		}
-		if (n > 2 && (long)dest & 2) {
-			short *sdest = dest;
-			const short *ssrc = src;
-			*--sdest = *--ssrc;
-			dest = sdest;
-			src = ssrc;
-			n -= 2;
-		}
-		temp = n >> 2;
-		if (temp) {
-			long *ldest = dest;
-			const long *lsrc = src;
-			temp--;
-			do
-				*--ldest = *--lsrc;
-			while (temp--);
-			dest = ldest;
-			src = lsrc;
-		}
-		if (n & 2) {
-			short *sdest = dest;
-			const short *ssrc = src;
-			*--sdest = *--ssrc;
-			dest = sdest;
-			src = ssrc;
-		}
-		if (n & 1) {
-			char *cdest = dest;
-			const char *csrc = src;
-			*--cdest = *--csrc;
-		}
+		if (wonky)
+			backward_fallback(dest, src, n);
+		else
+			backward_aligned_src(dest, src, n);
 	}
 	return xdest;
 }
