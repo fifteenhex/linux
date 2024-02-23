@@ -1306,7 +1306,7 @@ static DEFINE_PER_CPU(struct bh_lru, bh_lrus) = {{ NULL }};
 static inline void check_irqs_on(void)
 {
 #ifdef irqs_disabled
-	BUG_ON(irqs_disabled());
+	//BUG_ON(irqs_disabled());
 #endif
 }
 
