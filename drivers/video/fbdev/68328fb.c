@@ -39,75 +39,68 @@
 #include <linux/fb.h>
 #include <linux/init.h>
 
-#if defined(CONFIG_M68VZ328)
-#include <asm/MC68VZ328.h>
-#elif defined(CONFIG_M68EZ328)
-#include <asm/MC68EZ328.h>
-#elif defined(CONFIG_M68328)
-#include <asm/MC68328.h>
-#else
-#error wrong architecture for the MC68x328 frame buffer device
-#endif
+#include <linux/platform_device.h>
 
-static u_long videomemory;
-static u_long videomemorysize;
+#define DRAGONBALL_LCDC_LSSA   0x0
+#define DRAGONBALL_LCDC_LVPW   0x5
+#define DRAGONBALL_LCDC_LXMAX  0x8
+#define DRAGONBALL_LCDC_LYMAX  0xa
+#define DRAGONBALL_LCDC_LCXP   0x18
+#define DRAGONBALL_LCDC_LCYP   0x1a
+#define DRAGONBALL_LCDC_LCWCH  0x1c
+#define DRAGONBALL_LCDC_LBLKC  0x1f
+#define DRAGONBALL_LCDC_LPICF  0x20
+#define DRAGONBALL_LCDC_LPICF_PBSIZ_MASK  0x3
+#define DRAGONBALL_LCDC_LPICF_PBSIZ_SHIFT 2
+#define DRAGONBALL_LCDC_LPICF_GS_MASK     0x3
+#define DRAGONBALL_LCDC_LPOLCF 0x21
+#define DRAGONBALL_LCDC_LACDRC 0x23
+#define DRAGONBALL_LCDC_LPXCD  0x25
+#define DRAGONBALL_LCDC_LCKCON 0x27
+#define DRAGONBALL_LCDC_LRRA   0x29
+#define DRAGONBALL_LCDC_LPOSR  0x2d
+#define DRAGONBALL_LCDC_LFRCM  0x31
+#define DRAGONBALL_LCDC_LGPMR  0x33
+#define DRAGONBALL_LCDC_PWMR   0x36
 
-static struct fb_info fb_info;
+struct mc68x328fb_priv {
+	void *base;
+	dma_addr_t videomemory;
+	void *video_virt;
+	u_long videomemorysize;
+};
+
 static u32 mc68x328fb_pseudo_palette[16];
 
-static struct fb_var_screeninfo mc68x328fb_default __initdata = {
-	.red =		{ 0, 8, 0 },
-      	.green =	{ 0, 8, 0 },
-      	.blue =		{ 0, 8, 0 },
-      	.activate =	FB_ACTIVATE_TEST,
-      	.height =	-1,
-      	.width =	-1,
-      	.pixclock =	20000,
-      	.left_margin =	64,
-      	.right_margin =	64,
-      	.upper_margin =	32,
-      	.lower_margin =	32,
-      	.hsync_len =	64,
-      	.vsync_len =	2,
-      	.vmode =	FB_VMODE_NONINTERLACED,
+static struct fb_var_screeninfo mc68x328fb_default = {
+	.red			= { 0, 8, 0 },
+	.green			= { 0, 8, 0 },
+	.blue			= { 0, 8, 0 },
+	.activate		= FB_ACTIVATE_TEST,
+	.height			= -1,
+	.width			= -1,
+	.pixclock		= 20000,
+	.left_margin	= 64,
+	.right_margin	= 64,
+	.upper_margin	= 32,
+	.lower_margin	= 32,
+	.hsync_len		= 64,
+	.vsync_len		= 2,
+	.vmode			= FB_VMODE_NONINTERLACED,
 };
 
-static const struct fb_fix_screeninfo mc68x328fb_fix __initconst = {
-	.id =		"68328fb",
-	.type =		FB_TYPE_PACKED_PIXELS,
-	.xpanstep =	1,
-	.ypanstep =	1,
-	.ywrapstep =	1,
-	.accel =	FB_ACCEL_NONE,
+static const struct fb_fix_screeninfo mc68x328fb_fix = {
+	.id			= "68328fb",
+	.type		= FB_TYPE_PACKED_PIXELS,
+	.xpanstep	= 1,
+	.ypanstep	= 1,
+	.ywrapstep	= 1,
+	.accel		= FB_ACCEL_NONE,
 };
 
-    /*
-     *  Interface used by the world
-     */
-static int mc68x328fb_check_var(struct fb_var_screeninfo *var,
-			 struct fb_info *info);
-static int mc68x328fb_set_par(struct fb_info *info);
-static int mc68x328fb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
-			 u_int transp, struct fb_info *info);
-static int mc68x328fb_pan_display(struct fb_var_screeninfo *var,
-			   struct fb_info *info);
-static int mc68x328fb_mmap(struct fb_info *info, struct vm_area_struct *vma);
-
-static const struct fb_ops mc68x328fb_ops = {
-	.owner		= THIS_MODULE,
-	__FB_DEFAULT_IOMEM_OPS_RDWR,
-	.fb_check_var	= mc68x328fb_check_var,
-	.fb_set_par	= mc68x328fb_set_par,
-	.fb_setcolreg	= mc68x328fb_setcolreg,
-	.fb_pan_display	= mc68x328fb_pan_display,
-	__FB_DEFAULT_IOMEM_OPS_DRAW,
-	.fb_mmap	= mc68x328fb_mmap,
-};
-
-    /*
-     *  Internal routines
-     */
-
+/*
+ *  Internal routines
+ */
 static u_long get_line_length(int xres_virtual, int bpp)
 {
 	u_long length;
@@ -115,20 +108,24 @@ static u_long get_line_length(int xres_virtual, int bpp)
 	length = xres_virtual * bpp;
 	length = (length + 31) & ~31;
 	length >>= 3;
-	return (length);
+
+	printk("line length: %d\n", length);
+
+	//return (length);
+	return 126;
 }
 
-    /*
-     *  Setting the video mode has been split into two parts.
-     *  First part, xxxfb_check_var, must not write anything
-     *  to hardware, it should only verify and adjust var.
-     *  This means it doesn't alter par but it does use hardware
-     *  data from it to check this var.
-     */
-
+/*
+ *  Setting the video mode has been split into two parts.
+ *  First part, xxxfb_check_var, must not write anything
+ *  to hardware, it should only verify and adjust var.
+ *  This means it doesn't alter par but it does use hardware
+ *  data from it to check this var.
+ */
 static int mc68x328fb_check_var(struct fb_var_screeninfo *var,
 			 struct fb_info *info)
 {
+	struct mc68x328fb_priv *priv = info->par;
 	u_long line_length;
 
 	/*
@@ -176,7 +173,7 @@ static int mc68x328fb_check_var(struct fb_var_screeninfo *var,
 	 */
 	line_length =
 	    get_line_length(var->xres_virtual, var->bits_per_pixel);
-	if (line_length * var->yres_virtual > videomemorysize)
+	if (line_length * var->yres_virtual > priv->videomemorysize)
 		return -ENOMEM;
 
 	/*
@@ -266,12 +263,11 @@ static int mc68x328fb_set_par(struct fb_info *info)
 	return 0;
 }
 
-    /*
-     *  Set a single color register. The values supplied are already
-     *  rounded down to the hardware's capabilities (according to the
-     *  entries in the var structure). Return != 0 for invalid regno.
-     */
-
+/*
+ *  Set a single color register. The values supplied are already
+ *  rounded down to the hardware's capabilities (according to the
+ *  entries in the var structure). Return != 0 for invalid regno.
+ */
 static int mc68x328fb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 			 u_int transp, struct fb_info *info)
 {
@@ -354,12 +350,11 @@ static int mc68x328fb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 	return 0;
 }
 
-    /*
-     *  Pan or Wrap the Display
-     *
-     *  This call looks only at xoffset, yoffset and the FB_VMODE_YWRAP flag
-     */
-
+/*
+ *  Pan or Wrap the Display
+ *
+ *  This call looks only at xoffset, yoffset and the FB_VMODE_YWRAP flag
+ */
 static int mc68x328fb_pan_display(struct fb_var_screeninfo *var,
 			   struct fb_info *info)
 {
@@ -382,17 +377,18 @@ static int mc68x328fb_pan_display(struct fb_var_screeninfo *var,
 	return 0;
 }
 
-    /*
-     *  Most drivers don't need their own mmap function
-     */
-
+/*
+ * Most drivers don't need their own mmap function
+ */
 static int mc68x328fb_mmap(struct fb_info *info, struct vm_area_struct *vma)
 {
 #ifndef MMU
+	printk("%s:%d\n", __func__, __LINE__);
 	/* this is uClinux (no MMU) specific code */
+	struct mc68x328fb_priv *priv = info->par;
 
 	vm_flags_set(vma, VM_DONTEXPAND | VM_DONTDUMP);
-	vma->vm_start = videomemory;
+	vma->vm_start = priv->videomemory;
 
 	return 0;
 #else
@@ -400,19 +396,44 @@ static int mc68x328fb_mmap(struct fb_info *info, struct vm_area_struct *vma)
 #endif
 }
 
-static int __init mc68x328fb_setup(char *options)
+static const struct fb_ops mc68x328fb_ops = {
+	.owner		= THIS_MODULE,
+	__FB_DEFAULT_IOMEM_OPS_RDWR,
+	.fb_check_var	= mc68x328fb_check_var,
+	.fb_set_par	= mc68x328fb_set_par,
+	.fb_setcolreg	= mc68x328fb_setcolreg,
+	.fb_pan_display	= mc68x328fb_pan_display,
+	__FB_DEFAULT_IOMEM_OPS_DRAW,
+	.fb_mmap	= mc68x328fb_mmap,
+};
+
+static int mc68x328fb_setup(char *options)
 {
 	if (!options || !*options)
 		return 1;
 	return 1;
 }
 
-    /*
-     *  Initialisation
-     */
-
-static int __init mc68x328fb_init(void)
+static int mc68x328fb_probe(struct platform_device *pdev)
 {
+	struct resource *mem;
+	struct device *dev = &pdev->dev;
+	struct mc68x328fb_priv *priv;
+	struct fb_info *fb_info;
+	void *base;
+
+	base = devm_platform_get_and_ioremap_resource(pdev, 0, &mem);
+	if (!base)
+		return -ENOMEM;
+
+	fb_info = framebuffer_alloc(sizeof(*priv), dev);
+	if (!fb_info)
+		return -ENOMEM;
+
+	priv = fb_info->par;
+	priv->base = base;
+	platform_set_drvdata(pdev, priv);
+
 #ifndef MODULE
 	char *option = NULL;
 
@@ -420,63 +441,84 @@ static int __init mc68x328fb_init(void)
 		return -ENODEV;
 	mc68x328fb_setup(option);
 #endif
-	/*
-	 *  initialize the default mode from the LCD controller registers
-	 */
-	mc68x328fb_default.xres = LXMAX;
-	mc68x328fb_default.yres = LYMAX+1;
+	/* initialize the default mode from the LCD controller registers */
+	mc68x328fb_default.xres = readw(priv->base + DRAGONBALL_LCDC_LXMAX);
+	mc68x328fb_default.yres = readw(priv->base + DRAGONBALL_LCDC_LYMAX) +1;
 	mc68x328fb_default.xres_virtual = mc68x328fb_default.xres;
 	mc68x328fb_default.yres_virtual = mc68x328fb_default.yres;
-	mc68x328fb_default.bits_per_pixel = 1 + (LPICF & 0x01);
-	videomemory = LSSA;
-	videomemorysize = (mc68x328fb_default.xres_virtual+7) / 8 *
+	mc68x328fb_default.bits_per_pixel = 1 + (readb(priv->base + DRAGONBALL_LCDC_LPICF) & 0x01);
+	priv->videomemorysize = (mc68x328fb_default.xres_virtual+7) / 8 *
 		mc68x328fb_default.yres_virtual * mc68x328fb_default.bits_per_pixel;
-
-	fb_info.screen_base = (void *)videomemory;
-	fb_info.fbops = &mc68x328fb_ops;
-	fb_info.var = mc68x328fb_default;
-	fb_info.fix = mc68x328fb_fix;
-	fb_info.fix.smem_start = videomemory;
-	fb_info.fix.smem_len = videomemorysize;
-	fb_info.fix.line_length =
-		get_line_length(mc68x328fb_default.xres_virtual, mc68x328fb_default.bits_per_pixel);
-	fb_info.fix.visual = (mc68x328fb_default.bits_per_pixel) == 1 ?
-		FB_VISUAL_MONO10 : FB_VISUAL_PSEUDOCOLOR;
-	if (fb_info.var.bits_per_pixel == 1) {
-		fb_info.var.red.length = fb_info.var.green.length = fb_info.var.blue.length = 1;
-		fb_info.var.red.offset = fb_info.var.green.offset = fb_info.var.blue.offset = 0;
-	}
-	fb_info.pseudo_palette = &mc68x328fb_pseudo_palette;
-	fb_info.flags = FBINFO_HWACCEL_YPAN;
-
-	if (fb_alloc_cmap(&fb_info.cmap, 256, 0))
+	priv->video_virt = devm_kzalloc(dev, priv->videomemorysize, GFP_KERNEL);
+	if (!priv->video_virt)
 		return -ENOMEM;
 
-	if (register_framebuffer(&fb_info) < 0) {
-		fb_dealloc_cmap(&fb_info.cmap);
+	writel(virt_to_phys(priv->video_virt),
+			priv->base + DRAGONBALL_LCDC_LSSA);
+
+	priv->videomemory = virt_to_phys(priv->video_virt);
+
+	fb_info->screen_base = (void *)virt_to_phys(priv->video_virt);
+	fb_info->fbops = &mc68x328fb_ops;
+	fb_info->var = mc68x328fb_default;
+	fb_info->fix = mc68x328fb_fix;
+	fb_info->fix.smem_start = priv->videomemory;
+	fb_info->fix.smem_len = priv->videomemorysize;
+	fb_info->fix.line_length =
+		get_line_length(mc68x328fb_default.xres_virtual, mc68x328fb_default.bits_per_pixel);
+	fb_info->fix.visual = (mc68x328fb_default.bits_per_pixel) == 1 ?
+		FB_VISUAL_MONO10 : FB_VISUAL_PSEUDOCOLOR;
+
+	if (fb_info->var.bits_per_pixel == 1) {
+		fb_info->var.red.length = fb_info->var.green.length = fb_info->var.blue.length = 1;
+		fb_info->var.red.offset = fb_info->var.green.offset = fb_info->var.blue.offset = 0;
+	}
+
+	fb_info->pseudo_palette = &mc68x328fb_pseudo_palette;
+	fb_info->flags = FBINFO_HWACCEL_YPAN;
+
+	if (fb_alloc_cmap(&fb_info->cmap, 256, 0))
+		return -ENOMEM;
+
+	if (register_framebuffer(fb_info) < 0) {
+		fb_dealloc_cmap(&fb_info->cmap);
 		return -EINVAL;
 	}
 
-	fb_info(&fb_info, "%s frame buffer device\n", fb_info.fix.id);
-	fb_info(&fb_info, "%dx%dx%d at 0x%08lx\n",
+	fb_info(fb_info, "%s frame buffer device\n", fb_info->fix.id);
+	fb_info(fb_info, "%dx%dx%d at 0x%08lx\n",
 		mc68x328fb_default.xres_virtual,
 		mc68x328fb_default.yres_virtual,
-		1 << mc68x328fb_default.bits_per_pixel, videomemory);
+		mc68x328fb_default.bits_per_pixel,
+		priv->videomemory);
 
 	return 0;
 }
 
-module_init(mc68x328fb_init);
-
-#ifdef MODULE
-
-static void __exit mc68x328fb_cleanup(void)
+static void mc68x328fb_remove(struct platform_device *pdev)
 {
-	unregister_framebuffer(&fb_info);
-	fb_dealloc_cmap(&fb_info.cmap);
+	struct mc68x328fb_priv *priv = platform_get_drvdata(pdev);
+	struct fb_info *fb_info;
+
+
+	//unregister_framebuffer(fb_info);
+	//fb_dealloc_cmap(&fb_info->cmap);
 }
 
-module_exit(mc68x328fb_cleanup);
+static const struct of_device_id mc68x328fb_of_match[] = {
+	{ .compatible = "motorola,mc68ez328-lcdc", },
+	{},
+};
+MODULE_DEVICE_TABLE(of, mc68x328fb_of_match);
 
+static struct platform_driver mc68x328fb_driver = {
+	.probe		= mc68x328fb_probe,
+	.remove_new	= mc68x328fb_remove,
+	.driver = {
+		.name = "mc68x328fb",
+		.of_match_table = mc68x328fb_of_match,
+	},
+};
+
+module_platform_driver(mc68x328fb_driver);
 MODULE_LICENSE("GPL");
-#endif				/* MODULE */
