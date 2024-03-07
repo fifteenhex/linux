@@ -4,6 +4,7 @@
  *
  * Copyright (C) 2008 David Brownell
  */
+#define DEBUG 1
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/bcd.h>
@@ -193,7 +194,7 @@ static int ds1305_get_time(struct device *dev, struct rtc_time *time)
 	time->tm_mon = bcd2bin(buf[DS1305_MON]) - 1;
 	time->tm_year = bcd2bin(buf[DS1305_YEAR]) + 100;
 
-	dev_vdbg(dev, "%s secs=%d, mins=%d, "
+	dev_info(dev, "%s secs=%d, mins=%d, "
 		"hours=%d, mday=%d, mon=%d, year=%d, wday=%d\n",
 		"read", time->tm_sec, time->tm_min,
 		time->tm_hour, time->tm_mday,
