@@ -98,10 +98,8 @@ static const struct fb_fix_screeninfo mc68x328fb_fix = {
 	.accel		= FB_ACCEL_NONE,
 };
 
-/*
- *  Internal routines
- */
-static u_long get_line_length(int xres_virtual, int bpp)
+/* Internal routines */
+static u_long mc68x328fb_get_line_length(int xres_virtual, int bpp)
 {
 	u_long length;
 
@@ -112,7 +110,8 @@ static u_long get_line_length(int xres_virtual, int bpp)
 	printk("line length: %d\n", length);
 
 	//return (length);
-	return 126;
+	return 64;
+	//return 126;
 }
 
 /*
@@ -168,11 +167,9 @@ static int mc68x328fb_check_var(struct fb_var_screeninfo *var,
 	if (var->yres_virtual < var->yoffset + var->yres)
 		var->yres_virtual = var->yoffset + var->yres;
 
-	/*
-	 *  Memory limit
-	 */
+	/* Memory limit */
 	line_length =
-	    get_line_length(var->xres_virtual, var->bits_per_pixel);
+			mc68x328fb_get_line_length(var->xres_virtual, var->bits_per_pixel);
 	if (line_length * var->yres_virtual > priv->videomemorysize)
 		return -ENOMEM;
 
@@ -258,7 +255,7 @@ static int mc68x328fb_check_var(struct fb_var_screeninfo *var,
  */
 static int mc68x328fb_set_par(struct fb_info *info)
 {
-	info->fix.line_length = get_line_length(info->var.xres_virtual,
+	info->fix.line_length = mc68x328fb_get_line_length(info->var.xres_virtual,
 						info->var.bits_per_pixel);
 	return 0;
 }
@@ -441,12 +438,19 @@ static int mc68x328fb_probe(struct platform_device *pdev)
 		return -ENODEV;
 	mc68x328fb_setup(option);
 #endif
+
+#if 1
+	writeb(0x20, priv->base + DRAGONBALL_LCDC_LVPW);
+	writew(0x200, priv->base + DRAGONBALL_LCDC_LXMAX);
+#endif
+
 	/* initialize the default mode from the LCD controller registers */
 	mc68x328fb_default.xres = readw(priv->base + DRAGONBALL_LCDC_LXMAX);
 	mc68x328fb_default.yres = readw(priv->base + DRAGONBALL_LCDC_LYMAX) +1;
 	mc68x328fb_default.xres_virtual = mc68x328fb_default.xres;
 	mc68x328fb_default.yres_virtual = mc68x328fb_default.yres;
 	mc68x328fb_default.bits_per_pixel = 1 + (readb(priv->base + DRAGONBALL_LCDC_LPICF) & 0x01);
+
 	priv->videomemorysize = (mc68x328fb_default.xres_virtual+7) / 8 *
 		mc68x328fb_default.yres_virtual * mc68x328fb_default.bits_per_pixel;
 	priv->video_virt = devm_kzalloc(dev, priv->videomemorysize, GFP_KERNEL);
@@ -465,7 +469,7 @@ static int mc68x328fb_probe(struct platform_device *pdev)
 	fb_info->fix.smem_start = priv->videomemory;
 	fb_info->fix.smem_len = priv->videomemorysize;
 	fb_info->fix.line_length =
-		get_line_length(mc68x328fb_default.xres_virtual, mc68x328fb_default.bits_per_pixel);
+			mc68x328fb_get_line_length(mc68x328fb_default.xres_virtual, mc68x328fb_default.bits_per_pixel);
 	fb_info->fix.visual = (mc68x328fb_default.bits_per_pixel) == 1 ?
 		FB_VISUAL_MONO10 : FB_VISUAL_PSEUDOCOLOR;
 
