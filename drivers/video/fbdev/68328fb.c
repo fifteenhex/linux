@@ -440,8 +440,11 @@ static int mc68x328fb_probe(struct platform_device *pdev)
 #endif
 
 #if 1
+	writeb(0x08, priv->base + DRAGONBALL_LCDC_LPICF);
+	writeb(0x35, priv->base + DRAGONBALL_LCDC_LPXCD);
 	writeb(0x20, priv->base + DRAGONBALL_LCDC_LVPW);
 	writew(0x200, priv->base + DRAGONBALL_LCDC_LXMAX);
+	writeb(0x80, priv->base + DRAGONBALL_LCDC_LCKCON);
 #endif
 
 	/* initialize the default mode from the LCD controller registers */
