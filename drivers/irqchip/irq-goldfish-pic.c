@@ -51,6 +51,16 @@ static const struct irq_domain_ops goldfish_irq_domain_ops = {
 	.map = irq_map_generic_chip,
 };
 
+static u32 goldfish_pic_reg_readl(const void __iomem *addr)
+{
+	return gf_ioread32((volatile void*) addr);
+
+}
+static void goldfish_pic_reg_writel(u32 val, void __iomem *addr)
+{
+	gf_iowrite32(val, (volatile void*) addr);
+}
+
 static int __init goldfish_pic_of_init(struct device_node *of_node,
 				       struct device_node *parent)
 {
@@ -104,8 +114,8 @@ static int __init goldfish_pic_of_init(struct device_node *of_node,
 	gc = irq_get_domain_generic_chip(gfpic->irq_domain, 0);
 
 	gc->reg_base = gfpic->base;
-	gc->reg_readl = gf_ioread32;
-	gc->reg_writel = gf_iowrite32;
+	gc->reg_readl = goldfish_pic_reg_readl;
+	gc->reg_writel = goldfish_pic_reg_writel;
 	ct = gc->chip_types;
 	ct->regs.enable = GFPIC_REG_IRQ_ENABLE;
 	ct->regs.disable = GFPIC_REG_IRQ_DISABLE;
@@ -117,6 +127,7 @@ static int __init goldfish_pic_of_init(struct device_node *of_node,
 
 	pr_info("%pOF: Successfully registered.\n",
 		of_node);
+
 	return 0;
 
 out_free_domain:
