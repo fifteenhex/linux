@@ -47,6 +47,17 @@ static void dragonball_intc_cascade(struct irq_desc *desc)
 	chained_irq_exit(host_chip, desc);
 }
 
+static u32 dragonball_intc_reg_readl(const void __iomem *addr)
+{
+        return ioread32((volatile void*) addr);
+
+}
+static void dragonball_intc_reg_writel(u32 val, void __iomem *addr)
+{
+        iowrite32(val, (volatile void*) addr);
+}
+
+
 static int __init dragonball_intc_of_init(struct device_node *of_node,
 				       struct device_node *parent)
 {
@@ -104,8 +115,8 @@ static int __init dragonball_intc_of_init(struct device_node *of_node,
 	gc = irq_get_domain_generic_chip(intc->irq_domain, 0);
 
 	gc->reg_base = intc->base;
-	gc->reg_readl = ioread32;
-	gc->reg_writel = iowrite32;
+	gc->reg_readl = dragonball_intc_reg_readl;
+	gc->reg_writel = dragonball_intc_reg_writel;
 	ct = gc->chip_types;
 	ct->regs.mask = DRAGONBALLINTC_REG_IMR;
 	ct->chip.irq_unmask = irq_gc_mask_clr_bit;
