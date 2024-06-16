@@ -57,7 +57,7 @@ __HEAD
 .endm
 
 _start:
-	_putch 'L'
+//	_putch 'L'
 	/* disable all interrupts */
 	movew	#0x2700, %sr
 
@@ -91,7 +91,7 @@ _clear_bss:
  *****************************************************************************/
 	lea	init_thread_union,%a0
 	lea	THREAD_SIZE(%a0),%sp
-	_putch 'n'
+//	_putch 'n'
 	jsr	start_kernel			/* start Linux kernel */
 _exit:
 	jmp	_exit				/* should never get here */
