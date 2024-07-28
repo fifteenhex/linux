@@ -632,6 +632,12 @@ config MCHP_LAN966X_PCI
 	    - lan966x-miim (MDIO_MSCC_MIIM)
 	    - lan966x-switch (LAN966X_SWITCH)
 
+config VIRT_CTRL
+	tristate "QEMU virt-ctrl"
+	#select CPU_IDLE
+	help
+	  Support for the QEMU virt-ctrl psuedo device
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
