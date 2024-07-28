@@ -441,15 +441,13 @@ probe_out1:
 	return r;
 }
 
-static int mc68328_serial_remove(struct platform_device *dev)
+static void mc68328_serial_remove(struct platform_device *dev)
 {
 	struct mc68328_serial_port *ssp = platform_get_drvdata(dev);
 
 	mc68328_serial_remove_console_port(ssp);
 	uart_remove_one_port(&mc68328_serial_uart_driver, &ssp->port);
 	free_irq(ssp->port.irq, ssp);
-
-	return 0;
 }
 
 static const struct of_device_id mc68328_serial_of_match[] = {
