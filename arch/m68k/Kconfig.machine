@@ -22,6 +22,7 @@ config M68KDT_VIRT
 	select GOLDFISH_TIMER
 	select GOLDFISH_TTY
 	select GOLDFISH_PIC
+	select VIRT_CTRL
 	default M68KDT
 	help
 	  Support for QEMU virt M68K machine with Device Tree
