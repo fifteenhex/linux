@@ -32,6 +32,7 @@
 #include <asm/mvme147hw.h>
 #include <asm/config.h>
 
+#include "mvme147.h"
 
 static void mvme147_get_model(char *model);
 extern void mvme147_sched_init(void);
@@ -184,4 +185,30 @@ int mvme147_hwclk(int op, struct rtc_time *t)
 		return -EOPNOTSUPP;
 	}
 	return 0;
+}
+
+#define SCC_DELAY do { __asm__ __volatile__ ("nop; nop;"); } while (0)
+
+static void scc_write(char ch)
+{
+	do {
+		SCC_DELAY;
+	} while (!(in_8(M147_SCC_A_ADDR) & BIT(2)));
+	SCC_DELAY;
+	out_8(M147_SCC_A_ADDR, 8);
+	SCC_DELAY;
+	out_8(M147_SCC_A_ADDR, ch);
+}
+
+void mvme147_scc_write(struct console *co, const char *str, unsigned int count)
+{
+	unsigned long flags;
+
+	local_irq_save(flags);
+	while (count--)	{
+		if (*str == '\n')
+			scc_write('\r');
+		scc_write(*str++);
+	}
+	local_irq_restore(flags);
 }
