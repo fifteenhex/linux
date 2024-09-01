@@ -808,12 +808,12 @@ L(notypetest):
 	 * doesn't exist then we use the Bug for output on MVME16x.
 	 */
 L(getvmetype):
-	get_bi_record	BI_VME_TYPE
-	tstl	%d0
-	jbmi	1f
-	movel	%a0@,%d3
+#	get_bi_record	BI_VME_TYPE
+#	tstl	%d0
+#	jbmi	1f
+#	movel	%a0@,%d3
 	lea	%pc@(vme_brdtype),%a0
-	movel	%d3,%a0@
+	movel	#VME_TYPE_MVME147,%a0@
 1:
 #ifdef CONFIG_MVME16x
 	is_not_mvme16x(L(gvtdone))
