@@ -198,6 +198,13 @@ config SERIAL_MESON_CONSOLE
 	  receives all kernel messages and warnings and which allows
 	  logins in single user mode) as /dev/ttyAMLx.
 
+config SERIAL_MVME147_SCC
+	bool "MVME147 SCC serial support"
+	select SERIAL_CORE
+	select SERIAL_CORE_CONSOLE
+	help
+	  This driver supports the Zilog SCC present on MVME147
+
 config SERIAL_CLPS711X
 	tristate "CLPS711X serial port support"
 	depends on ARCH_CLPS711X || COMPILE_TEST
