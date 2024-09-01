@@ -82,7 +82,12 @@ struct pcc_regs {
 /* SCC interrupts, for MVME147 */
 
 #define MVME147_IRQ_TYPE_PRIO	0
-#define MVME147_IRQ_SCC_BASE		(IRQ_USER+32)
+/* 
+ * base is used to set the vector base in the SCC,
+ * not an IRQ you should request!
+ */
+#define MVME147_IRQ_SCC_BASE		(0x40 + 32)
+
 #define MVME147_IRQ_SCCB_TX		(IRQ_USER+32)
 #define MVME147_IRQ_SCCB_STAT		(IRQ_USER+34)
 #define MVME147_IRQ_SCCB_RX		(IRQ_USER+36)
