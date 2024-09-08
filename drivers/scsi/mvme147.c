@@ -6,6 +6,7 @@
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/delay.h>
 
 #include <asm/page.h>
 #include <asm/mvme147hw.h>
