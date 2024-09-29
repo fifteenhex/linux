@@ -73,6 +73,9 @@ struct mem_info {
 #define BI_RNG_SEED		0x0008
 
 
+/* Pointer to FDT if there is one */
+#define BI_FDT			0x0009
+
     /*
      *  Linux/m68k Architectures (BI_MACHTYPE)
      */
