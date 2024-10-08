@@ -108,7 +108,7 @@ static struct net_device * __init mvme147lance_probe(void)
 	lp = netdev_priv(dev);
 	lp->ram = __get_dma_pages(GFP_ATOMIC, 3);	/* 32K */
 	if (!lp->ram) {
-		printk("%s: No memory for LANCE buffers\n", dev->name);
+		pr_err("No memory for MVME147 LANCE buffers\n");
 		free_netdev(dev);
 		return ERR_PTR(-ENOMEM);
 	}
