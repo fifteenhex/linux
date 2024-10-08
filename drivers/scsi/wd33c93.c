@@ -994,7 +994,7 @@ wd33c93_intr(struct Scsi_Host *instance)
 			    ucp = hostdata->incoming_msg;
 
 #ifdef SYNC_DEBUG
-			printk("%02x", ucp[hostdata->incoming_ptr]);
+			pr_cont("%02x", ucp[hostdata->incoming_ptr]);
 #endif
 			/* Is this the last byte of the extended message? */
 
@@ -1974,7 +1974,7 @@ wd33c93_init(struct Scsi_Host *instance, const wd33c93_regs regs,
 	reset_wd33c93(instance);
 	spin_unlock_irq(&hostdata->lock);
 
-	printk("wd33c93-%d: chip=%s/%d no_sync=0x%x no_dma=%d",
+	pr_info("wd33c93-%d: chip=%s/%d no_sync=0x%x no_dma=%d",
 	       instance->host_no,
 	       (hostdata->chip == C_WD33C93) ? "WD33c93" : (hostdata->chip ==
 							    C_WD33C93A) ?
@@ -1982,15 +1982,15 @@ wd33c93_init(struct Scsi_Host *instance, const wd33c93_regs regs,
 			     C_WD33C93B) ? "WD33c93B" : "unknown",
 	       hostdata->microcode, hostdata->no_sync, hostdata->no_dma);
 #ifdef DEBUGGING_ON
-	printk(" debug_flags=0x%02x\n", hostdata->args);
+	pr_cont(" debug_flags=0x%02x\n", hostdata->args);
 #else
-	printk(" debugging=OFF\n");
+	pr_cont(" debugging=OFF\n");
 #endif
-	printk("           setup_args=");
+	pr_info("           setup_args=");
 	for (i = 0; i < MAX_SETUP_ARGS; i++)
-		printk("%s,", setup_args[i]);
-	printk("\n");
-	printk("           Version %s - %s\n", WD33C93_VERSION, WD33C93_DATE);
+		pr_cont("%s,", setup_args[i]);
+	pr_cont("\n");
+	pr_info("           Version %s - %s\n", WD33C93_VERSION, WD33C93_DATE);
 }
 
 int wd33c93_write_info(struct Scsi_Host *instance, char *buf, int len)
