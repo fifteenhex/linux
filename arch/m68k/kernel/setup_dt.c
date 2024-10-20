@@ -65,7 +65,7 @@ void __init setup_machine_fdt(void *dt_virt)
 			 __pa_symbol(&_end) - __pa_symbol(&_text));
 
 	/* Protect the FDT blob from the kernel */
-	memblock_reserve(dt_virt, fdt_totalsize(dt_virt));
+	memblock_reserve((phys_addr_t) dt_virt, fdt_totalsize(dt_virt));
 }
 
 static void __init find_limits(unsigned long *min, unsigned long *max_low,
