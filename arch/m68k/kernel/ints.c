@@ -13,6 +13,8 @@
 #include <linux/errno.h>
 #include <linux/init.h>
 #include <linux/irq.h>
+#include <linux/irqchip.h>
+#include <linux/irqdomain.h>
 
 #include <asm/setup.h>
 #include <asm/irq.h>
@@ -90,14 +92,46 @@ void __init m68k_setup_auto_interrupt(void (*handler)(unsigned int, struct pt_re
  * of interrupts, only then these interrupts can be requested (note: this is
  * different from auto vector interrupts).
  */
+static int user_irq_xlate(struct irq_domain *d, struct device_node *ctrlr,
+			  const u32 *intspec, unsigned int intsize,
+			  unsigned long *out_hwirq, unsigned int *out_type)
+{
+	unsigned long tmp_hwirq;
+	int ret;
+
+	ret = irq_domain_xlate_onecell(d, ctrlr, intspec, intsize, &tmp_hwirq, out_type);
+	if (ret)
+		return ret;
+
+	*out_hwirq = tmp_hwirq + IRQ_USER;
+
+	return 0;
+}
+
+static int user_irq_domain_map(struct irq_domain *domain, unsigned int virq, irq_hw_number_t hw)
+{
+	irq_set_chip_and_handler(virq, &user_irq_chip, handle_simple_irq);
+	irq_set_probe(virq);
+        return 0;
+}
+
+static const struct irq_domain_ops user_irq_domain_ops = {
+	.xlate = user_irq_xlate,
+	.map = user_irq_domain_map,
+};
+
 void __init m68k_setup_user_interrupt(unsigned int vec, unsigned int cnt)
 {
-	int i;
+	struct irq_domain *domain = NULL;
+	struct device_node *np;
 
 	BUG_ON(IRQ_USER + cnt > NR_IRQS);
+
+	np = of_find_compatible_node(NULL, NULL, "motorola,mc68000-intc-user");
+	domain = irq_domain_create_legacy(of_fwnode_handle(np), cnt, IRQ_USER,
+					  IRQ_USER, &user_irq_domain_ops, NULL);
+
 	m68k_first_user_vec = vec;
-	for (i = 0; i < cnt; i++)
-		irq_set_chip_and_handler(i, &user_irq_chip, handle_simple_irq);
 	*user_irqvec_fixup = vec - IRQ_USER;
 	flush_icache();
 }
