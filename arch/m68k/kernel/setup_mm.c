@@ -50,6 +50,10 @@
 #include <asm/natfeat.h>
 #include <asm/config.h>
 
+#include <linux/libfdt.h>
+#include <linux/of.h>
+#include <linux/of_fdt.h>
+
 #if !FPSTATESIZE || !NR_IRQS
 #warning No CPU/platform type selected, your kernel will not work!
 #warning Are you building an allnoconfig kernel?
@@ -107,11 +111,57 @@ EXPORT_SYMBOL(isa_sex);
 
 #define MASK_256K 0xfffc0000
 
+static phys_addr_t fdt_blob;
+static void __init m68k_setup_fdt(void)
+{
+	pr_info("m68k generic DT machine support, FDT blob at 0x%08x\n", fdt_blob);
+	if (!early_init_dt_verify(__va(fdt_blob), fdt_blob)) {
+		pr_err("FDT blob is bad?!\n");
+		return;
+	}
+
+	early_init_dt_scan_nodes();
+}
+
+static const struct bi_record __init *m68k_find_bootinfo_record(const struct bi_record *record, u16 bi_type)
+{
+	uint16_t tag;
+
+	while ((tag = be16_to_cpu(record->tag)) != BI_LAST) {
+		uint16_t size = be16_to_cpu(record->size);
+
+		if (tag == bi_type)
+			return record;
+		record = (struct bi_record *)((unsigned long)record + size);
+	}
+
+	return NULL;
+}
+
 static void __init m68k_parse_bootinfo(const struct bi_record *record)
 {
 	const struct bi_record *first_record = record;
+	const struct bi_record *machine_record;
 	uint16_t tag;
 
+	fdt_blob = 0;
+
+	/*
+	 * First attempt to work out if we are a generic DT machine,
+	 * must have an FDT record.
+	 */
+	machine_record = m68k_find_bootinfo_record(record, BI_MACHTYPE);
+	if (machine_record->data[0] == MACH_GENERIC) {
+		const struct bi_record *fdt_record;
+
+		fdt_record = m68k_find_bootinfo_record(record, BI_FDT);
+
+		BUG_ON(!fdt_record);
+		fdt_blob = (phys_addr_t) fdt_record->data[0];
+	}
+
+	/* Revert to the pure bootinfo method */
+	record = first_record;
 	while ((tag = be16_to_cpu(record->tag)) != BI_LAST) {
 		int unknown = 0;
 		const void *data = record->data;
@@ -124,7 +174,6 @@ static void __init m68k_parse_bootinfo(const struct bi_record *record)
 		case BI_MMUTYPE:
 			/* Already set up by head.S */
 			break;
-
 		case BI_MEMCHUNK:
 			if (m68k_num_memory < NUM_MEMINFO) {
 				const struct mem_info *m = data;
@@ -161,6 +210,10 @@ static void __init m68k_parse_bootinfo(const struct bi_record *record)
 			memzero_explicit((void *)data, len + 2);
 			break;
 		}
+
+		case BI_FDT:
+			fdt_blob = (phys_addr_t) record->data[0];
+			break;
 
 		default:
 			if (MACH_IS_AMIGA)
@@ -239,6 +292,9 @@ void __init setup_arch(char **cmdline_p)
 			     : : "d" (pcr | 0x20));
 		}
 	}
+
+	if (fdt_blob)
+		m68k_setup_fdt();
 
 	setup_initial_init_mm((void *)PAGE_OFFSET, _etext, _edata, _end);
 
@@ -327,6 +383,11 @@ void __init setup_arch(char **cmdline_p)
 #endif
 	default:
 		panic("No configuration setup");
+	}
+
+	if (fdt_blob) {
+		memblock_reserve(fdt_blob, fdt_totalsize(__va(fdt_blob)));
+		unflatten_device_tree();
 	}
 
 	if (IS_ENABLED(CONFIG_BLK_DEV_INITRD) && m68k_ramdisk.size)
