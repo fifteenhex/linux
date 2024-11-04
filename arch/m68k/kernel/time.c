@@ -11,6 +11,7 @@
  *		"A Kernel Model for Precision Timekeeping" by Dave Mills
  */
 
+#include <linux/clocksource.h>
 #include <linux/errno.h>
 #include <linux/export.h>
 #include <linux/module.h>
@@ -153,5 +154,9 @@ module_init(rtc_init);
 
 void __init time_init(void)
 {
-	mach_sched_init();
+	/* mach_sched_init is only needed if you don't have OF timers */
+	if (mach_sched_init)
+		mach_sched_init();
+
+	timer_probe();
 }
