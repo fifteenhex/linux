@@ -55,7 +55,7 @@ void (*mach_halt)(void);
 
 void __init setup_machine_fdt(void *dt_virt)
 {
-	if (!dt_virt || !early_init_dt_verify(dt_virt))
+	if (!dt_virt || !early_init_dt_verify(dt_virt, dt_virt))
 		BUG();
 
 	early_init_dt_scan_nodes();
