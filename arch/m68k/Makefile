@@ -102,7 +102,7 @@ lilo:	vmlinux
 
 zImage compressed: vmlinux.gz
 
-targets += vmlinux.tmp vmlinux.gz vmlinux.bz2
+targets += vmlinux.tmp vmlinux.gz vmlinux.bz2 vmlinux.lz4
 
 quiet_cmd_precompress = PRECOMPRESS $@
 ifndef CONFIG_KGDB
@@ -122,6 +122,8 @@ bzImage: vmlinux.bz2
 vmlinux.bz2: vmlinux.tmp FORCE
 	$(call if_changed,bzip2)
 
+vmlinux.lz4: vmlinux.tmp FORCE
+	$(call if_changed,lz4std_64kblk)
 
 archheaders:
 	$(Q)$(MAKE) $(build)=arch/m68k/kernel/syscalls all
