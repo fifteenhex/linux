@@ -124,6 +124,17 @@ else
 	$(KBZIP2) -1c vmlinux >vmlinux.bz2
 endif
 
+vmlinux.lz4: vmlinux
+
+ifndef CONFIG_KGDB
+	cp vmlinux vmlinux.tmp
+	$(STRIP) vmlinux.tmp
+	lz4 -z9f vmlinux.tmp vmlinux.lz4
+	rm vmlinux.tmp
+else
+	lz4 -z9f vmlinux.tmp vmlinux.lz4
+endif
+
 CLEAN_FILES += vmlinux.gz vmlinux.bz2
 
 archheaders:
