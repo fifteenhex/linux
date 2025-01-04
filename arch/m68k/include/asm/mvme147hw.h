@@ -74,9 +74,6 @@ struct pcc_regs {
 #define M147_SCC_B_ADDR		0xfffe3000
 #define M147_SCC_PCLK		5000000
 
-#define MVME147_IRQ_SCSI_PORT	(IRQ_USER + 5)
-#define MVME147_IRQ_SCSI_DMA	(IRQ_USER + 6)
-
 /* SCC interrupts, for MVME147 */
 
 #define MVME147_IRQ_TYPE_PRIO	0
