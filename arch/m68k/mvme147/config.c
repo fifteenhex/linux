@@ -19,8 +19,6 @@
 #include <linux/init.h>
 #include <linux/major.h>
 #include <linux/interrupt.h>
-#include <linux/platform_device.h>
-#include <linux/rtc/m48t59.h>
 
 #include <asm/bootinfo.h>
 #include <asm/bootinfo-vme.h>
@@ -81,28 +79,6 @@ void __init config_mvme147(void)
 	if (!vme_brdtype)
 		vme_brdtype = VME_TYPE_MVME147;
 }
-
-static struct resource m48t59_rsrc[] = {
-	DEFINE_RES_MEM(MVME147_RTC_BASE, 0x800),
-};
-
-static struct m48t59_plat_data m48t59_data = {
-	.type = M48T59RTC_TYPE_M48T02,
-	.yy_offset = 70,
-};
-
-static int __init mvme147_platform_init(void)
-{
-	if (!MACH_IS_MVME147)
-		return 0;
-
-	platform_device_register_resndata(NULL, "rtc-m48t59", -1,
-					  m48t59_rsrc, ARRAY_SIZE(m48t59_rsrc),
-					  &m48t59_data, sizeof(m48t59_data));
-	return 0;
-}
-
-arch_initcall(mvme147_platform_init);
 
 static void scc_delay(void)
 {
