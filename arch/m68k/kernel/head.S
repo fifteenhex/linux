@@ -275,9 +275,9 @@
 #  endif
 #endif
 
-#undef MMU_PRINT
+#define MMU_PRINT
 #undef MMU_NOCACHE_KERNEL
-#undef DEBUG
+#define DEBUG
 
 /*
  * For the head.S console, there are three supported fonts, 6x11, 8x16 and 8x8.
@@ -471,7 +471,10 @@ func_define	console_put_penguin
 func_define	console_plot_pixel,3
 func_define	console_scroll
 
+//#define QUIET
+
 .macro	putc	ch
+#ifndef QUIET
 #if defined(CONSOLE_DEBUG) || defined(SERIAL_DEBUG)
 	pea	\ch
 #endif
@@ -483,6 +486,7 @@ func_define	console_scroll
 #endif
 #if defined(CONSOLE_DEBUG) || defined(SERIAL_DEBUG)
 	addql	#4,%sp
+#endif
 #endif
 .endm
 
