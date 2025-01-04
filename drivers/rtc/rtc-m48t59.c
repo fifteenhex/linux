@@ -9,10 +9,12 @@
 
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/mod_devicetable.h>
 #include <linux/init.h>
 #include <linux/io.h>
 #include <linux/device.h>
 #include <linux/platform_device.h>
+#include <linux/property.h>
 #include <linux/rtc.h>
 #include <linux/rtc/m48t59.h>
 #include <linux/bcd.h>
@@ -340,6 +342,7 @@ static int m48t59_nvram_write(void *priv, unsigned int offset, void *val,
 static int m48t59_rtc_probe(struct platform_device *pdev)
 {
 	struct m48t59_plat_data *pdata = dev_get_platdata(&pdev->dev);
+	struct device_node *np = pdev->dev.of_node;
 	struct m48t59_private *m48t59 = NULL;
 	struct resource *res;
 	int ret = -ENOMEM;
@@ -376,6 +379,12 @@ static int m48t59_rtc_probe(struct platform_device *pdev)
 			/* Ensure we only kmalloc platform data once */
 			pdev->dev.platform_data = pdata;
 		}
+
+		if (np) {
+			pdata->type = (kernel_ulong_t)device_get_match_data(&pdev->dev);
+			pdata->yy_offset = 70;
+		}
+
 		if (!pdata->type)
 			pdata->type = M48T59RTC_TYPE_M48T59;
 
@@ -455,12 +464,30 @@ static int m48t59_rtc_probe(struct platform_device *pdev)
 	return 0;
 }
 
+static const struct of_device_id m48t59_rtc_match_table[] = {
+	{
+		.compatible = "st,m48t02",
+		.data = (void *) M48T59RTC_TYPE_M48T02,
+	},
+	{
+		.compatible = "st,m48t08",
+		.data = (void *) M48T59RTC_TYPE_M48T08,
+	},
+	{
+		.compatible = "st,m48t59",
+		.data = (void *) M48T59RTC_TYPE_M48T59,
+	},
+	{ }
+};
+MODULE_DEVICE_TABLE(of, m48t59_rtc_match_table);
+
 /* work with hotplug and coldplug */
 MODULE_ALIAS("platform:rtc-m48t59");
 
 static struct platform_driver m48t59_rtc_driver = {
 	.driver		= {
 		.name	= "rtc-m48t59",
+		.of_match_table = m48t59_rtc_match_table,
 	},
 	.probe		= m48t59_rtc_probe,
 };
