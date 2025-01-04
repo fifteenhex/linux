@@ -81,9 +81,6 @@ struct pcc_regs {
 
 #define MVME147_IRQ_TYPE_PRIO	0
 
-#define MVME147_LANCE_BASE	0xfffe1800
-#define MVME147_LANCE_IRQ	(IRQ_USER+4)
-
 #define ETHERNET_ADDRESS 0xfffe0778
 
 #endif
