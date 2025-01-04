@@ -2213,6 +2213,7 @@ L(mmu_map_040):
 	jra	L(mmu_map_done)
 
 L(mmu_map_030):
+	putc	'm'
 	/* Calculate the offset into the root table
 	 */
 	movel	%a3,%d0
@@ -2293,7 +2294,7 @@ L(mmu_map_error):
 	dputc	'\n'
 
 L(mmu_map_done):
-
+	putc	'd'
 func_return	mmu_map
 
 /*
@@ -2538,6 +2539,8 @@ func_start	mmu_get_root_table_entry,%d0/%a1
 #endif
 
 	movel	%pc@(L(kernel_pgdir_ptr)),%a0
+	dputs	"\nwtf"
+	dputn	%a0
 	tstl	%a0
 	jne	2f
 
@@ -2583,6 +2586,7 @@ func_start	mmu_get_root_table_entry,%d0/%a1
 	movel	%a0,%a1@
 
 	dputn	%a0
+	dputn	%a1
 	dputc	'\n'
 2:
 	movel	ARG1,%d0
