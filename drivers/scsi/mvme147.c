@@ -21,16 +21,26 @@
 #include "wd33c93.h"
 #include "mvme147.h"
 
-static irqreturn_t mvme147_intr(int irq, void *data)
+#include <linux/platform_device.h>
+#include <linux/mod_devicetable.h>
+
+static irqreturn_t mvme147_port_intr(int irq, void *data)
 {
 	struct Scsi_Host *instance = data;
 
-	if (irq == MVME147_IRQ_SCSI_PORT)
-		wd33c93_intr(instance);
-	else
-		m147_pcc->dma_intr = 0x89;	/* Ack and enable ints */
+	wd33c93_intr(instance);
+
 	return IRQ_HANDLED;
 }
+
+static irqreturn_t mvme147_dma_intr(int irq, void *data)
+{
+	/* Ack and enable ints */
+	m147_pcc->dma_intr = 0x89;
+
+	return IRQ_HANDLED;
+}
+
 
 static int dma_setup(struct scsi_cmnd *cmd, int dir_in)
 {
@@ -88,24 +98,40 @@ static const struct scsi_host_template mvme147_host_template = {
 
 static struct Scsi_Host *mvme147_shost;
 
-static int __init mvme147_init(void)
+static int mvme147_scsi_probe(struct platform_device *pdev)
 {
+	struct device *dev = &pdev->dev;
 	wd33c93_regs regs;
 	struct WD33C93_hostdata *hdata;
 	int error = -ENOMEM;
 
-	if (!MACH_IS_MVME147)
-		return 0;
+	int irq_port, irq_dma;
+
+	irq_port = platform_get_irq(pdev, 0);
+	if (irq_port < 0)
+		return irq_port;
+	if (!irq_port)
+		return -ENODEV;
+
+	irq_dma = platform_get_irq(pdev, 1);
+	if (irq_dma < 0)
+		return irq_dma;
+	if (!irq_dma)
+		return -ENODEV;
 
 	mvme147_shost = scsi_host_alloc(&mvme147_host_template,
 			sizeof(struct WD33C93_hostdata));
 	if (!mvme147_shost)
 		goto err_out;
-	mvme147_shost->base = 0xfffe4000;
-	mvme147_shost->irq = MVME147_IRQ_SCSI_PORT;
 
-	regs.SASR = (volatile unsigned char *)0xfffe4000;
-	regs.SCMD = (volatile unsigned char *)0xfffe4001;
+	mvme147_shost->base = (unsigned long) devm_platform_ioremap_resource(pdev, 0);
+	if (!mvme147_shost->base)
+		goto err_out;
+
+	mvme147_shost->irq = irq_port;
+
+	regs.SASR = (volatile unsigned char *) mvme147_shost->base;
+	regs.SCMD = (volatile unsigned char *) mvme147_shost->base + 1;
 
 	hdata = shost_priv(mvme147_shost);
 	hdata->no_sync = 0xff;
@@ -114,14 +140,15 @@ static int __init mvme147_init(void)
 
 	wd33c93_init(mvme147_shost, regs, dma_setup, dma_stop, WD33C93_FS_8_10);
 
-	error = request_irq(MVME147_IRQ_SCSI_PORT, mvme147_intr, 0,
+	error = devm_request_irq(dev, irq_port, mvme147_port_intr, 0,
 			"MVME147 SCSI PORT", mvme147_shost);
 	if (error)
 		goto err_unregister;
-	error = request_irq(MVME147_IRQ_SCSI_DMA, mvme147_intr, 0,
+	error = devm_request_irq(dev, irq_dma, mvme147_dma_intr, 0,
 			"MVME147 SCSI DMA", mvme147_shost);
 	if (error)
-		goto err_free_irq;
+		goto err_unregister;
+
 #if 0	/* Disabled; causes problems booting */
 	m147_pcc->scsi_interrupt = 0x10;	/* Assert SCSI bus reset */
 	udelay(100);
@@ -136,18 +163,18 @@ static int __init mvme147_init(void)
 
 	error = scsi_add_host(mvme147_shost, NULL);
 	if (error)
-		goto err_free_irq;
+		goto err_unregister;
+
 	scsi_scan_host(mvme147_shost);
 	return 0;
 
-err_free_irq:
-	free_irq(MVME147_IRQ_SCSI_PORT, mvme147_shost);
 err_unregister:
 	scsi_host_put(mvme147_shost);
 err_out:
 	return error;
 }
 
+#if 0
 static void __exit mvme147_exit(void)
 {
 	scsi_remove_host(mvme147_shost);
@@ -158,6 +185,24 @@ static void __exit mvme147_exit(void)
 
 	scsi_host_put(mvme147_shost);
 }
+#endif
 
-module_init(mvme147_init);
-module_exit(mvme147_exit);
+static const struct of_device_id mvme147_scsi_match_table[] = {
+	{
+		.compatible = "wdc,wd33c93b",
+	},
+	{ }
+};
+MODULE_DEVICE_TABLE(of, mvme147_scsi_match_table);
+
+static struct platform_driver mvme147_scsi_driver = {
+	.driver = {
+		.name           = "mvme147-scsi",
+		.of_match_table = mvme147_scsi_match_table,
+	},
+	.probe = mvme147_scsi_probe,
+};
+module_platform_driver(mvme147_scsi_driver);
+
+MODULE_DESCRIPTION("MVME147 SCSI driver");
+MODULE_LICENSE("GPL");
