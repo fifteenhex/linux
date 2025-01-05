@@ -2537,9 +2537,12 @@ func_start	mmu_get_root_table_entry,%d0/%a1
 	dputn	ARG1
 	dputs	" ="
 #endif
+	movel	%pc@(L(can_0)),%a0
+	dputn	%a0
+	movel	%pc@(L(can_1)),%a0
+	dputn	%a0
 
 	movel	%pc@(L(kernel_pgdir_ptr)),%a0
-	dputs	"\nwtf"
 	dputn	%a0
 	tstl	%a0
 	jne	2f
@@ -2582,8 +2585,13 @@ func_start	mmu_get_root_table_entry,%d0/%a1
 	clrl	%a1@+
 	dbra	%d0,1b
 
+	putc	'<'
+	lea	%pc@(L(can_0)),%a1
+	movel	#0x80081234,%a1@
+
 	lea	%pc@(L(kernel_pgdir_ptr)),%a1
 	movel	%a0,%a1@
+	putc	'>'
 
 	dputn	%a0
 	dputn	%a1
@@ -3817,8 +3825,13 @@ L(kernel_end):
 	.long	0
 L(memory_start):
 	.long	0
+L(can_0):
+	.long	0xaa55aa55
+.globl kernel_pgdir_ptr
 L(kernel_pgdir_ptr):
 	.long	0
+L(can_1):
+	.long	0x55aa55aa
 L(temp_mmap_mem):
 	.long	0
 
