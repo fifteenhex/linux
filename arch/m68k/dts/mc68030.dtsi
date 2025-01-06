@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * Copyright (C) 2024 Daniel Palmer <daniel@thingy.jp>
+ */
+
+#include "mc68000.dtsi"
+
+&cpu0 {
+	compatible = "motorola,mc68030";
+};
