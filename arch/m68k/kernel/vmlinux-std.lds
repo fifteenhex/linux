@@ -43,6 +43,12 @@ SECTIONS
   __init_begin = .;
   INIT_TEXT_SECTION(PAGE_SIZE) :data
   INIT_DATA_SECTION(16)
+  STRUCT_ALIGN();
+  .embedded_dtbs : {
+	embedded_dtbs = .;
+	*(.embedded_dtbs)
+	KEEP(*(.embedded_dtbs))
+  }
   .m68k_fixup : {
 	__start_fixup = .;
 	*(.m68k_fixup)
