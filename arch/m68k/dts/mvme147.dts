@@ -1,0 +1,132 @@
+// SPDX-License-Identifier: GPL-2.0+
+
+/dts-v1/;
+#include "mc68030.dtsi"
+/ {
+	#address-cells = <1>;
+	#size-cells = <1>;
+
+	compatible = "motorola,mvme147";
+
+	aliases {
+		serial0 = &uart0;
+		ethernet0 = &lance;
+	};
+
+	chosen {
+		stdout-path = "/serial@fffe3002:9600";
+		tick-timer = &timer0;
+	};
+
+	memory {
+		device_type = "memory";
+		reg = <0x0 0x1000000>;
+	};
+
+		uart0: serial@fffe3002 {
+			compatible = "zilog,scc";
+			u-boot,dm-pre-reloc;
+			reg = <0xfffe3002 0x2>;
+			status = "okay";
+		};
+
+
+	soc {
+		compatible = "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges = <0xff000000 0xff000000 0x1000000>;
+
+		rom0: rom@ff800000 {
+			reg = <0xff800000 0x200000>;
+		};
+
+		rom1: rom@ffa00000 {
+			reg = <0xffa00000 0x200000>;
+		};
+
+		/* Used by bug */
+		bbram0: nvram@fffe0000 {
+			reg = <0xfffe0000 0x7f8>;
+		};
+
+		/* Free for us to use? */
+		bbram1: nvram@fffe0800 {
+			reg = <0xfffe0800 0x800>;
+		};
+
+		pcc32: syscon@fffe1000 {
+			compatible = "motorola,mvme147-pcc", "syscon";
+			reg = <0xfffe1000 0xf>;
+			u-boot,dm-pre-reloc;
+			reg-io-width = <4>;
+			status = "okay";
+		};	
+
+		pcc16: syscon@fffe1010 {
+			compatible = "motorola,mvme147-pcc", "syscon";
+			reg = <0xfffe1010 0xf>;
+			u-boot,dm-pre-reloc;
+			reg-io-width = <2>;
+			status = "okay";
+		};
+
+		pcc8: syscon@fffe1018 {
+			compatible = "motorola,mvme147-pcc", "syscon";
+			reg = <0xfffe1018 0x30>;
+			u-boot,dm-pre-reloc;
+			reg-io-width = <1>;
+			status = "okay";
+		};
+
+		lance: ethernet@fffe1800 {
+			compatible = "amd,am7990";
+			reg = <0xfffe1800 0x4>;
+			interrupts-extended = <&intc_user 4>;
+			rdp-offset = <0x0>;
+			rap-offset = <0x2>;
+		};
+
+		vmechip: vmechip@fffe2000 {
+			reg = <0xfffe2000 0x20>;
+		};
+
+		scsi: scsi@fffe4000 {
+			compatible = "wdc,wd33c93b";
+			u-boot,dm-pre-reloc;
+			reg = <0xfffe4000 0x20>;
+			/* clk == 10MHz *///
+			pcc32 = <&pcc32>;
+			pcc8 = <&pcc8>;
+		};
+
+		rtc: rtc@fffe0000 {
+			compatible = "st,m48t02";
+			reg = <0xfffe0000 0x800>;
+		};
+	};
+
+	timer0: timer@0 {
+		compatible = "motorola,mvme147-pcc-timer";
+		u-boot,dm-pre-reloc;
+		clock-frequency = <160000>;
+		pcc16 = <&pcc16>;
+		pcc8 = <&pcc8>;
+		status = "okay";
+	};
+
+	timer1: timer@1 {
+		compatible = "motorola,mvme147-pcc-timer";
+		u-boot,dm-pre-reloc;
+		clock-frequency = <160000>;
+		pcc16 = <&pcc16>;
+		pcc8 = <&pcc8>;
+		status = "okay";
+	};
+
+	wdt: wdt@0 {
+		compatible = "motorola,mvme147-pcc-wdt";
+		pcc8 = <&pcc8>;
+		status = "okay";
+	};
+};
