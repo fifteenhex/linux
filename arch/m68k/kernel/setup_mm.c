@@ -292,6 +292,17 @@ void __init setup_arch(char **cmdline_p)
 		}
 	}
 
+	// TODO: This is wrong, the blob is in the init section so it needs to be copied
+	// but PoC
+	if (!fdt_blob)
+	{
+		extern void *mvme147_dtb;
+
+		pr_info("FDT blob was not provided, will use embedded one if available\n");
+		if (MACH_IS_MVME147)
+			fdt_blob = (phys_addr_t) mvme147_dtb;
+	}
+
 	if (fdt_blob)
 		m68k_setup_fdt();
 
