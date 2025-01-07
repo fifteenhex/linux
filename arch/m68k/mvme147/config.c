@@ -14,7 +14,6 @@
 #include <linux/kernel.h>
 #include <linux/mm.h>
 #include <linux/tty.h>
-#include <linux/clocksource.h>
 #include <linux/console.h>
 #include <linux/linkage.h>
 #include <linux/init.h>
@@ -36,7 +35,6 @@
 #include "mvme147.h"
 
 static void mvme147_get_model(char *model);
-static void __init mvme147_sched_init(void);
 extern void mvme147_reset (void);
 
 
@@ -75,7 +73,6 @@ static void __init mvme147_init_IRQ(void)
 
 void __init config_mvme147(void)
 {
-	mach_sched_init		= mvme147_sched_init;
 	mach_init_IRQ		= mvme147_init_IRQ;
 	mach_reset		= mvme147_reset;
 	mach_get_model		= mvme147_get_model;
@@ -106,79 +103,6 @@ static int __init mvme147_platform_init(void)
 }
 
 arch_initcall(mvme147_platform_init);
-
-static u64 mvme147_read_clk(struct clocksource *cs);
-
-static struct clocksource mvme147_clk = {
-	.name   = "pcc",
-	.rating = 250,
-	.read   = mvme147_read_clk,
-	.mask   = CLOCKSOURCE_MASK(32),
-	.flags  = CLOCK_SOURCE_IS_CONTINUOUS,
-};
-
-static u32 clk_total;
-
-#define PCC_TIMER_CLOCK_FREQ 160000
-#define PCC_TIMER_CYCLES     (PCC_TIMER_CLOCK_FREQ / HZ)
-#define PCC_TIMER_PRELOAD    (0x10000 - PCC_TIMER_CYCLES)
-
-/* Using pcc tick timer 1 */
-
-static irqreturn_t mvme147_timer_int (int irq, void *dev_id)
-{
-	unsigned long flags;
-
-	local_irq_save(flags);
-	m147_pcc->t1_cntrl = PCC_TIMER_CLR_OVF | PCC_TIMER_COC_EN |
-			     PCC_TIMER_TIC_EN;
-	m147_pcc->t1_int_cntrl = PCC_INT_ENAB | PCC_TIMER_INT_CLR |
-				 PCC_LEVEL_TIMER1;
-	clk_total += PCC_TIMER_CYCLES;
-	legacy_timer_tick(1);
-	local_irq_restore(flags);
-
-	return IRQ_HANDLED;
-}
-
-
-static void __init mvme147_sched_init(void)
-{
-	if (request_irq(PCC_IRQ_TIMER1, mvme147_timer_int, IRQF_TIMER,
-			"timer 1", NULL))
-		pr_err("Couldn't register timer interrupt\n");
-
-	/* Init the clock with a value */
-	/* The clock counter increments until 0xFFFF then reloads */
-	m147_pcc->t1_preload = PCC_TIMER_PRELOAD;
-	m147_pcc->t1_cntrl = PCC_TIMER_CLR_OVF | PCC_TIMER_COC_EN |
-			     PCC_TIMER_TIC_EN;
-	m147_pcc->t1_int_cntrl = PCC_INT_ENAB | PCC_TIMER_INT_CLR |
-				 PCC_LEVEL_TIMER1;
-
-	clocksource_register_hz(&mvme147_clk, PCC_TIMER_CLOCK_FREQ);
-}
-
-static u64 mvme147_read_clk(struct clocksource *cs)
-{
-	unsigned long flags;
-	u8 overflow, tmp;
-	u16 count;
-	u32 ticks;
-
-	local_irq_save(flags);
-	tmp = m147_pcc->t1_cntrl >> 4;
-	count = m147_pcc->t1_count;
-	overflow = m147_pcc->t1_cntrl >> 4;
-	if (overflow != tmp)
-		count = m147_pcc->t1_count;
-	count -= PCC_TIMER_PRELOAD;
-	ticks = count + overflow * PCC_TIMER_CYCLES;
-	ticks += clk_total;
-	local_irq_restore(flags);
-
-	return ticks;
-}
 
 static void scc_delay(void)
 {
