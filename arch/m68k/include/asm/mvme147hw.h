@@ -66,8 +66,6 @@ struct pcc_regs {
 #define PCC_IRQ_ABORT		(IRQ_USER+2)
 /* #define PCC_IRQ_SERIAL	(IRQ_USER+3) */
 #define PCC_IRQ_PRINTER		(IRQ_USER+7)
-#define PCC_IRQ_TIMER1		(IRQ_USER+8)
-#define PCC_IRQ_TIMER2		(IRQ_USER+9)
 #define PCC_IRQ_SOFTWARE1	(IRQ_USER+10)
 #define PCC_IRQ_SOFTWARE2	(IRQ_USER+11)
 
