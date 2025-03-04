@@ -519,8 +519,8 @@ static const struct of_device_id mc68x328fb_of_match[] = {
 MODULE_DEVICE_TABLE(of, mc68x328fb_of_match);
 
 static struct platform_driver mc68x328fb_driver = {
-	.probe		= mc68x328fb_probe,
-	.remove_new	= mc68x328fb_remove,
+	.probe	= mc68x328fb_probe,
+	.remove	= mc68x328fb_remove,
 	.driver = {
 		.name = "mc68x328fb",
 		.of_match_table = mc68x328fb_of_match,
