@@ -189,7 +189,7 @@ MODULE_DEVICE_TABLE(of, dragonball_spi_of_match);
 
 static struct platform_driver dragonball_spi_driver = {
 	.probe = dragonball_spi_probe,
-	.remove_new = dragonball_spi_remove,
+	.remove = dragonball_spi_remove,
 	.driver = {
 		.name = "dragonball_spi",
 		.of_match_table = dragonball_spi_of_match,
