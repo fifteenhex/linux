@@ -226,7 +226,7 @@ static struct clock_event_device goldfish_clockevent_device_of = {
 	.set_next_event		= goldfish_timer_next_event_of,
 };
 
-int __init goldfish_timer_init_of(struct device_node *np)
+static int __init goldfish_timer_init_of(struct device_node *np)
 {
 	struct timer_of *to;
 	int ret;
