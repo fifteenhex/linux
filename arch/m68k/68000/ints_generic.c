@@ -115,7 +115,11 @@ asmlinkage void process_int_autovec(struct pt_regs *fp)
 
 	irq -= AUTOVECSTART;
 
+	irq_enter();
 	generic_handle_domain_irq(mc68000_irq_domain, irq);
+	irq_exit();
+
+	set_irq_regs(fp);
 }
 
 void __init init_IRQ(void)
@@ -218,7 +222,11 @@ asmlinkage void process_int_user(struct pt_regs *fp)
 
 	irq -= USERSTART;
 
+	irq_enter();
 	generic_handle_domain_irq(mc68000_irq_user_domain, irq);
+	irq_exit()
+;
+	set_irq_regs(fp);
 }
 
 static struct irq_chip intc_user_irq_chip = {
@@ -261,7 +269,7 @@ static int __init mc68010_intc_user_of_init(struct device_node *dn,
 IRQCHIP_DECLARE(m68010_intc_user, "motorola,mc68010-intc-user", mc68010_intc_user_of_init);
 
 static int __init mc68000_intc_user_of_init(struct device_node *dn,
-									   struct device_node *parent)
+					    struct device_node *parent)
 {
 	_is68k = 1;
 
