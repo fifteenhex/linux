@@ -25,6 +25,7 @@ all_archs=(
 	riscv32 riscv64
 	s390x s390
 	loongarch
+	m68k
 )
 archs="${all_archs[@]}"
 
