@@ -200,8 +200,8 @@ static void ext4_journal_abort_handle(const char *caller, unsigned int line,
 	if (is_handle_aborted(handle))
 		return;
 
-	printk(KERN_ERR "EXT4-fs: %s:%d: aborting transaction: %s in %s\n",
-	       caller, line, errstr, err_fn);
+	//printk(KERN_ERR "EXT4-fs: %s:%d: aborting transaction: %s in %s\n",
+	//       caller, line, errstr, err_fn);
 
 	jbd2_journal_abort_handle(handle);
 }
