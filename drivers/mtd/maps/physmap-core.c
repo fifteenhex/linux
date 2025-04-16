@@ -260,7 +260,7 @@ static const struct of_device_id of_flash_match[] = {
 		.data = "map_rom",
 	},
 	{
-		.type = "rom",
+//		.type = "rom",
 		.compatible = "direct-mapped"
 	},
 	{ /* sentinel */ },
