@@ -83,6 +83,7 @@ struct device_node *of_irq_find_parent(struct device_node *child)
 }
 EXPORT_SYMBOL_GPL(of_irq_find_parent);
 
+//#define NEED_IRQ_IMAP_ABUSERS
 /*
  * These interrupt controllers abuse interrupt-map for unspeakable
  * reasons and rely on the core code to *ignore* it (the drivers do
@@ -93,6 +94,7 @@ EXPORT_SYMBOL_GPL(of_irq_find_parent);
  * again. There is a high chance that you will be sent back to the
  * drawing board.
  */
+#ifdef NEED_IRQ_IMAP_ABUSERS
 static const char * const of_irq_imap_abusers[] = {
 	"CBEA,platform-spider-pic",
 	"sti,platform-spider-pic",
@@ -104,6 +106,10 @@ static const char * const of_irq_imap_abusers[] = {
 	"pasemi,rootbus",
 	NULL,
 };
+#define is_irq_imap_abuser(a) of_device_compatible_match(a, of_irq_imap_abusers)
+#else
+#define is_irq_imap_abuser(a) 0
+#endif
 
 const __be32 *of_irq_parse_imap_parent(const __be32 *imap, int len, struct of_phandle_args *out_irq)
 {
@@ -253,7 +259,7 @@ int of_irq_parse_raw(const __be32 *addr, struct of_phandle_args *out_irq)
 
 		imap = of_get_property(ipar, "interrupt-map", &imaplen);
 		if (intc &&
-		    (!imap || of_device_compatible_match(ipar, of_irq_imap_abusers))) {
+		    (!imap || is_irq_imap_abuser(ipar))) {
 			pr_debug(" -> got it !\n");
 			return 0;
 		}
