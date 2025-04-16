@@ -286,8 +286,9 @@ struct of_device_id {
 #endif
 #ifdef CONFIG_OF
 	char	compatible[CONFIG_OF_COMPATIBLE_MAX_LEN];
-#endif
+#else
 	char	compatible[128];
+#endif
 	const void *data;
 };
 
