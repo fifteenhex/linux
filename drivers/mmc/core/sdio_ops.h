@@ -15,6 +15,7 @@ struct mmc_host;
 struct mmc_card;
 struct work_struct;
 
+#ifdef CONFIG_MMC_SDIO
 int mmc_send_io_op_cond(struct mmc_host *host, u32 ocr, u32 *rocr);
 int mmc_io_rw_direct(struct mmc_card *card, int write, unsigned fn,
 	unsigned addr, u8 in, u8* out);
@@ -33,6 +34,11 @@ static inline bool sdio_is_io_busy(u32 opcode, u32 arg)
 		(opcode == SD_IO_RW_DIRECT &&
 		!(addr == SDIO_CCCR_ABORT || addr == SDIO_CCCR_SUSPEND)));
 }
+#else
+#define sdio_reset(host) 0
+#define sdio_is_io_busy(opcode, arg) false
+#endif
+
 
 #endif
 
