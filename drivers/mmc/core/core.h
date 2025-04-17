@@ -80,7 +80,11 @@ int mmc_detect_card_removed(struct mmc_host *host);
 
 int mmc_attach_mmc(struct mmc_host *host);
 int mmc_attach_sd(struct mmc_host *host);
+#ifdef CONFIG_MMC_SDIO
 int mmc_attach_sdio(struct mmc_host *host);
+#else
+#define mmc_attach_sdio(host) -1
+#endif
 int mmc_attach_sd_uhs2(struct mmc_host *host);
 
 /* Module parameters */
