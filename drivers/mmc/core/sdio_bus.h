@@ -14,8 +14,13 @@ struct sdio_func *sdio_alloc_func(struct mmc_card *card);
 int sdio_add_func(struct sdio_func *func);
 void sdio_remove_func(struct sdio_func *func);
 
+#ifdef CONFIG_MMC_SDIO
 int sdio_register_bus(void);
 void sdio_unregister_bus(void);
+#else
+#define sdio_register_bus() 0
+#define sdio_unregister_bus()
+#endif
 
 #endif
 
