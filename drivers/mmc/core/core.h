@@ -85,7 +85,12 @@ int mmc_attach_sdio(struct mmc_host *host);
 #else
 #define mmc_attach_sdio(host) -1
 #endif
+
+#ifdef CONFIG_MMC_SDIO
 int mmc_attach_sd_uhs2(struct mmc_host *host);
+#else
+#define mmc_attach_sd_uhs2(host) -1
+#endif
 
 /* Module parameters */
 extern bool use_spi_crc;
