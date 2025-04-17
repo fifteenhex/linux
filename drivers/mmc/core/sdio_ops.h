@@ -12,6 +12,7 @@
 #include <linux/mmc/sdio.h>
 
 struct mmc_host;
+#ifdef CONFIG_MMC_SDIO
 struct mmc_card;
 struct work_struct;
 
@@ -33,6 +34,19 @@ static inline bool sdio_is_io_busy(u32 opcode, u32 arg)
 		(opcode == SD_IO_RW_DIRECT &&
 		!(addr == SDIO_CCCR_ABORT || addr == SDIO_CCCR_SUSPEND)));
 }
+#else
+/* These are referenced in code outside of the sdio files so define dummy versions */
+static inline int sdio_reset(struct mmc_host *host)
+{
+	return 0;
+}
+
+static inline bool sdio_is_io_busy(u32 opcode, u32 arg)
+{
+	return false;
+}
+#endif
+
 
 #endif
 
