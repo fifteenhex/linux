@@ -353,8 +353,10 @@ int mmc_start_request(struct mmc_host *host, struct mmc_request *mrq)
 	if (err)
 		return err;
 
+#ifdef CONFIG_MMC_UHS2
 	if (host->uhs2_sd_tran)
 		mmc_uhs2_prepare_cmd(host, mrq);
+#endif
 
 	led_trigger_event(host->led, LED_FULL);
 	__mmc_start_request(host, mrq);
@@ -455,8 +457,10 @@ int mmc_cqe_start_req(struct mmc_host *host, struct mmc_request *mrq)
 	if (err)
 		goto out_err;
 
+#ifdef CONFIG_MMC_UHS2
 	if (host->uhs2_sd_tran)
 		mmc_uhs2_prepare_cmd(host, mrq);
+#endif
 
 	err = host->cqe_ops->cqe_request(host, mrq);
 	if (err)
