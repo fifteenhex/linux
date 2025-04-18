@@ -47,6 +47,8 @@ extern int of_irq_get_byname(struct device_node *dev, const char *name);
 extern int of_irq_to_resource_table(struct device_node *dev,
 		struct resource *res, int nr_irqs);
 extern struct device_node *of_irq_find_parent(struct device_node *child);
+
+#ifdef CONFIG_PCI_MSI
 extern struct irq_domain *of_msi_get_domain(struct device *dev,
 					    const struct device_node *np,
 					    enum irq_domain_bus_token token);
@@ -56,6 +58,13 @@ extern struct irq_domain *of_msi_map_get_device_domain(struct device *dev,
 extern void of_msi_configure(struct device *dev, const struct device_node *np);
 u32 of_msi_map_id(struct device *dev, struct device_node *msi_np, u32 id_in);
 #else
+#define of_msi_get_domain(...) NULL
+#define of_msi_map_get_device_domain(...) NULL
+#define of_msi_configure(...)
+#endif
+
+#else
+
 static inline void of_irq_init(const struct of_device_id *matches)
 {
 }
