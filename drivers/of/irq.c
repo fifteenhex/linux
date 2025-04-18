@@ -676,6 +676,7 @@ err:
 	}
 }
 
+#ifdef CONFIG_PCI_MSI
 static u32 __of_msi_map_id(struct device *dev, struct device_node **np,
 			    u32 id_in)
 {
@@ -768,3 +769,4 @@ void of_msi_configure(struct device *dev, const struct device_node *np)
 			   of_msi_get_domain(dev, np, DOMAIN_BUS_PLATFORM_MSI));
 }
 EXPORT_SYMBOL_GPL(of_msi_configure);
+#endif
