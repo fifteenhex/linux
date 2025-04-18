@@ -676,6 +676,7 @@ err:
 	}
 }
 
+#ifdef CONFIG_PCI_MSI
 /**
  * of_msi_xlate - map a MSI ID and find relevant MSI controller node
  * @dev: device for which the mapping is to be done.
@@ -780,3 +781,4 @@ void of_msi_configure(struct device *dev, const struct device_node *np)
 			   of_msi_get_domain(dev, np, DOMAIN_BUS_PLATFORM_MSI));
 }
 EXPORT_SYMBOL_GPL(of_msi_configure);
+#endif
