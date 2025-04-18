@@ -54,6 +54,8 @@ static inline int mmc_boot_partition_access(struct mmc_host *host)
 	return !(host->caps2 & MMC_CAP2_BOOTPART_NOACC);
 }
 
+//#ifndef CONFIG_SD_SMOL
+#if 0
 static inline int mmc_host_uhs(struct mmc_host *host)
 {
 	return host->caps &
@@ -88,6 +90,15 @@ static inline bool mmc_card_sd_express(struct mmc_host *host)
 	return host->ios.timing == MMC_TIMING_SD_EXP ||
 		host->ios.timing == MMC_TIMING_SD_EXP_1_2V;
 }
+#else
+#define mmc_host_uhs(host) false
+#define mmc_card_hs200(card) false
+#define mmc_card_ddr52(card) false
+#define mmc_card_hs400(card) false
+#define mmc_card_hs400es(card) false
+#define mmc_card_sd_express(host) false
+#endif
 
 #endif
+
 
