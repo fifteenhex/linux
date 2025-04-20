@@ -15,11 +15,11 @@
  */
 #if defined(CONFIG_COLDFIRE)
 #define NR_IRQS 256
-#elif defined(CONFIG_M68KDT)
-#define NR_IRQS 126
 #elif defined(CONFIG_VME) || defined(CONFIG_SUN3) || \
       defined(CONFIG_SUN3X) || defined(CONFIG_VIRT)
 #define NR_IRQS 200
+#elif defined(CONFIG_M68KDT_VIRT)
+#define NR_IRQS 126
 #elif defined(CONFIG_ATARI)
 #define NR_IRQS 141
 #elif defined(CONFIG_MAC)
@@ -30,6 +30,8 @@
 #define NR_IRQS	32
 #elif defined(CONFIG_APOLLO)
 #define NR_IRQS	24
+#elif defined(CONFIG_M68KDT)
+#define NR_IRQS 16
 #else /* CONFIG_HP300 etc. */
 #define NR_IRQS	8
 #endif
