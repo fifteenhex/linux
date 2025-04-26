@@ -71,12 +71,14 @@
 #include <uapi/linux/virtio_mmio.h>
 #include <linux/virtio_ring.h>
 
+#include <asm/io.h>
+
 #ifdef CONFIG_M68KDT
 #define virtiommio_readl ioread32be
 #define virtiommio_writel iowrite32be
 #else
 #define virtiommio_readl readl
-#define virtiommio_writel writel;
+#define virtiommio_writel writel_relaxed
 #endif
 
 /* The alignment to use between consumer and producer parts of vring.
