@@ -96,8 +96,9 @@ static int __init dragonball_intc_of_init(struct device_node *of_node,
 
 	writeb(0x40, intc->base + DRAGONBALLINTC_REG_IVR);
 
-	intc->irq_domain = irq_domain_add_simple(of_node, DRAGONBALLINTC_NR_IRQS, 0,
-			&dragonball_irq_domain_ops, NULL);
+	intc->irq_domain = irq_domain_create_simple(of_fwnode_handle(of_node),
+						    DRAGONBALLINTC_NR_IRQS, 0,
+						    &dragonball_irq_domain_ops, NULL);
 	if (!intc->irq_domain) {
 		pr_err("%pOF: Failed to add irqdomain!\n", of_node);
 		ret = -ENOMEM;
