@@ -150,8 +150,11 @@ static const struct irq_domain_ops mc68000_irq_domain_ops = {
 static int __init mc680x0_intc_of_init(struct device_node *dn,
 				      struct device_node *parent)
 {
-	mc68000_irq_domain = irq_domain_add_simple(dn, MC68000_IRQ_NR,
-			0,&mc68000_irq_domain_ops, NULL);
+	mc68000_irq_domain = irq_domain_create_simple(of_fwnode_handle(dn),
+						      MC68000_IRQ_NR,
+						      0,
+						      &mc68000_irq_domain_ops,
+						      NULL);
 
 	if (!mc68000_irq_domain)
 		return -ENODEV;
@@ -250,8 +253,11 @@ static const struct irq_domain_ops mc68000_irq_user_domain_ops = {
 static int __init mc680x0_intc_user_of_init(struct device_node *dn,
 				      struct device_node *parent)
 {
-	mc68000_irq_user_domain = irq_domain_add_simple(dn, MC68000_IRQ_NR,
-			0,&mc68000_irq_user_domain_ops, NULL);
+	mc68000_irq_user_domain = irq_domain_create_simple(of_fwnode_handle(dn),
+							   MC68000_IRQ_NR,
+							   0,
+							   &mc68000_irq_user_domain_ops,
+							   NULL);
 
 	if (!mc68000_irq_user_domain)
 		return -ENODEV;
