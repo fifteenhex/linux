@@ -91,7 +91,7 @@ static inline bool mmc_card_sd_express(struct mmc_host *host)
 		host->ios.timing == MMC_TIMING_SD_EXP_1_2V;
 }
 #else
-#define mmc_host_uhs(host) false
+#define mmc_host_can_uhs(host) false
 #define mmc_card_hs200(card) false
 #define mmc_card_ddr52(card) false
 #define mmc_card_hs400(card) false
