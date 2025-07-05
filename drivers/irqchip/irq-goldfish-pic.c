@@ -95,8 +95,9 @@ static int __init goldfish_pic_of_init(struct device_node *of_node,
 	/* Mask interrupts. */
 	gf_iowrite32(1, gfpic->base + GFPIC_REG_IRQ_DISABLE_ALL);
 
-	gfpic->irq_domain = irq_domain_add_simple(of_node, GFPIC_NR_IRQS, 0,
-			&goldfish_irq_domain_ops, NULL);
+	gfpic->irq_domain = irq_domain_create_simple(of_fwnode_handle(of_node),
+						     GFPIC_NR_IRQS, 0,
+						     &goldfish_irq_domain_ops, NULL);
 	if (!gfpic->irq_domain) {
 		pr_err("%pOF: Failed to add irqdomain!\n", of_node);
 		ret = -ENOMEM;
