@@ -366,6 +366,9 @@ quiet_cmd_lz4_with_size = LZ4     $@
       cmd_lz4_with_size = { cat $(real-prereqs) | $(LZ4) -l -9 - -; \
                   $(size_append); } > $@
 
+quiet_cmd_lz4std_64kblk = LZ4     $@
+      cmd_lz4std_64kblk = cat $(real-prereqs) | $(LZ4) -q -B4 -9 - - > $@
+
 # U-Boot mkimage
 # ---------------------------------------------------------------------------
 
