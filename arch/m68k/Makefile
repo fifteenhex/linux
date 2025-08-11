@@ -12,6 +12,8 @@
 # Copyright (C) 2002,2011 Greg Ungerer <gerg@snapgear.com>
 #
 
+include $(srctree)/scripts/Makefile.lib
+
 KBUILD_DEFCONFIG := multi_defconfig
 
 ifdef cross_compiling
@@ -100,31 +102,26 @@ lilo:	vmlinux
 
 zImage compressed: vmlinux.gz
 
-vmlinux.gz: vmlinux
+targets += vmlinux.tmp vmlinux.gz vmlinux.bz2
 
+quiet_cmd_precompress = PRECOMPRESS $@
 ifndef CONFIG_KGDB
-	cp vmlinux vmlinux.tmp
-	$(STRIP) vmlinux.tmp
-	$(KGZIP) -9c vmlinux.tmp >vmlinux.gz
-	rm vmlinux.tmp
+	cmd_precompress = $(STRIP) $< -o $@
 else
-	$(KGZIP) -9c vmlinux >vmlinux.gz
+	cmd_precompress = cp $< $@
 endif
+
+vmlinux.tmp: vmlinux FORCE
+	$(call if_changed,precompress)
+
+vmlinux.gz: vmlinux.tmp FORCE
+	$(call if_changed,gzip)
 
 bzImage: vmlinux.bz2
 
-vmlinux.bz2: vmlinux
+vmlinux.bz2: vmlinux.tmp FORCE
+	$(call if_changed,bzip2)
 
-ifndef CONFIG_KGDB
-	cp vmlinux vmlinux.tmp
-	$(STRIP) vmlinux.tmp
-	$(KBZIP2) -1c vmlinux.tmp >vmlinux.bz2
-	rm vmlinux.tmp
-else
-	$(KBZIP2) -1c vmlinux >vmlinux.bz2
-endif
-
-CLEAN_FILES += vmlinux.gz vmlinux.bz2
 
 archheaders:
 	$(Q)$(MAKE) $(build)=arch/m68k/kernel/syscalls all
