@@ -19,6 +19,11 @@ config PCI_AARDVARK
 	 controller is part of the South Bridge of the Marvel Armada
 	 3700 SoC.
 
+config PCI_MEDIATOR4000
+	tristate "Elbox Mediator 4000 Zorro->PCI bridge"
+	depends on AMIGA
+	select IRQ_DOMAIN
+
 config PCIE_ALTERA
 	tristate "Altera PCIe controller"
 	depends on ARM || NIOS2 || ARM64 || COMPILE_TEST
