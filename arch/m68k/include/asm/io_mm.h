@@ -379,10 +379,13 @@ static inline void isa_delay(void)
 #define writesw(port, buf, nr)    raw_outsw((port), (u16 *)(buf), (nr))
 #define writesl(port, buf, nr)    raw_outsl((port), (u32 *)(buf), (nr))
 
-#ifndef CONFIG_SUN3
-#define IO_SPACE_LIMIT 0xffff
-#else
+#if defined(CONFIG_SUN3)
 #define IO_SPACE_LIMIT 0x0fffffff
+/* For the mediator we have io space somewhere in the Zorro 3 space */
+#elif defined(CONFIG_PCI_MEDIATOR4000)
+#define IO_SPACE_LIMIT 0x7fffffff
+#else
+#define IO_SPACE_LIMIT 0xffff
 #endif
 
 #endif /* __KERNEL__ */
