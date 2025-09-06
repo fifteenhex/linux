@@ -24,6 +24,8 @@
 #define NR_IRQS 72
 #elif defined(CONFIG_Q40)
 #define NR_IRQS	43
+#elif defined(CONFIG_PCI_MEDIATOR4000)
+#define NR_IRQS (32 + 4)
 #elif defined(CONFIG_AMIGA) || !defined(CONFIG_MMU)
 #define NR_IRQS	32
 #elif defined(CONFIG_APOLLO)
