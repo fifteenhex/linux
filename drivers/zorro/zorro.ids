@@ -369,6 +369,8 @@
 	1900  FastATA 4000 [IDE Interface]
 	1d00  FastATA 4000 [IDE Interface]
 	1e00  FastATA ZIV [IDE Interface]
+	2100  Mediator 4000 (Control) [PCI bridge]
+	a100  Mediator 4000 (Window) [PCI bridge]
 0a00  Harms Professional
 	1000  030 Plus [Accelerator]
 	d000  3500 Professional [Accelerator and RAM Expansion]
