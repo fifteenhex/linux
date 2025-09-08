@@ -215,6 +215,17 @@ config PCIE_MEDIATEK_GEN3
 	  Say Y here if you want to enable Gen3 PCIe controller support on
 	  MediaTek SoCs.
 
+config PCI_MEDIATOR4000
+	tristate "Elbox Mediator 4000 Zorro->PCI bridge"
+	depends on AMIGA
+	select IRQ_DOMAIN
+	help
+	  Adds support for the Elbox Mediator 4000 Zorro->PCI bridge for
+	  the Amiga 4000.
+
+	  Say Y here if you are one of the few people that has this hardware
+	  and run Linux on it.
+
 config PCIE_MT7621
 	tristate "MediaTek MT7621 PCIe controller"
 	depends on SOC_MT7621 || COMPILE_TEST
