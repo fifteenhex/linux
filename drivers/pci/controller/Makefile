@@ -41,6 +41,7 @@ obj-$(CONFIG_PCIE_HISI_ERR) += pcie-hisi-error.o
 obj-$(CONFIG_PCIE_APPLE) += pcie-apple.o
 obj-$(CONFIG_PCIE_MT7621) += pcie-mt7621.o
 obj-$(CONFIG_PCIE_ASPEED) += pcie-aspeed.o
+obj-$(CONFIG_PCI_MEDIATOR4000) += pci-mediator4000.o
 
 # pcie-hisi.o quirks are needed even without CONFIG_PCIE_DW
 obj-y				+= dwc/
