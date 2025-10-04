@@ -159,11 +159,15 @@ static bool nomtrr;
 
 static inline u8 vga_inb(struct tdfx_par *par, u32 reg)
 {
+	//printk("vga in 0x%x\n", (unsigned) par->iobase + reg - 0x300);
+
 	return inb(par->iobase + reg - 0x300);
 }
 
 static inline void vga_outb(struct tdfx_par *par, u32 reg, u8 val)
 {
+	printk("%s 0x%0x, 0x%08x\n", __func__, reg, val);
+
 	outb(val, par->iobase + reg - 0x300);
 }
 
@@ -241,11 +245,16 @@ static inline void vga_enable_palette(struct tdfx_par *par)
 
 static inline u32 tdfx_inl(struct tdfx_par *par, unsigned int reg)
 {
-	return readl(par->regbase_virt + reg);
+	u32 v = readl(par->regbase_virt + reg);
+
+	//printk("r reg 0x%x, 0x%08x\n", (unsigned) reg, (unsigned) v);
+
+	return v;
 }
 
 static inline void tdfx_outl(struct tdfx_par *par, unsigned int reg, u32 val)
 {
+	//printk("w reg 0x%x, 0x%08x\n", (unsigned) reg, (unsigned) val);
 	writel(val, par->regbase_virt + reg);
 }
 
@@ -348,10 +357,10 @@ static void do_write_regs(struct fb_info *info, struct banshee_reg *reg)
 	banshee_make_room(par, 3);
 	tdfx_outl(par, VGAINIT1, reg->vgainit1 & 0x001FFFFF);
 	tdfx_outl(par, VIDPROCCFG, reg->vidcfg & ~0x00000001);
-#if 0
+//#if 1
 	tdfx_outl(par, PLLCTRL1, reg->mempll);
 	tdfx_outl(par, PLLCTRL2, reg->gfxpll);
-#endif
+//#endif
 	tdfx_outl(par, PLLCTRL0, reg->vidpll);
 
 	vga_outb(par, MISC_W, reg->misc[0x00] | 0x01);
@@ -1359,6 +1368,26 @@ static int tdfxfb_probe_i2c_connector(struct tdfx_par *par,
 }
 #endif /* CONFIG_FB_3DFX_I2C */
 
+static int tdfx_boot(struct tdfx_par *par)
+{
+	printk("status 0x%08x\n", tdfx_inl(par, STATUS));
+	printk("pciint0 0x%08x\n", tdfx_inl(par, PCIINIT0));
+	printk("sipmonitor 0x%08x\n", tdfx_inl(par, SIPMONITOR));
+	printk("lfbmemoryconfig 0x%08x\n", tdfx_inl(par, LFBMEMORYCONFIG));
+	printk("miscinit0 0x%08x\n", tdfx_inl(par, MISCINIT0));
+	printk("miscinit1 0x%08x\n", tdfx_inl(par, MISCINIT1));
+	printk("draminit0 0x%08x\n", tdfx_inl(par, DRAMINIT0));
+	printk("draminit1 0x%08x\n", tdfx_inl(par, DRAMINIT1));
+	printk("agpinit 0x%08x\n", tdfx_inl(par, AGPINIT));
+	printk("tmugbeinit 0x%08x\n", tdfx_inl(par, TMUGBEINIT));
+	printk("vgainit0 0x%08x\n", tdfx_inl(par, VGAINIT0));
+	printk("vgainit1 0x%08x\n", tdfx_inl(par, VGAINIT1));
+	printk("dramcommand 0x%08x\n", tdfx_inl(par, DRAMCOMMAND));
+	printk("dramdata 0x%08x\n", tdfx_inl(par, DRAMDATA));
+
+	return 0;
+}
+
 /**
  *      tdfxfb_probe - Device Initializiation
  *
@@ -1423,6 +1452,11 @@ static int tdfxfb_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	if (!default_par->regbase_virt) {
 		printk(KERN_ERR "fb: Can't remap %s register area.\n",
 				info->fix.id);
+		goto out_err_regbase;
+	}
+
+	if (tdfx_boot(default_par)) {
+		printk(KERN_ERR "fb: tdfxfb: Failed to boot card\n");
 		goto out_err_regbase;
 	}
 
