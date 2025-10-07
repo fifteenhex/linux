@@ -35,7 +35,7 @@ struct dragonball_gpio {
 	struct gpio_chip	gc;
 };
 
-static void dragonball_gpio_set(struct gpio_chip *chip, unsigned int offset, int value)
+static int dragonball_gpio_set(struct gpio_chip *chip, unsigned int offset, int value)
 {
 	struct dragonball_gpio *gpio = gpiochip_get_data(chip);
 	unsigned int port = gpio_to_portoffset(offset);
@@ -47,6 +47,8 @@ static void dragonball_gpio_set(struct gpio_chip *chip, unsigned int offset, int
 	if (value)
 		reg |= mask;
 	writew(reg, gpio->base + port + REG_DIRDATA);
+
+	return 0;
 }
 
 static int dragonball_gpio_get(struct gpio_chip *chip, unsigned int offset)
