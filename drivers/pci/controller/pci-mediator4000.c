@@ -13,12 +13,12 @@
 
 /* Offsets etc */
 #define MEDIATOR4000_CONTROL			0x0
-#define MEDIATOR4000_CONTROL_SIZE		0x4
+#define MEDIATOR4000_CONTROL_SIZE		SZ_4
 #define MEDIATOR4000_CONTROL_WINDOW		0x0
-#define MEDIATOR4000_CONTROL_WINDOW_SHIFT	0x18
+#define MEDIATOR4000_CONTROL_WINDOW_MSB		GENMASK(31,28)
 #define MEDIATOR4000_CONTROL_IRQ		0x4
-#define MEDIATOR4000_CONTROL_IRQ_STATUS		GENMASK(0x3, 0x0)
-#define MEDIATOR4000_CONTROL_IRQ_MASK		GENMASK(0x7, 0x4)
+#define MEDIATOR4000_CONTROL_IRQ_STATUS		GENMASK(3, 0)
+#define MEDIATOR4000_CONTROL_IRQ_MASK		GENMASK(7, 4)
 #define MEDIATOR4000_PCICONF			0x800000
 #define MEDIATOR4000_PCICONF_SIZE		SZ_4M
 #define MEDIATOR4000_PCICONF_DEV_STRIDE		SZ_2K
@@ -228,8 +228,12 @@ static int mediator4000_setup(struct device *dev,
 
 	priv->setup_base = res->start;
 
-	/* Setup the window base */
-	z_writeb((m4k_window->resource.start >> MEDIATOR4000_CONTROL_WINDOW_SHIFT) & 0xf0,
+	/*
+	 * Setup the window base, trying to write 0xff into the register showed that
+	 * only the top nibble is used so the window address has to be aligned to
+	 * 256MB.
+	 */
+	z_writeb(FIELD_GET(MEDIATOR4000_CONTROL_WINDOW_MSB, ALIGN_DOWN(m4k_window->resource.start,SZ_256M)),
 		 priv->setup_base + MEDIATOR4000_CONTROL_WINDOW);
 
 	res = devm_request_mem_region(dev, control_base + MEDIATOR4000_PCICONF,
