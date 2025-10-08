@@ -4,8 +4,10 @@
  */
 
 #include <asm/amigaints.h>
+#include <linux/bitfield.h>
 #include <linux/irqdomain.h>
 #include <linux/pci.h>
+#include <linux/sizes.h>
 #include <linux/slab.h>
 #include <linux/zorro.h>
 
@@ -15,13 +17,14 @@
 #define MEDIATOR4000_CONTROL_WINDOW		0x0
 #define MEDIATOR4000_CONTROL_WINDOW_SHIFT	0x18
 #define MEDIATOR4000_CONTROL_IRQ		0x4
-#define MEDIATOR4000_CONTROL_IRQ_MASK_SHIFT	0x4
+#define MEDIATOR4000_CONTROL_IRQ_STATUS		GENMASK(0x3, 0x0)
+#define MEDIATOR4000_CONTROL_IRQ_MASK		GENMASK(0x7, 0x4)
 #define MEDIATOR4000_PCICONF			0x800000
-#define MEDIATOR4000_PCICONF_SIZE		0x400000
-#define MEDIATOR4000_PCICONF_DEV_STRIDE		0x800
-#define MEDIATOR4000_PCICONF_FUNC_STRIDE	0x100
+#define MEDIATOR4000_PCICONF_SIZE		SZ_4M
+#define MEDIATOR4000_PCICONF_DEV_STRIDE		SZ_2K
+#define MEDIATOR4000_PCICONF_FUNC_STRIDE	SZ_256
 #define MEDIATOR4000_PCIIO			0xc00000
-#define MEDIATOR4000_PCIIO_SIZE			0x100000
+#define MEDIATOR4000_PCIIO_SIZE			SZ_1M
 
 /* How the Amiga sees the mediator 4000 */
 #define MEDIATOR4000_IRQ	IRQ_AMIGA_PORTS
@@ -118,11 +121,14 @@ static int pci_mediator4000_writeconfig(struct pci_bus *bus, unsigned int devfn,
 static irqreturn_t pci_mediator4000_irq(int irq, void *dev_id)
 {
 	struct pci_mediator4000_priv *priv = dev_id;
-	u8 v = z_readb(priv->setup_base + MEDIATOR4000_CONTROL_IRQ);
-	unsigned long mask = v & 0xf;
+	unsigned long status;
 	int i;
+	u8 v;
 
-	for_each_set_bit(i, &mask, PCI_NUM_INTX)
+	v = z_readb(priv->setup_base + MEDIATOR4000_CONTROL_IRQ);
+	status = FIELD_GET(MEDIATOR4000_CONTROL_IRQ_STATUS, v);
+
+	for_each_set_bit(i, &status, PCI_NUM_INTX)
 		generic_handle_domain_irq(priv->irqdomain, i);
 
 	return IRQ_HANDLED;
@@ -155,18 +161,20 @@ static struct resource mediator4000_busn = {
 static void pci_mediator4000_mask_irq(struct irq_data *d)
 {
 	struct pci_mediator4000_priv *priv = irq_data_get_irq_chip_data(d);
-	u8 v = z_readb(priv->setup_base + MEDIATOR4000_CONTROL_IRQ);
+	u8 v;
 
-	v &= ~(BIT(irqd_to_hwirq(d)) << MEDIATOR4000_CONTROL_IRQ_MASK_SHIFT);
+	v = z_readb(priv->setup_base + MEDIATOR4000_CONTROL_IRQ);
+	v &= ~FIELD_PREP(MEDIATOR4000_CONTROL_IRQ_MASK, BIT(irqd_to_hwirq(d)));
 	z_writeb(v, priv->setup_base + MEDIATOR4000_CONTROL_IRQ);
 }
 
 static void pci_mediator4000_unmask_irq(struct irq_data *d)
 {
 	struct pci_mediator4000_priv *priv = irq_data_get_irq_chip_data(d);
-	u8 v = z_readb(priv->setup_base + MEDIATOR4000_CONTROL_IRQ);
+	u8 v;
 
-	v |= (BIT(irqd_to_hwirq(d)) << MEDIATOR4000_CONTROL_IRQ_MASK_SHIFT);
+	v = z_readb(priv->setup_base + MEDIATOR4000_CONTROL_IRQ);
+	v |= FIELD_PREP(MEDIATOR4000_CONTROL_IRQ_MASK, BIT(irqd_to_hwirq(d)));
 	z_writeb(v, priv->setup_base + MEDIATOR4000_CONTROL_IRQ);
 }
 
@@ -236,10 +244,9 @@ static int mediator4000_setup(struct device *dev,
 	if (!res)
 		return -ENOMEM;
 
-	priv->pciio_res.name = "mediator4000-pci-io",
-	priv->pciio_res.flags  = IORESOURCE_IO,
-	priv->pciio_res.start = res->start;
-	priv->pciio_res.end = res->end;
+	priv->pciio_res = DEFINE_RES_IO_NAMED(res->start,
+					      res->end - res->start,
+					      "mediator4000-pci-io");
 	res = insert_resource_conflict(&ioport_resource, &priv->pciio_res);
 	if (res)
 		return -ENOMEM;
@@ -272,8 +279,10 @@ static int mediator4000_setup(struct device *dev,
 		priv->irqmap[i] = irq_create_mapping(priv->irqdomain, i);
 
 	ret = pci_host_probe(bridge);
-	if (!ret)
-		return 0;
+	if (ret)
+		goto err;
+
+	return 0;
 
 err:
 	irq_domain_free_fwnode(fwnode);
