@@ -65,6 +65,7 @@
  */
 
 #include <linux/aperture.h>
+#include <linux/bitfield.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/errno.h>
@@ -84,6 +85,8 @@
 #define BANSHEE_MAX_PIXCLOCK 270000
 #define VOODOO3_MAX_PIXCLOCK 300000
 #define VOODOO5_MAX_PIXCLOCK 350000
+
+#define STATUS_FIFOSLOTS GENMASK(4,0)
 
 static const struct fb_fix_screeninfo tdfx_fix = {
 	.type =		FB_TYPE_PACKED_PIXELS,
@@ -259,11 +262,31 @@ static inline void tdfx_outl(struct tdfx_par *par, unsigned int reg, u32 val)
 	writel(val, par->regbase_virt + reg);
 }
 
+static int tdfx_dump(struct tdfx_par *par)
+{
+	printk("status 0x%08x\n", tdfx_inl(par, STATUS));
+	printk("pciint0 0x%08x\n", tdfx_inl(par, PCIINIT0));
+	printk("sipmonitor 0x%08x\n", tdfx_inl(par, SIPMONITOR));
+	printk("lfbmemoryconfig 0x%08x\n", tdfx_inl(par, LFBMEMORYCONFIG));
+	printk("miscinit0 0x%08x\n", tdfx_inl(par, MISCINIT0));
+	printk("miscinit1 0x%08x\n", tdfx_inl(par, MISCINIT1));
+	printk("draminit0 0x%08x\n", tdfx_inl(par, DRAMINIT0));
+	printk("draminit1 0x%08x\n", tdfx_inl(par, DRAMINIT1));
+	printk("agpinit 0x%08x\n", tdfx_inl(par, AGPINIT));
+	printk("tmugbeinit 0x%08x\n", tdfx_inl(par, TMUGBEINIT));
+	printk("vgainit0 0x%08x\n", tdfx_inl(par, VGAINIT0));
+	printk("vgainit1 0x%08x\n", tdfx_inl(par, VGAINIT1));
+	printk("dramcommand 0x%08x\n", tdfx_inl(par, DRAMCOMMAND));
+	printk("dramdata 0x%08x\n", tdfx_inl(par, DRAMDATA));
+
+	return 0;
+}
+
 static inline void banshee_make_room(struct tdfx_par *par, int size)
 {
 	/* Note: The Voodoo3's onboard FIFO has 32 slots. This loop
 	 * won't quit if you ask for more. */
-	while ((tdfx_inl(par, STATUS) & 0x1f) < size - 1)
+	while (FIELD_GET(STATUS_FIFOSLOTS, tdfx_inl(par, STATUS_FIFOSLOTS)) < size - 1)
 		cpu_relax();
 }
 
@@ -407,6 +430,8 @@ static void do_write_regs(struct fb_info *info, struct banshee_reg *reg)
 	tdfx_outl(par, SRCXY, 0);
 
 	banshee_wait_idle(info);
+
+	tdfx_dump(par);
 }
 
 static unsigned long do_lfb_size(struct tdfx_par *par, unsigned short dev_id)
@@ -1369,26 +1394,6 @@ static int tdfxfb_probe_i2c_connector(struct tdfx_par *par,
 }
 #endif /* CONFIG_FB_3DFX_I2C */
 
-static int tdfx_boot(struct tdfx_par *par)
-{
-	printk("status 0x%08x\n", tdfx_inl(par, STATUS));
-	printk("pciint0 0x%08x\n", tdfx_inl(par, PCIINIT0));
-	printk("sipmonitor 0x%08x\n", tdfx_inl(par, SIPMONITOR));
-	printk("lfbmemoryconfig 0x%08x\n", tdfx_inl(par, LFBMEMORYCONFIG));
-	printk("miscinit0 0x%08x\n", tdfx_inl(par, MISCINIT0));
-	printk("miscinit1 0x%08x\n", tdfx_inl(par, MISCINIT1));
-	printk("draminit0 0x%08x\n", tdfx_inl(par, DRAMINIT0));
-	printk("draminit1 0x%08x\n", tdfx_inl(par, DRAMINIT1));
-	printk("agpinit 0x%08x\n", tdfx_inl(par, AGPINIT));
-	printk("tmugbeinit 0x%08x\n", tdfx_inl(par, TMUGBEINIT));
-	printk("vgainit0 0x%08x\n", tdfx_inl(par, VGAINIT0));
-	printk("vgainit1 0x%08x\n", tdfx_inl(par, VGAINIT1));
-	printk("dramcommand 0x%08x\n", tdfx_inl(par, DRAMCOMMAND));
-	printk("dramdata 0x%08x\n", tdfx_inl(par, DRAMDATA));
-
-	return 0;
-}
-
 /**
  *      tdfxfb_probe - Device Initializiation
  *
@@ -1456,10 +1461,7 @@ static int tdfxfb_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto out_err_regbase;
 	}
 
-	if (tdfx_boot(default_par)) {
-		printk(KERN_ERR "fb: tdfxfb: Failed to boot card\n");
-		goto out_err_regbase;
-	}
+	tdfx_dump(default_par);
 
 	info->fix.smem_start = pci_resource_start(pdev, 1);
 	info->fix.smem_len = do_lfb_size(default_par, pdev->device);
