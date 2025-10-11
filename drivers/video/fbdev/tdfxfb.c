@@ -626,7 +626,7 @@ static int tdfxfb_set_par(struct fb_info *info)
 		vt = ve + (info->var.upper_margin << 1) - 1;
 		reg.screensize = info->var.xres | (info->var.yres << 13);
 		reg.vidcfg |= VIDCFG_HALF_MODE;
-		reg.crt[0x09] = 0x80;
+		reg.crt[VGA_CRTC_MAX_SCAN] = 0x80;
 	} else {
 		vd = info->var.yres - 1;
 		vs  = vd + info->var.lower_margin;
@@ -649,24 +649,23 @@ static int tdfxfb_set_par(struct fb_info *info)
 	reg.gra[VGA_GFX_COMPARE_MASK] = 0x0f;
 	reg.gra[VGA_GFX_BIT_MASK]     = 0xff;
 
-	reg.att[0x00] = 0x00;
-	reg.att[0x01] = 0x01;
-	reg.att[0x02] = 0x02;
-	reg.att[0x03] = 0x03;
-	reg.att[0x04] = 0x04;
-	reg.att[0x05] = 0x05;
-	reg.att[0x06] = 0x06;
-	reg.att[0x07] = 0x07;
-	reg.att[0x08] = 0x08;
-	reg.att[0x09] = 0x09;
-	reg.att[0x0a] = 0x0a;
-	reg.att[0x0b] = 0x0b;
-	reg.att[0x0c] = 0x0c;
-	reg.att[0x0d] = 0x0d;
-	reg.att[0x0e] = 0x0e;
-	reg.att[0x0f] = 0x0f;
-	reg.att[0x10] = 0x41;
-	reg.att[0x12] = 0x0f;
+	reg.att[VGA_ATC_PALETTE0]     = 0x00;
+	reg.att[VGA_ATC_PALETTE1]     = 0x01;
+	reg.att[VGA_ATC_PALETTE2]     = 0x02;
+	reg.att[VGA_ATC_PALETTE3]     = 0x03;
+	reg.att[VGA_ATC_PALETTE4]     = 0x04;
+	reg.att[VGA_ATC_PALETTE5]     = 0x05;
+	reg.att[VGA_ATC_PALETTE6]     = 0x06;
+	reg.att[VGA_ATC_PALETTE7]     = 0x07;
+	reg.att[VGA_ATC_PALETTE8]     = 0x08;
+	reg.att[VGA_ATC_PALETTE9]     = 0x09;
+	reg.att[VGA_ATC_PALETTEA]     = 0x0a;
+	reg.att[VGA_ATC_PALETTEB]     = 0x0b;
+	reg.att[VGA_ATC_PALETTEC]     = 0x0c;
+	reg.att[VGA_ATC_PALETTED]     = 0x0d;
+	reg.att[VGA_ATC_PALETTEE]     = 0x0e;
+	reg.att[VGA_ATC_MODE]         = 0x41;
+	reg.att[VGA_ATC_PLANE_ENABLE] = 0x0f;
 
 	reg.seq[VGA_SEQ_RESET]         = 0x03;
 	reg.seq[VGA_SEQ_CLOCK_MODE]    = 0x01; /* fixme: clkdiv2? */
