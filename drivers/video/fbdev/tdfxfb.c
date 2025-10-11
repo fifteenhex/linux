@@ -644,10 +644,10 @@ static int tdfxfb_set_par(struct fb_info *info)
 			 info->var.xres < 480 ? 0x60 :
 			 info->var.xres < 768 ? 0xe0 : 0x20);
 
-	reg.gra[0x05] = 0x40;
-	reg.gra[0x06] = 0x05;
-	reg.gra[0x07] = 0x0f;
-	reg.gra[0x08] = 0xff;
+	reg.gra[VGA_GFX_MODE]         = 0x40;
+	reg.gra[VGA_GFX_MISC]         = 0x05;
+	reg.gra[VGA_GFX_COMPARE_MASK] = 0x0f;
+	reg.gra[VGA_GFX_BIT_MASK]     = 0xff;
 
 	reg.att[0x00] = 0x00;
 	reg.att[0x01] = 0x01;
