@@ -68,11 +68,6 @@ static int ne2k_msg_enable;
 static const int default_msg_level = (NETIF_MSG_DRV | NETIF_MSG_PROBE |
 				      NETIF_MSG_RX_ERR | NETIF_MSG_TX_ERR);
 
-#if defined(__powerpc__)
-#define inl_le(addr)  le32_to_cpu(inl(addr))
-#define inw_le(addr)  le16_to_cpu(inw(addr))
-#endif
-
 MODULE_AUTHOR(DRV_AUTHOR);
 MODULE_DESCRIPTION(DRV_DESCRIPTION);
 MODULE_VERSION(DRV_VERSION);
