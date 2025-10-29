@@ -3103,21 +3103,40 @@ nvkm_device_endianness(struct nvkm_device *device)
 	const bool big_endian = false;
 #endif
 
+	printk("%s:%d - 0x%08x, 0x%08x\n",
+		__func__, __LINE__,
+		(unsigned int) nvkm_rd32(device, 0x000000),
+		(unsigned int) nvkm_rd32(device, 0x000004));
+
 	/* Read NV_PMC_BOOT_1, and assume non-functional endian switch if it
 	 * doesn't contain the expected values.
 	 */
 	u32 pmc_boot_1 = nvkm_rd32(device, 0x000004);
-	if (pmc_boot_1 && pmc_boot_1 != 0x01000001)
+	if (pmc_boot_1 && pmc_boot_1 != 0x01000001) {
+		printk("%s:%d - 0x%08x, 0x%08x\n",
+			__func__, __LINE__,
+			(unsigned int) nvkm_rd32(device, 0x000000),
+			(unsigned int) nvkm_rd32(device, 0x000004));
 		return !big_endian; /* Assume GPU is LE in this case. */
+	}
 
 	/* 0 means LE and 0x01000001 means BE GPU. Condition is true when
 	 * GPU/CPU endianness don't match.
 	 */
 	if (big_endian == !pmc_boot_1) {
+		printk("%s:%d - 0x%08x, 0x%08x\n",
+			__func__, __LINE__,
+			(unsigned int) nvkm_rd32(device, 0x000000),
+			(unsigned int) nvkm_rd32(device, 0x000004));
 		nvkm_wr32(device, 0x000004, 0x01000001);
 		nvkm_rd32(device, 0x000000);
-		if (nvkm_rd32(device, 0x000004) != (big_endian ? 0x01000001 : 0x00000000))
+		if (nvkm_rd32(device, 0x000004) != (big_endian ? 0x01000001 : 0x00000000)) {
+			printk("%s:%d - 0x%08x, 0x%08x\n",
+				__func__, __LINE__,
+				(unsigned int) nvkm_rd32(device, 0x000000),
+				(unsigned int) nvkm_rd32(device, 0x000004));
 			return !big_endian; /* Assume GPU is LE on any unexpected read-back. */
+		}
 	}
 
 	/* CPU/GPU endianness should (hopefully) match. */
