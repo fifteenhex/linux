@@ -15,7 +15,7 @@
 #define MEDIATOR4000_CONTROL			0x0
 #define MEDIATOR4000_CONTROL_SIZE		SZ_4
 #define MEDIATOR4000_CONTROL_WINDOW		0x0
-#define MEDIATOR4000_CONTROL_WINDOW_MSB		GENMASK(31,28)
+#define MEDIATOR4000_CONTROL_WINDOW_MSB		GENMASK(7,4)
 #define MEDIATOR4000_CONTROL_IRQ		0x4
 #define MEDIATOR4000_CONTROL_IRQ_STATUS		GENMASK(3, 0)
 #define MEDIATOR4000_CONTROL_IRQ_MASK		GENMASK(7, 4)
@@ -229,11 +229,11 @@ static int mediator4000_setup(struct device *dev,
 	priv->setup_base = res->start;
 
 	/*
-	 * Setup the window base, trying to write 0xff into the register showed that
-	 * only the top nibble is used so the window address has to be aligned to
-	 * 256MB.
+	 * Setup the window base. This seems to set the top nibble of the addresses seen
+	 * by PCI devices for memory. We set this to match the top nibble of where the
+	 * window is in the zorro space.
 	 */
-	z_writeb(FIELD_GET(MEDIATOR4000_CONTROL_WINDOW_MSB, ALIGN_DOWN(m4k_window->resource.start,SZ_256M)),
+	z_writeb(FIELD_PREP(MEDIATOR4000_CONTROL_WINDOW_MSB, m4k_window->resource.start >> 28),
 		 priv->setup_base + MEDIATOR4000_CONTROL_WINDOW);
 
 	res = devm_request_mem_region(dev, control_base + MEDIATOR4000_PCICONF,
@@ -256,6 +256,11 @@ static int mediator4000_setup(struct device *dev,
 		return -ENOMEM;
 
 	pci_add_resource_offset(&bridge->windows, &priv->pciio_res, priv->pciio_res.start);
+	/*
+	 * PCI memory is accessed via the window and since we setup the window base
+	 * to match where the window is in zorro space above we can just use the window
+	 * resource for the PCI memory resource.
+	 */
 	pci_add_resource(&bridge->windows, &m4k_window->resource);
 	pci_add_resource(&bridge->windows, &mediator4000_busn);
 
