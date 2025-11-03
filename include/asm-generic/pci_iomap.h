@@ -22,14 +22,14 @@ extern void pci_iounmap(struct pci_dev *dev, void __iomem *);
 /* Create a virtual mapping cookie for a port on a given PCI device.
  * Do not call this directly, it exists to make it easier for architectures
  * to override */
-#ifdef CONFIG_NO_GENERIC_PCI_IOPORT_MAP
-extern void __iomem *__pci_ioport_map(struct pci_dev *dev, unsigned long port,
-				      unsigned int nr);
-#elif !defined(CONFIG_HAS_IOPORT_MAP)
-#define __pci_ioport_map(dev, port, nr) NULL
-#else
+//#ifdef CONFIG_NO_GENERIC_PCI_IOPORT_MAP
+//extern void __iomem *__pci_ioport_map(struct pci_dev *dev, unsigned long port,
+//				      unsigned int nr);
+//#elif !defined(CONFIG_HAS_IOPORT_MAP)
+//#define __pci_ioport_map(dev, port, nr) NULL
+//#else
 #define __pci_ioport_map(dev, port, nr) ioport_map((port), (nr))
-#endif
+//#endif
 
 #elif defined(CONFIG_GENERIC_PCI_IOMAP)
 static inline void __iomem *pci_iomap(struct pci_dev *dev, int bar, unsigned long max)
