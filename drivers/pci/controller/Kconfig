@@ -219,7 +219,7 @@ config PCI_MEDIATOR4000
 	tristate "Elbox Mediator 4000 Zorro->PCI bridge"
 	depends on AMIGA
 	select IRQ_DOMAIN
-	select DMA_DECLARE_COHERENT
+	select SWIOTLB
 	help
 	  Adds support for the Elbox Mediator 4000 Zorro->PCI bridge for
 	  the Amiga 4000.
