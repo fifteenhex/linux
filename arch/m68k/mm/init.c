@@ -13,6 +13,7 @@
 #include <linux/sched.h>
 #include <linux/mm.h>
 #include <linux/swap.h>
+#include <linux/swiotlb.h>
 #include <linux/kernel.h>
 #include <linux/string.h>
 #include <linux/types.h>
@@ -122,4 +123,11 @@ static inline void init_pointer_tables(void)
 void __init mem_init(void)
 {
 	init_pointer_tables();
+}
+
+void __init arch_mm_preinit(void)
+{
+#ifdef CONFIG_PCI_MEDIATOR4000
+	swiotlb_init(true, SWIOTLB_VERBOSE);
+#endif
 }
