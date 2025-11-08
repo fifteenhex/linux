@@ -1,0 +1,5 @@
+config SONNET
+	tristate "Sonnet PCI PowerPC CPU card"
+	depends on PCI
+	help
+	  Nothing good can come of this.
