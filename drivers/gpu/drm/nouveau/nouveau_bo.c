@@ -1032,6 +1032,7 @@ nouveau_bo_move_init(struct nouveau_drm *drm)
 	const char *name = "CPU";
 	int ret;
 
+#if 0
 	do {
 		struct nouveau_channel *chan;
 
@@ -1059,7 +1060,7 @@ nouveau_bo_move_init(struct nouveau_drm *drm)
 			break;
 		}
 	} while ((++mthd)->exec);
-
+#endif
 	NV_INFO(drm, "MM: using %s for buffer copies\n", name);
 }
 
