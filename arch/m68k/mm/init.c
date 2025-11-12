@@ -131,3 +131,35 @@ void __init arch_mm_preinit(void)
 	swiotlb_init(true, SWIOTLB_VERBOSE);
 #endif
 }
+
+#ifdef CONFIG_MMU
+static void mark_range_ro(unsigned long start, unsigned long end)
+{
+	unsigned long vaddr;
+
+	for (vaddr = start; vaddr < end; vaddr += PAGE_SIZE) {
+		pte_t *ptep = virt_to_kpte(vaddr);
+
+		printk("%px\n", ptep);
+
+		//*ptep = pte_wrprotect(*ptep);
+		*ptep = pte_mknocache(*ptep);
+	}
+}
+
+void mark_rodata_ro(void)
+{
+	unsigned long start = (unsigned long) _stext;
+	unsigned long end = (unsigned long) _etext;
+
+	//pr_info("Write protecting kernel text: 0x%lx - 0x%lx\n", start, end);
+	//mark_range_ro((unsigned long)_stext, (unsigned long)_etext);
+
+	start = (unsigned long) __start_rodata;
+	end = (unsigned long ) __end_rodata;
+	pr_info("Write protecting kernel RO data: 0x%lx - 0x%lx\n", start, end);
+	mark_range_ro((unsigned long)_stext, (unsigned long)_etext);
+
+	flush_tlb_all();
+}
+#endif
