@@ -123,3 +123,76 @@ void __init mem_init(void)
 {
 	init_pointer_tables();
 }
+
+#ifdef CONFIG_MMU
+/*
+ * Based on (basically copy/pasted) kernel_set_cachemode() because
+ * presumably that is correct and covers the required differences.
+ */
+static void __mark_ro_data(unsigned long virtaddr, ssize_t size)
+{
+	pgd_t *pgd_dir;
+	p4d_t *p4d_dir;
+	pud_t *pud_dir;
+	pmd_t *pmd_dir;
+	pte_t *pte_dir;
+
+	while (size > 0) {
+		pgd_dir = pgd_offset_k(virtaddr);
+		p4d_dir = p4d_offset(pgd_dir, virtaddr);
+		pud_dir = pud_offset(p4d_dir, virtaddr);
+		if (pud_bad(*pud_dir)) {
+			pud_clear(pud_dir);
+			return;
+		}
+		pmd_dir = pmd_offset(pud_dir, virtaddr);
+
+#if CONFIG_PGTABLE_LEVELS == 3
+		if (CPU_IS_020_OR_030) {
+			unsigned long pmd = pmd_val(*pmd_dir);
+
+			if ((pmd & _DESCTYPE_MASK) == _PAGE_PRESENT) {
+				/* We cannot write protect part of an early term */
+				if (WARN_ON(size < PMD_SIZE))
+					break;
+
+				*pmd_dir = __pmd(pmd | _PAGE_RONLY);
+				virtaddr += PMD_SIZE;
+				size -= PMD_SIZE;
+				continue;
+			}
+		}
+#endif
+
+		if (pmd_bad(*pmd_dir)) {
+			pmd_clear(pmd_dir);
+			return;
+		}
+
+		/* We cannot write protect part of a page */
+		if (WARN_ON(size < PAGE_SIZE))
+			break;
+
+		pte_dir = pte_offset_kernel(pmd_dir, virtaddr);
+
+		set_pte(pte_dir, pte_wrprotect(*pte_dir));
+		virtaddr += PAGE_SIZE;
+		size -= PAGE_SIZE;
+	}
+}
+
+void mark_rodata_ro(void)
+{
+	unsigned long start;
+	unsigned long end;
+
+	/* kernel text + 1 page , kernel_pg_dir lives in the first page, so skip that */
+	start = (unsigned long) _stext + PAGE_SIZE;
+	end = (unsigned long) __end_rodata;
+
+	pr_info("Write protecting kernel text and read-only data: 0x%lx - 0x%lx\n", start, end);
+	__mark_ro_data(start, end - start);
+
+	flush_tlb_all();
+}
+#endif
