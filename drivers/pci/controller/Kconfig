@@ -236,6 +236,7 @@ config PCI_MEDIATOR4000
 	depends on AMIGA
 	select IRQ_DOMAIN
 	select SWIOTLB
+	select SWIOTLB_DYNAMIC
 	help
 	  Adds support for the Elbox Mediator 4000 Zorro->PCI bridge for
 	  the Amiga 4000.
