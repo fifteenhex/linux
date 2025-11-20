@@ -298,6 +298,24 @@ static pmd_t * __init kernel_ptr_table(void)
 	return last_pmd_table;
 }
 
+/*
+ * This splits an early term created by head.S into ptes
+ * so things like removing pages in the range, marking
+ * part of the range as write protected can happen.
+ */
+static inline pte_t * __init __split_early_term(unsigned long physaddr)
+{
+	pte_t *pte_dir, *pte_dir_tmp;
+
+	pte_dir = kernel_page_table();
+	pte_dir_tmp = pte_dir;
+
+	for (int i = 0; i < PTRS_PER_PTE; physaddr += PAGE_SIZE, i++)
+		pte_val(*pte_dir_tmp++) = physaddr;
+
+	return pte_dir;
+}
+
 static void __init map_node(int node)
 {
 	unsigned long physaddr, virtaddr, size;
@@ -348,25 +366,34 @@ static void __init map_node(int node)
 
 		if (CPU_IS_020_OR_030) {
 			if (virtaddr) {
+				const unsigned long ro_tail_pmd =
+					((unsigned long) __end_rodata) & PMD_MASK;
+
+				if (virtaddr == ro_tail_pmd) {
 #ifdef DEBUG
-				printk ("[early term]");
+					printk("[wp split]\n");
 #endif
-				pmd_val(*pmd_dir) = physaddr;
-				physaddr += PMD_SIZE;
+					pte_dir = __split_early_term(physaddr);
+					pmd_set(pmd_dir, pte_dir);
+}
+				else {
+#ifdef DEBUG
+					printk("[early term]");
+#endif
+					pmd_val(*pmd_dir) = physaddr;
+				}
 			} else {
-				int i;
 #ifdef DEBUG
 				printk ("[zero map]");
 #endif
-				pte_dir = kernel_page_table();
+				pte_dir = __split_early_term(physaddr);
+				/* Remove the zero page */
+				pte_val(*pte_dir) = 0;
 				pmd_set(pmd_dir, pte_dir);
-
-				pte_val(*pte_dir++) = 0;
-				physaddr += PAGE_SIZE;
-				for (i = 1; i < PTRS_PER_PTE; physaddr += PAGE_SIZE, i++)
-					pte_val(*pte_dir++) = physaddr;
 			}
+
 			size -= PMD_SIZE;
+			physaddr += PMD_SIZE;
 			virtaddr += PMD_SIZE;
 		} else {
 			if (!pmd_present(*pmd_dir)) {
