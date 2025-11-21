@@ -22,4 +22,4 @@ obj-$(CONFIG_BOOTINFO_PROC)	+= bootinfo_proc.o
 obj-$(CONFIG_UBOOT)		+= uboot.o
 
 obj-$(CONFIG_EARLY_PRINTK)	+= early_printk.o
-
+obj-$(CONFIG_JUMP_LABEL)	+= jump_label.o
