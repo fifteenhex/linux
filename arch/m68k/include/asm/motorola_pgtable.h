@@ -41,8 +41,20 @@
 
 #define _PAGE_PROTNONE	0x004
 
-/* We borrow bit 11 to store the exclusive marker in swap PTEs. */
-#define _PAGE_SWP_EXCLUSIVE	0x800
+/*
+ * On the 020/030 there are a number of unused bits in the page address,
+ * that depends on the page size, for 4K pages this is 4 bits. For the
+ * 040/060 those 4 bits map to UR, G, U1 and U0. UR, U1 and U0 are
+ * user defined so we are allowed to use them, U1 and U0 are special in
+ * that they are output on the upa0 and upa1 signals *if* an access
+ * happens. Since a swapped out page should not trigger an access it
+ * be ok to use either of U0 and U1 for the marker, and that gives us
+ * UR to use for special that might be set when an access happens so
+ * would affect upa0 or upa1.
+ */
+#define _PAGE_SWP_EXCLUSIVE	0x100
+#define _PAGE_SPECIAL		0x800
+
 
 #ifndef __ASSEMBLER__
 
@@ -146,6 +158,7 @@ static inline void pud_set(pud_t *pudp, pmd_t *pmdp)
 static inline int pte_write(pte_t pte)		{ return !(pte_val(pte) & _PAGE_RONLY); }
 static inline int pte_dirty(pte_t pte)		{ return pte_val(pte) & _PAGE_DIRTY; }
 static inline int pte_young(pte_t pte)		{ return pte_val(pte) & _PAGE_ACCESSED; }
+static inline int pte_special(pte_t pte)	{ return pte_val(pte) & _PAGE_SPECIAL; }
 
 static inline pte_t pte_wrprotect(pte_t pte)	{ pte_val(pte) |= _PAGE_RONLY; return pte; }
 static inline pte_t pte_mkclean(pte_t pte)	{ pte_val(pte) &= ~_PAGE_DIRTY; return pte; }
@@ -163,6 +176,7 @@ static inline pte_t pte_mkcache(pte_t pte)
 	pte_val(pte) = (pte_val(pte) & _CACHEMASK040) | m68k_supervisor_cachemode;
 	return pte;
 }
+static inline pte_t pte_mkspecial(pte_t pte)   { pte_val(pte) |= _PAGE_SPECIAL; return pte; }
 
 #define swapper_pg_dir kernel_pg_dir
 extern pgd_t kernel_pg_dir[128];
