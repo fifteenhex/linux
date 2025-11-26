@@ -32,6 +32,50 @@ static inline void __runtime_fixup_ptr(void *where, unsigned long val)
 	flush_icache_range(start, end);
 }
 
+#ifdef CONFIG_M68000
+/* How many shift by 8 instructions are in a shift constant */
+#define SHIFT_32_INSNS (32 / 8)
+/* Size of each shift instruction */
+#define SHIFT_INSN_SZ 2
+
+/* Generate enough shift by 8s to shift up to 32 places */
+#define runtime_const_shift_right_32(val, sym) ({		\
+	asm_inline("1:\t"					\
+		"lsr.l #8, %0\n\t"				\
+		"lsr.l #8, %0\n\t"				\
+		"lsr.l #8, %0\n\t"				\
+		"lsr.l #8, %0\n\t"				\
+		".pushsection runtime_shift_" #sym ",\"a\"\n\t"	\
+		".long 1b - .\n\t"				\
+		".popsection"					\
+		: "+d" (val));					\
+	val; })
+
+#define LSR_IMM_REG_COUNT GENMASK(11, 9)
+#define NOP 0x4e71
+
+static inline void __runtime_fixup_shift(void *where, unsigned long val)
+{
+	const unsigned long shifts_start = (unsigned long) where;
+	u16 *insn = where;
+
+	for (int i = 0; i < SHIFT_32_INSNS; i++, insn++) {
+		if (val >= 8) {
+			/* Existing instruction shifts by 8, just subtract 8 from val */
+			val -= 8;
+		} else if (val > 0) {
+			/* Replace the shift count with val */
+			FIELD_MODIFY(LSR_IMM_REG_COUNT, insn, val);
+			val = 0;
+		} else {
+			/* Replace unneeded shift with nop */
+			*insn = NOP;
+		}
+	}
+
+	flush_icache_range(shifts_start, shifts_start + (SHIFT_32_INSNS * SHIFT_INSN_SZ));
+}
+#else
 #define runtime_const_shift_right_32(val, sym) ({		\
 	u32 __tmp;						\
 	asm_inline("1:\t"					\
@@ -54,6 +98,7 @@ static inline void __runtime_fixup_shift(void *where, unsigned long val)
 
 	flush_icache_range(start, end);
 }
+#endif
 
 #define runtime_const_init(type, sym) do {		\
 	extern s32 __start_runtime_##type##_##sym[];	\
