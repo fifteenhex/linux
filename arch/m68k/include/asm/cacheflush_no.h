@@ -8,9 +8,16 @@
 #include <linux/mm.h>
 #include <asm/mcfsim.h>
 
-#define flush_cache_all()			__flush_cache_all()
-#define flush_dcache_range(start, len)		__flush_dcache_all()
-#define flush_icache_range(start, len)		__flush_icache_all()
+#define flush_cache_all() __flush_cache_all()
+static inline void flush_dcache_range(unsigned long start, unsigned long end)
+{
+	__flush_dcache_all();
+}
+
+static inline void flush_icache_range(unsigned long start, unsigned long end)
+{
+	__flush_icache_all();
+}
 
 void mcf_cache_push(void);
 
