@@ -52,6 +52,10 @@
 #elif defined(__loongarch__)
 #define VDSO_VERSION		6
 #define VDSO_NAMES		1
+#elif defined(__mc68000__)
+#define VDSO_VERSION		6
+#define VDSO_NAMES		1
+#define VDSO_32BIT		1
 #endif
 
 __attribute__((unused))

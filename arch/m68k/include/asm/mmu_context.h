@@ -227,14 +227,14 @@ static inline void activate_mm(struct mm_struct *prev_mm,
 static inline int init_new_context(struct task_struct *tsk,
 				   struct mm_struct *mm)
 {
-	mm->context = virt_to_phys(mm->pgd);
+	mm->context.x = virt_to_phys(mm->pgd);
 	return 0;
 }
 
 static inline void switch_mm_0230(struct mm_struct *mm)
 {
 	unsigned long crp[2] = {
-		0x80000000 | _PAGE_TABLE, mm->context
+		0x80000000 | _PAGE_TABLE, mm->context.x
 	};
 	unsigned long tmp;
 
@@ -302,7 +302,7 @@ static inline void switch_mm(struct mm_struct *prev, struct mm_struct *next, str
 static inline void activate_mm(struct mm_struct *prev_mm,
 			       struct mm_struct *next_mm)
 {
-	next_mm->context = virt_to_phys(next_mm->pgd);
+	next_mm->context.x = virt_to_phys(next_mm->pgd);
 
 	if (CPU_IS_020_OR_030)
 		switch_mm_0230(next_mm);

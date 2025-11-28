@@ -132,3 +132,11 @@ archheaders:
 install: KBUILD_IMAGE := vmlinux.gz
 install:
 	$(call cmd,install)
+
+ifeq ($(KBUILD_EXTMOD),)
+ifeq ($(CONFIG_MMU),y)
+prepare: vdso_prepare
+vdso_prepare: prepare0
+	$(Q)$(MAKE) $(build)=arch/m68k/kernel/vdso include/generated/vdso-offsets.h arch/m68k/kernel/vdso/vdso.so
+endif
+endif
