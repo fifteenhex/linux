@@ -31,6 +31,8 @@
 #include <asm/unistd.h>
 #include <asm/cacheflush.h>
 
+#include <vdso/datapage.h>
+
 #ifdef CONFIG_MMU
 
 #include <asm/tlb.h>
@@ -573,6 +575,9 @@ asmlinkage unsigned long sys_get_thread_area(void)
 
 asmlinkage int sys_set_thread_area(unsigned long tp)
 {
+	struct vdso_arch_data *avd = vdso_k_arch_data;
+	avd->tp_value = tp;
+
 	current_thread_info()->tp_value = tp;
 	return 0;
 }

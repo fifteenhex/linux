@@ -23,3 +23,6 @@ obj-$(CONFIG_UBOOT)		+= uboot.o
 
 obj-$(CONFIG_EARLY_PRINTK)	+= early_printk.o
 obj-$(CONFIG_JUMP_LABEL)	+= jump_label.o
+
+obj-y				+= vdso/ vdso.o
+subdir- += vdso

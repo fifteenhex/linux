@@ -2,6 +2,8 @@
 #ifndef _M68K_SWITCH_TO_H
 #define _M68K_SWITCH_TO_H
 
+#include <vdso/datapage.h>
+
 /*
  * switch_to(n) should switch tasks to task ptr, first checking that
  * ptr isn't the current task, in which case it does nothing.  This
@@ -32,6 +34,8 @@ asmlinkage void resume(void);
   register void *_prev __asm__ ("a0") = (prev); \
   register void *_next __asm__ ("a1") = (next); \
   register void *_last __asm__ ("d1"); \
+  struct vdso_arch_data *avd = vdso_k_arch_data; \
+  avd->tp_value = task_thread_info(next)->tp_value; \
   __asm__ __volatile__("jbsr resume" \
 		       : "=a" (_prev), "=a" (_next), "=d" (_last) \
 		       : "0" (_prev), "1" (_next) \
