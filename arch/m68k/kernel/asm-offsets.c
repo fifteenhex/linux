@@ -20,6 +20,7 @@
 #include <asm/irq.h>
 #include <asm/amigahw.h>
 #include <linux/font.h>
+#include <vdso/datapage.h>
 
 int main(void)
 {
@@ -106,4 +107,12 @@ int main(void)
 #endif
 
 	return 0;
+}
+
+static void __used output_vdso_defines(void)
+{
+	COMMENT("m68k vDSO offsets.");
+
+	DEFINE(__VDSO_PAGES, VDSO_NR_PAGES);
+	BLANK();
 }
