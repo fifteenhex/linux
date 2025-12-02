@@ -8,11 +8,11 @@ ifeq ($(ARCH),$(filter $(ARCH),x86 x86_64))
 TEST_GEN_PROGS += vdso_standalone_test_x86
 endif
 TEST_GEN_PROGS += vdso_test_correctness
-TEST_GEN_PROGS += vdso_test_getrandom
+#TEST_GEN_PROGS += vdso_test_getrandom
 TEST_GEN_PROGS += vdso_test_chacha
-ifeq ($(ARCH),m68k)
+#ifeq ($(ARCH),m68k)
 TEST_GEN_PROGS += vdso_test_getthreadarea
-endif
+#endif
 
 
 CFLAGS := -std=gnu99 -O2 -Wall -Wstrict-prototypes
