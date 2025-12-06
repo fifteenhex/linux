@@ -793,4 +793,11 @@ config RTK_SYSTIMER
 	  this option only when building for a Realtek platform or for compilation
 	  testing.
 
+config DRAGONBALL_TIMER
+	bool "Clocksource using DragonBall timer"
+	depends on M68K || COMPILE_TEST
+	select CLKSRC_MMIO
+	help
+	  Support for the DragonBall timer
+
 endmenu
