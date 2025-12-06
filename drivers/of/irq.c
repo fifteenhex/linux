@@ -699,6 +699,7 @@ err:
 	}
 }
 
+#ifdef CONFIG_PCI_MSI
 static int of_check_msi_parent(struct device_node *dev_node, struct device_node **msi_node)
 {
 	struct of_phandle_args msi_spec;
@@ -824,3 +825,4 @@ void of_msi_configure(struct device *dev, const struct device_node *np)
 			   of_msi_get_domain(dev, np, DOMAIN_BUS_PLATFORM_MSI));
 }
 EXPORT_SYMBOL_GPL(of_msi_configure);
+#endif
