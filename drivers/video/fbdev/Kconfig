@@ -1454,6 +1454,7 @@ config FB_68328
 	bool "Motorola 68328 native frame buffer support"
 	depends on FB
 	select FB_IOMEM_HELPERS
+	select FB_PROVIDE_GET_FB_UNMAPPED_AREA
 	help
 	  Say Y here if you want to support the built-in frame buffer of
 	  the Motorola 68328 CPU family.
