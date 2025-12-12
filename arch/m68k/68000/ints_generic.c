@@ -148,7 +148,7 @@ static const struct irq_domain_ops mc68000_irq_domain_ops = {
 };
 
 static int __init mc680x0_intc_of_init(struct device_node *dn,
-				      struct device_node *parent)
+				       struct device_node *parent)
 {
 	mc68000_irq_domain = irq_domain_create_simple(of_fwnode_handle(dn),
 						      MC68000_IRQ_NR,
@@ -163,7 +163,7 @@ static int __init mc680x0_intc_of_init(struct device_node *dn,
 }
 
 static int __init mc68010_intc_of_init(struct device_node *dn,
-									   struct device_node *parent)
+				       struct device_node *parent)
 {
 	_is68k = 0;
 
@@ -184,7 +184,7 @@ static int __init mc68010_intc_of_init(struct device_node *dn,
 IRQCHIP_DECLARE(m68010_intc, "motorola,mc68010-intc-vect", mc68010_intc_of_init);
 
 static int __init mc68000_intc_of_init(struct device_node *dn,
-									   struct device_node *parent)
+				       struct device_node *parent)
 {
 	_is68k = 1;
 
@@ -266,7 +266,7 @@ static int __init mc680x0_intc_user_of_init(struct device_node *dn,
 }
 
 static int __init mc68010_intc_user_of_init(struct device_node *dn,
-									   struct device_node *parent)
+					    struct device_node *parent)
 {
 	_is68k = 0;
 
