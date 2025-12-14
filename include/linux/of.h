@@ -358,6 +358,8 @@ extern int of_property_read_string_helper(const struct device_node *np,
 					      const char **out_strs, size_t sz, int index);
 extern int of_device_is_compatible(const struct device_node *device,
 				   const char *);
+#define of_device_is_possible_and_compatible(symbol, device, string) \
+	(IS_ENABLED(symbol) && of_device_is_compatible(device, string))
 extern int of_device_compatible_match(const struct device_node *device,
 				      const char *const *compat);
 extern bool of_device_is_available(const struct device_node *device);
