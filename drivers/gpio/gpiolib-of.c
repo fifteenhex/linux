@@ -93,9 +93,9 @@ static int of_gpio_spi_cs_get_count(const struct device_node *np,
 		return 0;
 	if (!con_id || strcmp(con_id, "cs"))
 		return 0;
-	if (!of_device_is_compatible(np, "fsl,spi") &&
-	    !of_device_is_compatible(np, "aeroflexgaisler,spictrl") &&
-	    !of_device_is_compatible(np, "ibm,ppc4xx-spi"))
+	if (!of_device_is_possible_and_compatible(CONFIG_SPI_FSL_SPI, np, "fsl,spi") &&
+	    !of_device_is_possible_and_compatible(CONFIG_SPI_FSL_SPI, np, "aeroflexgaisler,spictrl") &&
+	    !of_device_is_possible_and_compatible(CONFIG_SPI_PPC4xx, np, "ibm,ppc4xx-spi"))
 		return 0;
 	return of_gpio_named_count(np, "gpios");
 }
