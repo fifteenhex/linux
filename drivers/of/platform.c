@@ -490,12 +490,22 @@ EXPORT_SYMBOL_GPL(of_platform_default_populate);
 
 static const struct of_device_id reserved_mem_matches[] = {
 	{ .compatible = "phram" },
+#if IS_ENABLED(CONFIG_QCOM_RMTFS_MEM)
 	{ .compatible = "qcom,rmtfs-mem" },
+#endif
+#if IS_ENABLED(CONFIG_QCOM_COMMAND_DB)
 	{ .compatible = "qcom,cmd-db" },
+#endif
+#if IS_ENABLED(CONFIG_QCOM_SMEM)
 	{ .compatible = "qcom,smem" },
+#endif
 	{ .compatible = "ramoops" },
+#if IS_ENABLED(CONFIG_NVMEM_RMEM)
 	{ .compatible = "nvmem-rmem" },
+#endif
+#if IS_ENABLED(CONFIG_OPEN_DICE)
 	{ .compatible = "google,open-dice" },
+#endif
 	{}
 };
 
