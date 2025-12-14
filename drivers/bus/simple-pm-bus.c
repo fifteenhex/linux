@@ -141,7 +141,9 @@ static const struct of_device_id simple_pm_bus_of_match[] = {
 	{ .compatible = "simple-bus",	.data = ONLY_BUS },
 	{ .compatible = "simple-mfd",	.data = ONLY_BUS },
 	{ .compatible = "isa",		.data = ONLY_BUS },
+#if IS_ENABLED(CONFIG_ARM_AMBA)
 	{ .compatible = "arm,amba-bus",	.data = ONLY_BUS },
+#endif
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, simple_pm_bus_of_match);
