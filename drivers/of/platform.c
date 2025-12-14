@@ -358,7 +358,8 @@ static int of_platform_bus_create(struct device_node *bus,
 		platform_data = auxdata->platform_data;
 	}
 
-	if (of_device_is_compatible(bus, "arm,primecell")) {
+	if (IS_ENABLED(CONFIG_ARM_AMBA) &&
+		of_device_is_compatible(bus, "arm,primecell")) {
 		/*
 		 * Don't return an error here to keep compatibility with older
 		 * device tree files.
