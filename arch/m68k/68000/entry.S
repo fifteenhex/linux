@@ -31,7 +31,7 @@
  */
  .macro fixframe num
 	/* disable intrs */
-	move	#0x2700,%sr
+	oriw	#0x0700, %sr
 	/* restack pc and sr */
 	movew	%sp@, %sp@-
 	movew	%sp@(4), %sp@(2)
@@ -83,6 +83,7 @@ ENTRY(system_call_68000)
 ENTRY(system_call)
 _syscall:
 	SAVE_ALL_SYS
+	andw	#ALLOWINT,%sr
 
 	/* save top of frame*/
 	pea	%sp@
