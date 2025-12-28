@@ -931,7 +931,7 @@ void __noreturn do_exit(long code)
 	struct kthread *kthread;
 	int group_dead;
 
-//	WARN_ON(irqs_disabled());
+	WARN_ON(irqs_disabled());
 	WARN_ON(tsk->plug);
 
 	kthread = tsk_is_kthread(tsk);
