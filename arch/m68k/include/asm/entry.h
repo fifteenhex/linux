@@ -204,7 +204,7 @@
 	addl	%sp@+,%sp		/* stk adj */
 #ifdef CONFIG_M68000
 	/* disable intrs */
-	move	#0x2700,%sr
+	oriw	#0x0700,%sr
 	/* Do we need to revert to 68000 frame? */
 	movel	%d0,%sp@-
 	movel	%a0,%sp@-
