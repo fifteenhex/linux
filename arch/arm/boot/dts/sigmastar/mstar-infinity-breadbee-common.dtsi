@@ -35,7 +35,7 @@
 		compatible = "gpio-leds";
 		led-red {
 			gpios = <&gpio MSC313_GPIO_SR_IO16 GPIO_ACTIVE_HIGH>;
-			linux,default-trigger = "activity";
+			linux,default-trigger = "cpu";
 		};
 		led-yellow {
 			gpios = <&gpio MSC313_GPIO_SR_IO17 GPIO_ACTIVE_HIGH>;
