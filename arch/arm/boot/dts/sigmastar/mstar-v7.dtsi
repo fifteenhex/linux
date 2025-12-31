@@ -187,6 +187,9 @@
 		imi: sram@a0000000 {
 			compatible = "mmio-sram";
 			reg = <0xa0000000 0x10000>;
+			#address-cells = <1>;
+			#size-cells = <1>;
+			ranges = <0 0xa0000000 0x10000>;
 		};
 	};
 };
