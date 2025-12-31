@@ -18,7 +18,7 @@ properties:
     const: mstar,msc313-cpupll
 
   "#clock-cells":
-    const: 1
+    const: 0
 
   clocks:
     maxItems: 1
@@ -36,10 +36,9 @@ additionalProperties: false
 
 examples:
   - |
-    #include <dt-bindings/clock/mstar-msc313-mpll.h>
     cpupll: cpupll@206400 {
         compatible = "mstar,msc313-cpupll";
         reg = <0x206400 0x200>;
-        #clock-cells = <1>;
+        #clock-cells = <0>;
         clocks = <&mpll MSTAR_MSC313_MPLL_DIV2>;
     };
