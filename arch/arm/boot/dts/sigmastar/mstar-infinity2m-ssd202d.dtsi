@@ -7,7 +7,7 @@
 #include "mstar-infinity2m-ssd20xd.dtsi"
 
 / {
-	memory {
+	memory@20000000 {
 		device_type = "memory";
 		reg = <0x20000000 0x8000000>;
 	};
