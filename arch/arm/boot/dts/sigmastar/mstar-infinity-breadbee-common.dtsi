@@ -7,7 +7,7 @@
 #include <dt-bindings/gpio/gpio.h>
 
 / {
-	vcc_core: fixedregulator@0 {
+	vcc_core: regulator-core {
 		compatible = "regulator-fixed";
 		regulator-name = "vcc_core";
 		regulator-min-microvolt = <1000000>;
@@ -15,7 +15,7 @@
 		regulator-boot-on;
 	};
 
-	vcc_dram: fixedregulator@1 {
+	vcc_dram: regulator-dram {
 		compatible = "regulator-fixed";
 		regulator-name = "vcc_dram";
 		regulator-min-microvolt = <1800000>;
@@ -23,7 +23,7 @@
 		regulator-boot-on;
 	};
 
-	vcc_io: fixedregulator@2 {
+	vcc_io: regulator-io {
 		compatible = "regulator-fixed";
 		regulator-name = "vcc_io";
 		regulator-min-microvolt = <3300000>;
