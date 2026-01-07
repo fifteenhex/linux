@@ -3,6 +3,7 @@
 #define _M68K_PTRACE_H
 
 #include <uapi/asm/ptrace.h>
+#include <asm/irqflags.h>
 
 #ifndef __ASSEMBLER__
 
@@ -23,6 +24,11 @@
 #ifdef CONFIG_MMU
 #define arch_has_block_step()	(1)
 #endif
+
+static __always_inline bool regs_irqs_disabled(const struct pt_regs *regs)
+{
+	return arch_irqs_disabled_flags(regs->sr);
+}
 
 #endif /* __ASSEMBLER__ */
 #endif /* _M68K_PTRACE_H */
