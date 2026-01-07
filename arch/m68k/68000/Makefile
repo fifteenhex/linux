@@ -10,7 +10,7 @@
 
 # 68328, 68EZ328, 68VZ328
 
-obj-y += entry.o
+obj-y += entry.o entry_common.o
 obj-$(CONFIG_ROM)	+= romvec.o
 obj-$(CONFIG_ISDRAGONBALL) += ints_dragonball.o
 obj-$(CONFIG_M68KDT) += ints_generic.o
