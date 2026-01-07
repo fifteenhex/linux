@@ -176,4 +176,9 @@ void show_registers(struct pt_regs *regs);
 
 #define cpu_relax()	barrier()
 
+static __always_inline bool on_thread_stack(void)
+{
+	return false;
+}
+
 #endif
