@@ -42,13 +42,13 @@
 
 typedef char *elf_caddr_t;
 
-#if 0
+#if 1
 #define kdebug(fmt, ...) printk("FDPIC "fmt"\n" ,##__VA_ARGS__ )
 #else
 #define kdebug(fmt, ...) do {} while(0)
 #endif
 
-#if 0
+#if 1
 #define kdcore(fmt, ...) printk("FDPIC "fmt"\n" ,##__VA_ARGS__ )
 #else
 #define kdcore(fmt, ...) do {} while(0)
