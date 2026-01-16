@@ -12,6 +12,7 @@
 
 #include "compiler.h"
 #include "crt.h"
+#include "elf.h"
 
 #define _NOLIBC_SYSCALL_CLOBBERLIST "memory"
 
@@ -128,13 +129,78 @@
 	_num;                                                                 \
 })
 
+#ifdef NOLIBC_STATIC_PIE
+#define R_68K_RELATIVE	22
+void _relocate(void);
+void __no_stack_protector _relocate(void) {
+	extern char _DYNAMIC[];
+	unsigned int rela_count = 0;
+	unsigned int rela_off = 0;
+	unsigned long base_addr;
+	unsigned long dyn_addr;
+	Elf32_Rela *rela;
+	Elf32_Addr *addr;
+	Elf32_Dyn *dyn;
+	void *base;
+	int i;
+
+	/* For m68k with the FDPIC loader d5 contains the offset to the DYNAMIC segment */
+	__asm__ volatile (
+		"move.l %%d5, %0\n"
+		: "=r" (dyn_addr)
+	);
+	dyn = (Elf32_Dyn *) dyn_addr;
+
+	base_addr = dyn_addr - (unsigned long) _DYNAMIC;
+	base = (void *) base_addr;
+
+	/* Go through the DYNAMIC segment and get the offset to rela and the number of relocations */
+	for (; dyn->d_tag != DT_NULL; dyn++) {
+		switch (dyn->d_tag) {
+		case DT_RELA:
+			rela_off = dyn->d_un.d_ptr;
+			break;
+		case DT_RELACOUNT:
+			rela_count = dyn->d_un.d_val;
+			break;
+		}
+	}
+
+	if (!rela_off || !rela_count)
+		return;
+
+	rela = base + rela_off;
+
+	/* Do the relocations, only R_68K_RELATIVE for now */
+	for (i = 0; i < rela_count; i++) {
+		Elf32_Rela *entry = &rela[i];
+
+		switch (ELF32_R_TYPE(entry->r_info)) {
+		case R_68K_RELATIVE:
+		{
+			addr = (Elf32_Addr *)(base + entry->r_offset);
+			*addr = (Elf32_Addr) (base + entry->r_addend);
+		}
+			break;
+		default:
+			return;
+		}
+	}
+}
+#endif
+
 #ifndef NOLIBC_NO_RUNTIME
 void _start(void);
 void __attribute__((weak, noreturn)) __nolibc_entrypoint __no_stack_protector _start(void)
 {
 	__asm__ volatile (
 		"movel %sp, %sp@-\n"
-		"jsr _start_c\n"
+#ifdef NOLIBC_STATIC_PIE
+		"lea _relocate(%pc), %a0\n"
+		"jsr (%a0)\n"
+#endif
+		"lea _start_c(%pc), %a0\n"
+		"jsr (%a0)\n"
 	);
 	__nolibc_entrypoint_epilogue();
 }
