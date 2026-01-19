@@ -14,6 +14,10 @@
 #include "crt.h"
 #include "elf.h"
 
+//#ifdef __pie__
+#define NOLIBC_STATIC_PIE
+//#endif
+
 #define _NOLIBC_SYSCALL_CLOBBERLIST "memory"
 
 #define my_syscall0(num)                                                      \
@@ -196,6 +200,7 @@ void __attribute__((weak, noreturn)) __nolibc_entrypoint __no_stack_protector _s
 	__asm__ volatile (
 		"movel %sp, %sp@-\n"
 #ifdef NOLIBC_STATIC_PIE
+		"lea _GLOBAL_OFFSET_TABLE_(%pc), %a5\n"
 		"lea _relocate(%pc), %a0\n"
 		"jsr (%a0)\n"
 #endif
