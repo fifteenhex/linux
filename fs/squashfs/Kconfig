@@ -156,7 +156,7 @@ config SQUASHFS_COMP_CACHE_FULL
 	help
 	  This option enables caching of all compressed blocks, Without caching,
 	  repeated reads of the same files trigger excessive disk I/O, significantly
-	  reducinng performance in workloads like fio-based benchmarks.
+	  reducing performance in workloads like fio-based benchmarks.
 
 	  For example, fio tests (iodepth=1, numjobs=1, ioengine=psync) show:
 	   With caching: IOPS=2223, BW=278MiB/s (291MB/s)
