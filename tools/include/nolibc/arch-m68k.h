@@ -10,8 +10,16 @@
 #ifndef _NOLIBC_ARCH_M68K_H
 #define _NOLIBC_ARCH_M68K_H
 
+#include "elf.h"
+
+#ifdef R_68K_RELATIVE
+#define _NOLIBC_ARCH_HAS_RELOC
+#define _NOLIBC_ARCH_ELF32
+#endif
+
 #include "compiler.h"
 #include "crt.h"
+#include "reloc.h"
 
 #define _NOLIBC_SYSCALL_CLOBBERLIST "memory"
 
@@ -129,12 +137,29 @@
 })
 
 #ifndef NOLIBC_NO_RUNTIME
+
+#ifdef NOLIBC_WANT_RELOC
+static __inline__ int __relocate_rela(unsigned long base, _nolibc_elf_rela *entry)
+{
+	switch (_nolibc_elf_r_type(entry->r_info)) {
+	case R_68K_RELATIVE:
+		__relocate_rela_relative(base, entry);
+		break;
+	default:
+		return -1;
+	}
+
+	return 0;
+}
+#endif /* NOLIBC_WANT_RELOC */
+
 void _start(void);
 void __attribute__((weak, noreturn)) __nolibc_entrypoint __no_stack_protector _start(void)
 {
 	__asm__ volatile (
 		"movel %sp, %sp@-\n"
-		"jsr _start_c\n"
+		"lea _start_c(%pc), %a0\n"
+		"jsr (%a0)\n"
 	);
 	__nolibc_entrypoint_epilogue();
 }
