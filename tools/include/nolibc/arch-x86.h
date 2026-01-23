@@ -7,8 +7,11 @@
 #ifndef _NOLIBC_ARCH_X86_H
 #define _NOLIBC_ARCH_X86_H
 
+#define NOLIBC_ARCH_HAS_RELOC
+
 #include "compiler.h"
 #include "crt.h"
+#include "elf.h"
 
 #if !defined(__x86_64__)
 
@@ -344,6 +347,22 @@ void __attribute__((weak, noreturn)) __nolibc_entrypoint __no_stack_protector _s
 	__nolibc_entrypoint_epilogue();
 }
 #endif /* NOLIBC_NO_RUNTIME */
+
+static int _process_reloc(unsigned long base, Elf64_Rela *entry)
+{
+	Elf64_Addr *addr;
+
+	switch (ELF64_R_TYPE(entry->r_info)) {
+	case R_AMD64_RELATIVE:
+		addr = (Elf64_Addr *)(base + entry->r_offset);
+		*addr = (Elf64_Addr) (base + entry->r_addend);
+		break;
+	default:
+		return -1;
+	}
+
+	return 0;
+}
 
 #define NOLIBC_ARCH_HAS_MEMMOVE
 void *memmove(void *dst, const void *src, size_t len);
