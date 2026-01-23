@@ -7,8 +7,17 @@
 #ifndef _NOLIBC_ARCH_X86_H
 #define _NOLIBC_ARCH_X86_H
 
+#define NOLIBC_ARCH_HAS_RELOC
+#if !defined(__x86_64__)
+#define NOLIBC_ARCH_ELF32
+#define NOLIBC_ARCH_ELF_REL
+#elif defined(__x86_64__) && defined(__ILP32__)
+#define NOLIBC_ARCH_ELF32
+#endif
+
 #include "compiler.h"
 #include "crt.h"
+#include "elf.h"
 
 #if !defined(__x86_64__)
 
@@ -158,6 +167,19 @@
 })
 
 #ifndef NOLIBC_NO_RUNTIME
+static int __relocate_rel(unsigned long base, elf_rel *entry)
+{
+	switch (elf_r_type(entry->r_info)) {
+	case R_386_RELATIVE:
+		__relocate_rel_relative(base, entry);
+		break;
+	default:
+		return -1;
+	}
+
+	return 0;
+}
+
 /* startup code */
 /*
  * i386 System V ABI mandates:
@@ -326,6 +348,19 @@ void __attribute__((weak, noreturn)) __nolibc_entrypoint __no_stack_protector _s
 })
 
 #ifndef NOLIBC_NO_RUNTIME
+static int __relocate_rela(unsigned long base, elf_rela *entry)
+{
+	switch (elf_r_type(entry->r_info)) {
+	case R_AMD64_RELATIVE:
+		__relocate_rela_relative(base, entry);
+		break;
+	default:
+		return -1;
+	}
+
+	return 0;
+}
+
 /* startup code */
 /*
  * x86-64 System V ABI mandates:
