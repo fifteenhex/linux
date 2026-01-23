@@ -10,8 +10,12 @@
 #ifndef _NOLIBC_ARCH_M68K_H
 #define _NOLIBC_ARCH_M68K_H
 
+#define NOLIBC_ARCH_HAS_RELOC
+#define NOLIBC_ARCH_ELF32
+
 #include "compiler.h"
 #include "crt.h"
+#include "elf.h"
 
 #define _NOLIBC_SYSCALL_CLOBBERLIST "memory"
 
@@ -128,13 +132,29 @@
 	_num;                                                                 \
 })
 
+static int _process_reloc(unsigned long base, Elf32_Rela *entry) {
+	Elf32_Addr *addr;
+
+	switch (ELF32_R_TYPE(entry->r_info)) {
+		case R_68K_RELATIVE:
+			addr = (Elf32_Addr *)(base + entry->r_offset);
+			*addr = (Elf32_Addr) (base + entry->r_addend);
+			break;
+		default:
+			return -1;
+	}
+
+	return 0;
+}
+
 #ifndef NOLIBC_NO_RUNTIME
 void _start(void);
 void __attribute__((weak, noreturn)) __nolibc_entrypoint __no_stack_protector _start(void)
 {
 	__asm__ volatile (
 		"movel %sp, %sp@-\n"
-		"jsr _start_c\n"
+		"lea _start_c(%pc), %a0\n"
+		"jsr (%a0)\n"
 	);
 	__nolibc_entrypoint_epilogue();
 }
