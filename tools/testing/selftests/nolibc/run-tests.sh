@@ -16,6 +16,7 @@ build_location="$(realpath "${cache_dir}"/nolibc-tests/)"
 perform_download=0
 test_mode=system
 werror=1
+staticpie=0
 llvm=
 all_archs=(
 	i386 x86_64 x32
@@ -31,7 +32,7 @@ all_archs=(
 )
 archs="${all_archs[@]}"
 
-TEMP=$(getopt -o 'j:d:c:b:a:m:pelh' -n "$0" -- "$@")
+TEMP=$(getopt -o 'j:d:c:b:a:m:peslh' -n "$0" -- "$@")
 
 eval set -- "$TEMP"
 unset TEMP
@@ -55,6 +56,7 @@ Options:
  -b [DIR]       Build location (default: ${build_location})
  -m [MODE]      Test mode user/system (default: ${test_mode})
  -e             Disable -Werror
+ -s		Enable statie PIE (default: ${staticpie})
  -l             Build with LLVM/clang
 EOF
 }
@@ -84,6 +86,9 @@ while true; do
 			shift 2; continue ;;
 		'-e')
 			werror=0
+			shift; continue ;;
+		'-s')
+			staticpie=1
 			shift; continue ;;
 		'-l')
 			llvm=1
@@ -170,6 +175,9 @@ test_arch() {
 	build_dir="${build_location}/${arch}"
 	if [ "$werror" -ne 0 ]; then
 		CFLAGS_EXTRA="$CFLAGS_EXTRA -Werror -Wl,--fatal-warnings"
+	fi
+	if [ "$staticpie" -ne 0 ]; then
+		CFLAGS_EXTRA="$CFLAGS_EXTRA -fpie -pie -Wl,--no-dynamic-linker"
 	fi
 	MAKE=(make -f Makefile.nolibc -j"${nproc}" XARCH="${arch}" CROSS_COMPILE="${cross_compile}" LLVM="${llvm}" O="${build_dir}")
 
