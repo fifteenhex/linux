@@ -9,7 +9,7 @@ cc-option = $(call __cc-option, $(CC),,$(1),$(2))
 
 include Makefile.include
 
-CFLAGS = -nostdlib -nostdinc -static \
+CFLAGS = -nostdlib -nostdinc \
 	 -isystem $(top_srcdir)/tools/include/nolibc -isystem $(top_srcdir)/usr/include \
 	 $(CFLAGS_NOLIBC_TEST)
 
