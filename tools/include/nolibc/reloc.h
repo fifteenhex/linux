@@ -51,6 +51,7 @@ static void _relocate(const unsigned long *auxv)
 	unsigned long base;
 	int remaining = 3;
 	unsigned long i;
+	elf_ehdr *ehdr;
 	elf_rela *rela;
 	elf_dyn *dyn;
 
@@ -88,6 +89,18 @@ static void _relocate(const unsigned long *auxv)
 	if (remaining)
 		goto failed;
 
+	/*
+	 * Everything I could find said that the way to find the base for relocation
+	 * should be done by searching for the first PT_LOAD and then using the ofset
+	 * of that against the adressed of the program headers. So FIXME.
+	 */
+	base = phdr_addr - sizeof(elf_ehdr);
+
+	/* Check that we are PIE */
+	ehdr = (elf_ehdr *) base;
+	if (ehdr->e_type != ET_DYN)
+		return;
+
 	for (i = 0; i < phdr_num; i++) {
 		elf_phdr *phdr = (elf_phdr *)(phdr_addr + (phdr_sz * i));
 		switch (phdr->p_type) {
@@ -102,13 +115,6 @@ static void _relocate(const unsigned long *auxv)
 
 	if (!phdr_dyn)
 		goto failed;
-
-	/*
-	 * Everything I could find said that the way to find the base for relocation
-	 * should be done by searching for the first PT_LOAD and then using the ofset
-	 * of that against the adressed of the program headers. So FIXME.
-	 */
-	base = phdr_addr - sizeof(elf_ehdr);
 
 	dyn = (elf_dyn *)(base + phdr_dyn->p_offset);
 	for (; dyn->d_tag != DT_NULL; dyn++) {
