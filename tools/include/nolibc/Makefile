@@ -54,6 +54,7 @@ all_files := \
 		math.h \
 		nolibc.h \
 		poll.h \
+		reloc.h \
 		sched.h \
 		signal.h \
 		stackprotector.h \
