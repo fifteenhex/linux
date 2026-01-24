@@ -10,6 +10,7 @@
 #ifndef NOLIBC_NO_RUNTIME
 
 #include "compiler.h"
+#include "reloc.h"
 
 char **environ __attribute__((weak));
 const unsigned long *_auxv __attribute__((weak));
@@ -99,6 +100,12 @@ void __no_stack_protector _start_c(long *sp)
 	/* find _auxv */
 	for (auxv = (void *)envp; *auxv++;)
 		;
+
+	/*
+	 * Do relocation if required and supported, this must happen before any
+	 * global variables are updated or used.
+	 */
+	_relocate(auxv);
 
 	__start_c(argc, argv, envp, auxv);
 }
