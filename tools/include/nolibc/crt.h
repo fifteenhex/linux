@@ -14,6 +14,7 @@
 #ifndef NOLIBC_NO_RUNTIME
 
 #include "compiler.h"
+#include "reloc.h"
 
 char **environ __attribute__((weak));
 const unsigned long *_auxv __attribute__((weak));
@@ -50,22 +51,56 @@ char *__nolibc_program_invocation_short_name(char *long_name)
 }
 #endif /* NOLIBC_IGNORE_ERRNO */
 
+#ifdef __pic__
+void _start_c_global_data(long argc, char **argv, char **envp, const unsigned long *auxv);
+__attribute__((weak)) __nolibc_no_sanitize_undefined __nolibc_no_stack_protector
+#else
+static __inline__ __nolibc_no_sanitize_undefined __nolibc_no_stack_protector
+#endif
+void _start_c_global_data(long argc, char **argv, char **envp, const unsigned long *auxv)
+{
+	void (* const *ctor_func)(int, char **, char **);
+	void (* const *dtor_func)(void);
+	/* silence potential warning: conflicting types for 'main' */
+	int _nolibc_main(int, char **, char **) __asm__ ("main");
+	int exitcode;
+
+	/* initialize stack protector */
+	__stack_chk_init();
+
+	/* setup globals */
+	_auxv = auxv;
+	environ = envp;
+
+#ifndef NOLIBC_IGNORE_ERRNO
+	if (argc > 0 && argv[0]) {
+		program_invocation_name = argv[0];
+		program_invocation_short_name = __nolibc_program_invocation_short_name(argv[0]);
+	}
+#endif /* NOLIBC_IGNORE_ERRNO */
+
+	for (ctor_func = __preinit_array_start; ctor_func < __preinit_array_end; ctor_func++)
+		(*ctor_func)(argc, argv, envp);
+	for (ctor_func = __init_array_start; ctor_func < __init_array_end; ctor_func++)
+		(*ctor_func)(argc, argv, envp);
+
+	/* go to application */
+	exitcode = _nolibc_main(argc, argv, envp);
+
+	for (dtor_func = __fini_array_end; dtor_func > __fini_array_start;)
+		(*--dtor_func)();
+
+	exit(exitcode);
+}
+
 void _start_c(long *sp);
-__attribute__((weak,used)) __nolibc_no_sanitize_undefined __nolibc_no_stack_protector
+__attribute__((weak, used)) __nolibc_no_sanitize_undefined __nolibc_no_stack_protector
 void _start_c(long *sp)
 {
 	long argc;
 	char **argv;
 	char **envp;
-	int exitcode;
-	void (* const *ctor_func)(int, char **, char **);
-	void (* const *dtor_func)(void);
 	const unsigned long *auxv;
-	/* silence potential warning: conflicting types for 'main' */
-	int _nolibc_main(int, char **, char **) __asm__ ("main");
-
-	/* initialize stack protector */
-	__stack_chk_init();
 
 	/*
 	 * sp  :    argc          <-- argument count, required by main()
@@ -89,32 +124,19 @@ void _start_c(long *sp)
 	argv = (void *)(sp + 1);
 
 	/* find environ */
-	environ = envp = argv + argc + 1;
+	envp = argv + argc + 1;
 
 	/* find _auxv */
 	for (auxv = (void *)envp; *auxv++;)
 		__asm__("");
-	_auxv = auxv;
 
-#ifndef NOLIBC_IGNORE_ERRNO
-	if (argc > 0 && argv[0]) {
-		program_invocation_name = argv[0];
-		program_invocation_short_name = __nolibc_program_invocation_short_name(argv[0]);
-	}
-#endif /* NOLIBC_IGNORE_ERRNO */
+	/*
+	 * Do relocation if required and supported, this must happen before any
+	 * global variables are updated or used.
+	 */
+	_relocate(auxv);
 
-	for (ctor_func = __preinit_array_start; ctor_func < __preinit_array_end; ctor_func++)
-		(*ctor_func)(argc, argv, envp);
-	for (ctor_func = __init_array_start; ctor_func < __init_array_end; ctor_func++)
-		(*ctor_func)(argc, argv, envp);
-
-	/* go to application */
-	exitcode = _nolibc_main(argc, argv, envp);
-
-	for (dtor_func = __fini_array_end; dtor_func > __fini_array_start;)
-		(*--dtor_func)();
-
-	exit(exitcode);
+	_start_c_global_data(argc, argv, envp, auxv);
 }
 
 #endif /* NOLIBC_NO_RUNTIME */
