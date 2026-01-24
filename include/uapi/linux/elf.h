@@ -171,7 +171,7 @@ typedef struct {
 #define ELF64_R_SYM(i)			((i) >> 32)
 #define ELF64_R_TYPE(i)			((i) & 0xffffffff)
 
-/* arch specific relocation types */
+/* arch specific relocation types for NOLIBC */
 #define R_AMD64_RELATIVE	8
 #define R_68K_RELATIVE		22
 
