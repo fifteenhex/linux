@@ -69,6 +69,16 @@ config BINFMT_ELF_FDPIC
 
 	  It is also possible to run FDPIC ELF binaries on MMU linux also.
 
+	  On nommu systems this can also load normal ELF binaries as long as
+	  the binary is linked as PIE. If the binary is not static PIE, does not
+	  include it's own relocation code, this requires a linker like uldso to
+	  be present and set as the interpreter.
+
+	  nolibc included in the kernel source can create static-PIE binaries
+	  by including relocation code and the resulting binaries run on MMU
+	  systems with the normal ELF loader and on nommu systems with this
+	  loader.
+
 config ELFCORE
 	bool
 	help
