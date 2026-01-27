@@ -7,6 +7,10 @@
 #ifndef _NOLIBC_ARCH_ARM_H
 #define _NOLIBC_ARCH_ARM_H
 
+#define NOLIBC_ARCH_HAS_RELOC
+#define NOLIBC_ARCH_ELF32
+#define NOLIBC_ARCH_ELF_REL
+
 #include "compiler.h"
 #include "crt.h"
 
@@ -185,6 +189,19 @@
 })
 
 #ifndef NOLIBC_NO_RUNTIME
+static int __relocate_rel(unsigned long base, elf_rel *entry)
+{
+	switch (elf_r_type(entry->r_info)) {
+	case R_ARM_RELATIVE:
+		__relocate_rel_relative(base, entry);
+		break;
+	default:
+		return -1;
+	}
+
+	return 0;
+}
+
 /* startup code */
 void __attribute__((weak, noreturn)) __nolibc_entrypoint __no_stack_protector _start(void)
 {
