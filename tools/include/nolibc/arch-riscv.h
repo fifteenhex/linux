@@ -7,6 +7,11 @@
 #ifndef _NOLIBC_ARCH_RISCV_H
 #define _NOLIBC_ARCH_RISCV_H
 
+#if __riscv_xlen == 32
+#define NOLIBC_ARCH_ELF32
+#endif
+#define NOLIBC_ARCH_HAS_RELOC
+
 #include "compiler.h"
 #include "crt.h"
 
@@ -140,6 +145,19 @@
 })
 
 #ifndef NOLIBC_NO_RUNTIME
+static int __relocate_rela(unsigned long base, elf_rela *entry)
+{
+	switch (elf_r_type(entry->r_info)) {
+	case R_RISCV_RELATIVE:
+		__relocate_rela_relative(base, entry);
+		break;
+	default:
+		return -1;
+	}
+
+	return 0;
+}
+
 /* startup code */
 void __attribute__((weak, noreturn)) __nolibc_entrypoint __no_stack_protector _start(void)
 {
