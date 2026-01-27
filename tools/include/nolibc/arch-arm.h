@@ -12,6 +12,17 @@
 #include "compiler.h"
 #include "crt.h"
 #include "std.h"
+#include "elf.h"
+
+#ifdef R_ARM_RELATIVE
+#define _NOLIBC_ARCH_HAS_RELOC
+#define _NOLIBC_ARCH_ELF32
+#define _NOLIBC_ARCH_ELF_REL
+#endif
+
+#include "compiler.h"
+#include "crt.h"
+#include "reloc.h"
 
 /* Syscalls for ARM in ARM or Thumb modes :
  *   - registers are 32-bit
@@ -188,6 +199,22 @@
 })
 
 #ifndef NOLIBC_NO_RUNTIME
+
+#ifdef NOLIBC_WANT_RELOC
+static __inline__ int __relocate_rel(unsigned long base, _nolibc_elf_rel *entry)
+{
+	switch (_nolibc_elf_r_type(entry->r_info)) {
+	case R_ARM_RELATIVE:
+		__relocate_rel_relative(base, entry);
+		break;
+	default:
+		return -1;
+	}
+
+	return 0;
+}
+#endif /* NOLIBC_WANT_RELOC */
+
 /* startup code */
 void __attribute__((weak, noreturn)) __nolibc_entrypoint __nolibc_no_stack_protector _start(void)
 {
