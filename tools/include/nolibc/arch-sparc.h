@@ -9,8 +9,18 @@
 
 #include <linux/unistd.h>
 
+#include "elf.h"
+
+#if defined(R_SPARC_RELATIVE)
+#define _NOLIBC_ARCH_HAS_RELOC
+#ifndef __arch64__
+#define _NOLIBC_ARCH_ELF32
+#endif
+#endif
+
 #include "compiler.h"
 #include "crt.h"
+#include "reloc.h"
 
 /*
  * Syscalls for SPARC:
@@ -153,6 +163,24 @@
 })
 
 #ifndef NOLIBC_NO_RUNTIME
+
+#ifdef NOLIBC_WANT_RELOC
+static __inline__ int __relocate_rela(unsigned long base, _nolibc_elf_rela *entry)
+{
+	switch (_nolibc_elf_r_type(entry->r_info)) {
+	case R_SPARC_NONE:
+		break;
+	case R_SPARC_RELATIVE:
+		__relocate_rela_relative(base, entry);
+		break;
+	default:
+		return -1;
+	}
+
+	return 0;
+}
+#endif /* NOLIBC_WANT_RELOC */
+
 /* startup code */
 void __attribute__((weak, noreturn)) __nolibc_entrypoint __no_stack_protector _start(void)
 {
