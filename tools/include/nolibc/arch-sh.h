@@ -7,8 +7,16 @@
 #ifndef _NOLIBC_ARCH_SH_H
 #define _NOLIBC_ARCH_SH_H
 
+#include "elf.h"
+
+#ifdef R_SH_RELATIVE
+#define _NOLIBC_ARCH_HAS_RELOC
+#define _NOLIBC_ARCH_ELF32
+#endif
+
 #include "compiler.h"
 #include "crt.h"
+#include "reloc.h"
 
 /*
  * Syscalls for SuperH:
@@ -141,6 +149,22 @@
 })
 
 #ifndef NOLIBC_NO_RUNTIME
+
+#ifdef NOLIBC_WANT_RELOC
+static __inline__ int __relocate_rela(unsigned long base, _nolibc_elf_rela *entry)
+{
+	switch (_nolibc_elf_r_type(entry->r_info)) {
+	case R_SH_RELATIVE:
+		__relocate_rela_relative(base, entry);
+		break;
+	default:
+		return -1;
+	}
+
+	return 0;
+}
+#endif
+
 /* startup code */
 void _start_wrapper(void);
 void __attribute__((weak,noreturn)) __nolibc_entrypoint __no_stack_protector _start_wrapper(void)
