@@ -47,4 +47,10 @@
 #  define __nolibc_fallthrough do { } while (0)
 #endif /* __nolibc_has_attribute(fallthrough) */
 
+#if __nolibc_has_feature(undefined_behavior_sanitizer)
+#  define __no_sanitize __attribute__((no_sanitize("function")))
+#else
+#  define __no_sanitize
+#endif
+
 #endif /* _NOLIBC_COMPILER_H */
