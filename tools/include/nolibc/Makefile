@@ -41,6 +41,7 @@ all_files := \
 		reloc.h \
 		sched.h \
 		signal.h \
+		socket.h \
 		stackprotector.h \
 		std.h \
 		stdarg.h \
