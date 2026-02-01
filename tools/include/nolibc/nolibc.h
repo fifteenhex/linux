@@ -137,6 +137,7 @@
 #include "endian.h"
 #include "assert.h"
 #include "alloca.h"
+#include "socket.h"
 
 /* Used by programs to avoid std includes */
 #define NOLIBC
