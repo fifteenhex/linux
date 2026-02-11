@@ -141,7 +141,9 @@ static const struct of_device_id simple_pm_bus_of_match[] = {
 	{ .compatible = "simple-bus",	.data = ONLY_BUS },
 	{ .compatible = "simple-mfd",	.data = ONLY_BUS },
 	{ .compatible = "isa",		.data = ONLY_BUS },
+#if IS_ENABLED(CONFIG_ARM_AMBA)
 	{ .compatible = "arm,amba-bus",	.data = ONLY_BUS },
+#endif
 	{ .compatible = "fsl,ls1021a-scfg", },
 	{ .compatible = "fsl,ls1043a-scfg", },
 	{ .compatible = "fsl,ls1046a-scfg", },
