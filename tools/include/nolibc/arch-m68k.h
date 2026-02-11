@@ -132,6 +132,8 @@
 	_num;                                                                 \
 })
 
+#define R_68K_RELATIVE		22
+
 static int _process_reloc(unsigned long base, Elf32_Rela *entry) {
 	Elf32_Addr *addr;
 
