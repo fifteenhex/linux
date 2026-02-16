@@ -85,8 +85,6 @@ static void __init zone_sizes_init(unsigned long min, unsigned long max_low,
 	max_zone_pfn[ZONE_DMA] = max_low;
 #endif
 	max_zone_pfn[ZONE_NORMAL] = max_low;
-
-	free_area_init(max_zone_pfn);
 }
 
 void __init setup_arch(char **cmdline_p)
