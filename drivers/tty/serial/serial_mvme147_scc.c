@@ -733,16 +733,18 @@ static irqreturn_t scc_tx_int(int irq, void *data)
 	struct mvme147_scc_serial_port *sccp = data;
 	struct scc_port *port = &sccp->scc_port;
 	SCC_ACCESS_INIT(port);
+	unsigned int pending;
 	u8 ch;
 
 	uart_port_lock(&sccp->port);
-	uart_port_tx_limited(&sccp->port, ch, MVME147_SCC_TX_FIFO_DEPTH,
+	pending = uart_port_tx_limited(&sccp->port, ch, MVME147_SCC_TX_FIFO_DEPTH,
 			     mvme147_scc_serial_can_transmit(sccp),
 			     mvme147_scc_serial_transmit_char(sccp, ch),
 			     ({}));
 
-	//SCCmod (INT_AND_DMA_REG, ~IDR_TX_INT_ENAB, 0);
-	SCCwrite(COMMAND_REG, CR_TX_PENDING_RESET);
+	if (!pending)
+		SCCmod (INT_AND_DMA_REG, ~IDR_TX_INT_ENAB, 0);
+	//SCCwrite(COMMAND_REG, CR_TX_PENDING_RESET);
 	SCCwrite_NB(COMMAND_REG, CR_HIGHEST_IUS_RESET);
 
 	uart_port_unlock(&sccp->port);
@@ -1164,8 +1166,7 @@ static void mvme147_scc_serial_start_tx(struct uart_port *p)
 static void mvme147_scc_serial_stop_tx(struct uart_port *port)
 {
 	struct mvme147_scc_serial_port *sccp = port_to_mvme147_scc_serial_port(port);
-
-	//scc_disable_tx_interrupts(sccp);
+	scc_disable_tx_interrupts(sccp);
 }
 
 static void scc_enable_rx_interrupts(struct mvme147_scc_serial_port *sccp)
