@@ -240,6 +240,15 @@ include Makefile.include
 CFLAGS  ?= $(CFLAGS_NOLIBC_TEST) $(CFLAGS_XARCH) $(CFLAGS_EXTRA)
 LDFLAGS :=
 
+ifneq ($(PIE),1)
+STATIC_FLAG := -static
+else
+# for x86 -static-pie -fpie is enough, for other archs that
+# results in a normal static binary, so manually construct
+# "pie binary, no dynamic linker" which is static-pie.
+STATIC_FLAG := -fpie -pie -Wl,--no-dynamic-linker -Wl,-ztext
+endif
+
 # Modify CFLAGS based on LLVM=
 include $(srctree)/tools/scripts/Makefile.include
 
@@ -295,7 +304,7 @@ sysroot/$(ARCH)/include:
 
 nolibc-test: $(NOLIBC_TEST_SOURCES) sysroot/$(ARCH)/include
 	$(QUIET_CC)$(CC) $(CFLAGS) $(LDFLAGS) -o $@ \
-	  -nostdlib -nostdinc -static -Isysroot/$(ARCH)/include $(NOLIBC_TEST_SOURCES) $(LDLIBS)
+	  -nostdlib -nostdinc $(STATIC_FLAG) -Isysroot/$(ARCH)/include $(NOLIBC_TEST_SOURCES) $(LDLIBS)
 
 libc-test: $(NOLIBC_TEST_SOURCES)
 	$(QUIET_CC)$(HOSTCC) -o $@ $(NOLIBC_TEST_SOURCES)
