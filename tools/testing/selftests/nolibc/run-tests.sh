@@ -17,6 +17,7 @@ perform_download=0
 test_mode=system
 werror=1
 llvm=
+pie=0
 all_archs=(
 	i386 x86_64 x32
 	arm64 arm armthumb
@@ -33,7 +34,7 @@ all_archs=(
 )
 archs="${all_archs[@]}"
 
-TEMP=$(getopt -o 'j:d:c:b:a:m:pelh' -n "$0" -- "$@")
+TEMP=$(getopt -o 'j:d:c:b:a:m:pelhP' -n "$0" -- "$@")
 
 eval set -- "$TEMP"
 unset TEMP
@@ -58,6 +59,7 @@ Options:
  -m [MODE]      Test mode user/system (default: ${test_mode})
  -e             Disable -Werror
  -l             Build with LLVM/clang
+ -P             Build static-PIE binaries
 EOF
 }
 
@@ -89,6 +91,9 @@ while true; do
 			shift; continue ;;
 		'-l')
 			llvm=1
+			shift; continue ;;
+		'-P')
+			pie=1
 			shift; continue ;;
 		'-h')
 			print_usage
@@ -175,7 +180,7 @@ test_arch() {
 	if [ "$werror" -ne 0 ]; then
 		CFLAGS_EXTRA="$CFLAGS_EXTRA -Werror -Wl,--fatal-warnings"
 	fi
-	MAKE=(make -f Makefile.nolibc -j"${nproc}" XARCH="${arch}" CROSS_COMPILE="${cross_compile}" LLVM="${llvm}" O="${build_dir}")
+	MAKE=(make -f Makefile.nolibc -j"${nproc}" XARCH="${arch}" CROSS_COMPILE="${cross_compile}" LLVM="${llvm}" PIE="${pie}" O="${build_dir}")
 
 	if [ "$arch" = "parisc32" ]; then
 		MAKE+=("CROSS32CC=${cross_compile}gcc")
