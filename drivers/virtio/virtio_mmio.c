@@ -152,21 +152,21 @@ static void vm_get(struct virtio_device *vdev, unsigned int offset,
 	switch (len) {
 	case 1:
 		b = readb(base + offset);
-		memcpy(buf, &b, sizeof b);
+		memcpy(buf, &b, sizeof(b));
 		break;
 	case 2:
 		w = cpu_to_le16(readw(base + offset));
-		memcpy(buf, &w, sizeof w);
+		memcpy(buf, &w, sizeof(w));
 		break;
 	case 4:
 		l = cpu_to_le32(readl(base + offset));
-		memcpy(buf, &l, sizeof l);
+		memcpy(buf, &l, sizeof(l));
 		break;
 	case 8:
 		l = cpu_to_le32(readl(base + offset));
-		memcpy(buf, &l, sizeof l);
-		l = cpu_to_le32(ioread32(base + offset + sizeof l));
-		memcpy(buf + sizeof l, &l, sizeof l);
+		memcpy(buf, &l, sizeof(l));
+		l = cpu_to_le32(ioread32(base + offset + sizeof(l)));
+		memcpy(buf + sizeof(l), &l, sizeof(l));
 		break;
 	default:
 		BUG();
@@ -194,22 +194,22 @@ static void vm_set(struct virtio_device *vdev, unsigned int offset,
 
 	switch (len) {
 	case 1:
-		memcpy(&b, buf, sizeof b);
+		memcpy(&b, buf, sizeof(b));
 		writeb(b, base + offset);
 		break;
 	case 2:
-		memcpy(&w, buf, sizeof w);
+		memcpy(&w, buf, sizeof(w));
 		writew(le16_to_cpu(w), base + offset);
 		break;
 	case 4:
-		memcpy(&l, buf, sizeof l);
+		memcpy(&l, buf, sizeof(l));
 		writel(le32_to_cpu(l), base + offset);
 		break;
 	case 8:
-		memcpy(&l, buf, sizeof l);
+		memcpy(&l, buf, sizeof(l));
 		writel(le32_to_cpu(l), base + offset);
-		memcpy(&l, buf + sizeof l, sizeof l);
-		writel(le32_to_cpu(l), base + offset + sizeof l);
+		memcpy(&l, buf + sizeof(l), sizeof(l));
+		writel(le32_to_cpu(l), base + offset + sizeof(l));
 		break;
 	default:
 		BUG();
