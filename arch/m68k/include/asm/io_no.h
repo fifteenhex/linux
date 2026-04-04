@@ -33,7 +33,6 @@
 #include <asm/byteorder.h>
 #include <asm/coldfire.h>
 #include <asm/mcfsim.h>
-#endif /* CONFIG_COLDFIRE */
 
 #if defined(IOMEMBASE)
 /*
@@ -126,6 +125,7 @@ static inline void writel(u32 value, volatile void __iomem *addr)
 #define PCI_IOBASE	((void __iomem *) PCI_IO_PA)
 #define PCI_SPACE_LIMIT	PCI_IO_MASK
 #endif /* CONFIG_PCI */
+#endif /* CONFIG_COLDFIRE */
 
 #include <asm/kmap.h>
 #include <asm/virtconvert.h>
