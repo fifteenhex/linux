@@ -96,15 +96,6 @@ static inline void writel(u32 value, volatile void __iomem *addr)
 		__raw_writel(swab32(value), addr);
 }
 
-#else
-
-#define readb __raw_readb
-#define readw __raw_readw
-#define readl __raw_readl
-#define writeb __raw_writeb
-#define writew __raw_writew
-#define writel __raw_writel
-
 #endif /* IOMEMBASE */
 
 #if defined(CONFIG_PCI)
