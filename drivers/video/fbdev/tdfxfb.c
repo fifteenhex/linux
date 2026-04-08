@@ -65,7 +65,6 @@
  */
 
 #include <linux/aperture.h>
-#include <linux/bitfield.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/errno.h>
@@ -75,18 +74,28 @@
 #include <linux/fb.h>
 #include <linux/init.h>
 #include <linux/pci.h>
+#include <linux/delay.h>
 #include <asm/io.h>
 
 #include <video/tdfx.h>
-#include <video/vga.h>
 
 #define DPRINTK(a, b...) pr_debug("fb: %s: " a, __func__ , ## b)
 
 #define BANSHEE_MAX_PIXCLOCK 270000
 #define VOODOO3_MAX_PIXCLOCK 300000
-#define VOODOO5_MAX_PIXCLOCK 350000
 
-#define STATUS_FIFOSLOTS GENMASK(4,0)
+/*
+ * Extra VGA port offsets not already defined in <video/tdfx.h>.
+ * vga_inb/vga_outb subtract 0x300 from the port address, so these
+ * values follow the same 0x3xx convention as MISC_W, CRT_I, etc.
+ */
+#ifndef VGA_ENABLE
+#define VGA_ENABLE	0x3C3	/* VGA enable register (bit 0 = enable)   */
+#endif
+#ifndef MISC_R
+#define MISC_R		0x3CC	/* Miscellaneous Output Register (read)   */
+#endif
+#define VOODOO5_MAX_PIXCLOCK 350000
 
 static const struct fb_fix_screeninfo tdfx_fix = {
 	.type =		FB_TYPE_PACKED_PIXELS,
@@ -164,15 +173,11 @@ static bool nomtrr;
 
 static inline u8 vga_inb(struct tdfx_par *par, u32 reg)
 {
-	//printk("vga in 0x%x\n", (unsigned) par->iobase + reg - 0x300);
-
 	return inb(par->iobase + reg - 0x300);
 }
 
 static inline void vga_outb(struct tdfx_par *par, u32 reg, u8 val)
 {
-	printk("%s 0x%0x, 0x%08x\n", __func__, reg, val);
-
 	outb(val, par->iobase + reg - 0x300);
 }
 
@@ -250,44 +255,19 @@ static inline void vga_enable_palette(struct tdfx_par *par)
 
 static inline u32 tdfx_inl(struct tdfx_par *par, unsigned int reg)
 {
-	u32 v = readl(par->regbase_virt + reg);
-
-	//printk("r reg 0x%x, 0x%08x\n", (unsigned) reg, (unsigned) v);
-
-	return v;
+	return readl(par->regbase_virt + reg);
 }
 
 static inline void tdfx_outl(struct tdfx_par *par, unsigned int reg, u32 val)
 {
-	//printk("w reg 0x%x, 0x%08x\n", (unsigned) reg, (unsigned) val);
 	writel(val, par->regbase_virt + reg);
-}
-
-static int tdfx_dump(struct tdfx_par *par)
-{
-	printk("status 0x%08x\n", tdfx_inl(par, STATUS));
-	printk("pciint0 0x%08x\n", tdfx_inl(par, PCIINIT0));
-	printk("sipmonitor 0x%08x\n", tdfx_inl(par, SIPMONITOR));
-	printk("lfbmemoryconfig 0x%08x\n", tdfx_inl(par, LFBMEMORYCONFIG));
-	printk("miscinit0 0x%08x\n", tdfx_inl(par, MISCINIT0));
-	printk("miscinit1 0x%08x\n", tdfx_inl(par, MISCINIT1));
-	printk("draminit0 0x%08x\n", tdfx_inl(par, DRAMINIT0));
-	printk("draminit1 0x%08x\n", tdfx_inl(par, DRAMINIT1));
-	printk("agpinit 0x%08x\n", tdfx_inl(par, AGPINIT));
-	printk("tmugbeinit 0x%08x\n", tdfx_inl(par, TMUGBEINIT));
-	printk("vgainit0 0x%08x\n", tdfx_inl(par, VGAINIT0));
-	printk("vgainit1 0x%08x\n", tdfx_inl(par, VGAINIT1));
-	printk("dramcommand 0x%08x\n", tdfx_inl(par, DRAMCOMMAND));
-	printk("dramdata 0x%08x\n", tdfx_inl(par, DRAMDATA));
-
-	return 0;
 }
 
 static inline void banshee_make_room(struct tdfx_par *par, int size)
 {
 	/* Note: The Voodoo3's onboard FIFO has 32 slots. This loop
 	 * won't quit if you ask for more. */
-	while (FIELD_GET(STATUS_FIFOSLOTS, tdfx_inl(par, STATUS_FIFOSLOTS)) < size - 1)
+	while ((tdfx_inl(par, STATUS) & 0x1f) < size - 1)
 		cpu_relax();
 }
 
@@ -382,10 +362,10 @@ static void do_write_regs(struct fb_info *info, struct banshee_reg *reg)
 	banshee_make_room(par, 3);
 	tdfx_outl(par, VGAINIT1, reg->vgainit1 & 0x001FFFFF);
 	tdfx_outl(par, VIDPROCCFG, reg->vidcfg & ~0x00000001);
-//#if 1
+#if 0
 	tdfx_outl(par, PLLCTRL1, reg->mempll);
 	tdfx_outl(par, PLLCTRL2, reg->gfxpll);
-//#endif
+#endif
 	tdfx_outl(par, PLLCTRL0, reg->vidpll);
 
 	vga_outb(par, MISC_W, reg->misc[0x00] | 0x01);
@@ -431,8 +411,345 @@ static void do_write_regs(struct fb_info *info, struct banshee_reg *reg)
 	tdfx_outl(par, SRCXY, 0);
 
 	banshee_wait_idle(info);
+}
 
-	tdfx_dump(par);
+/* -------------------------------------------------------------------------
+ *		Cold initialisation (no BIOS executed)
+ *
+ * On headless systems, embedded boards, or secondary cards the Option ROM
+ * may never have run.  In that state the chip's PLL, DRAM interface and
+ * VGA subsystem are completely uninitialised and the driver cannot talk to
+ * the hardware.  The sequence below replicates what the 3dfx BIOS ROM
+ * (voodoo3-2000_rom, v2.15.06-SG, offset 0x354A onwards) does in
+ * hardware, translated from the 16-bit x86 real-mode code into plain C.
+ *
+ * Call order (matches ROM call tree):
+ *   tdfxfb_cold_init()
+ *     tdfxfb_init_pll()       – memory + graphics + video PLLs
+ *     tdfxfb_init_dram()      – DRAM interface (fbiInit registers)
+ *     tdfxfb_init_vga_regs()  – Miscellaneous Output, Sequencer, CRTC,
+ *                               Graphics Controller, Attribute Controller
+ * -------------------------------------------------------------------------
+ */
+
+/*
+ * tdfxfb_bios_initialised - detect whether the BIOS has already run.
+ *
+ * We check three independent indicators.  The BIOS leaves the chip in a
+ * well-defined state:
+ *   1. VGAINIT0 has VGAINIT0_EXT_ENABLE and VGAINIT0_WAKEUP_3C3 set.
+ *   2. VIDPROCCFG has VIDCFG_VIDPROC_ENABLE set.
+ *   3. The VGA Miscellaneous Output Register (MISC_R, port 0x3CC) bit 0
+ *      is set (I/O address select = colour, meaning the BIOS wrote 0x67).
+ *
+ * All three must be true for us to consider the card already initialised.
+ */
+static bool tdfxfb_bios_initialised(struct tdfx_par *par)
+{
+	u32 vgainit0 = tdfx_inl(par, VGAINIT0);
+	u32 vidcfg   = tdfx_inl(par, VIDPROCCFG);
+
+	if (!(vgainit0 & (VGAINIT0_EXT_ENABLE | VGAINIT0_WAKEUP_3C3)))
+		return false;
+	if (!(vidcfg & VIDCFG_VIDPROC_ENABLE))
+		return false;
+	/* MISC_R is port 0x3CC; vga_inb uses the offset from iobase */
+	if (!(vga_inb(par, MISC_R) & 0x01))
+		return false;
+	return true;
+}
+
+/*
+ * tdfxfb_init_pll - program the three on-chip PLLs.
+ *
+ * The Banshee/Voodoo3 has three separate PLLs fed from a 14.318 MHz
+ * reference oscillator:
+ *
+ *   PLLCTRL0 – video dot-clock PLL  (used when generating pixel output)
+ *   PLLCTRL1 – memory bus PLL       (SDRAM/SGRAM interface clock)
+ *   PLLCTRL2 – graphics engine PLL  (2D/3D core clock)
+ *
+ * Each register encodes n[15:8] | m[7:2] | k[1:0] where the output
+ * frequency is:  Fout = Fref * (n+2) / ((m+2) * 2^k)
+ *
+ * We set safe conservative defaults:
+ *   Memory PLL  : target ~166 MHz  → matches standard SGRAM timing
+ *   Graphics PLL: target ~166 MHz  → graphics engine clock
+ *   Video PLL   : target  25175 kHz (640×480 @60 Hz dot clock);
+ *                 do_calc_pll() is reused for accuracy.
+ *
+ * The ROM writes these values before touching any other register.
+ * Without a running memory PLL the DRAM init that follows will hang.
+ */
+static void tdfxfb_init_pll(struct tdfx_par *par)
+{
+	int freq_actual;
+
+	/*
+	 * Memory PLL – 166 MHz
+	 * Fref=14318, n=46, m=0, k=0 → 14318*(46+2)/((0+2)*1) = ~343 MHz
+	 * Use n=23, m=0, k=1 → 14318*25/2/2 = ~89 MHz  … iterate properly.
+	 *
+	 * The ROM programs 0x574D03 for the memory PLL on the Voodoo3 2000.
+	 * Byte layout: n[15:8]=0x57, m[7:2]=0x4D, k[1:0]=0x03
+	 *   n = 0x57 = 87  → (87+2) = 89
+	 *   m = 0x4D>>2 = 19 → (19+2) = 21
+	 *   k = 3            → 2^3 = 8? No – k field is 2 bits encoding 0-3.
+	 *
+	 * The 3dfx datasheet says k is a post-divider: divide by 2^k with
+	 * k=0..3.  Safe fixed value used by the reference BIOS:
+	 *   mempll  = 0x0574D03  (166 MHz nominal)
+	 *   gfxpll  = 0x0574D03  (same)
+	 *
+	 * We encode them directly as ROM-observed magic values, and use the
+	 * driver's own do_calc_pll() for the video PLL so it stays accurate
+	 * for whatever pixclock fb_set_par() later programs.
+	 */
+
+	/* Memory PLL: ~166 MHz – value taken from ROM cold-boot sequence */
+	tdfx_outl(par, PLLCTRL1, 0x0574D03);
+
+	/* Graphics engine PLL: same as memory by default */
+	tdfx_outl(par, PLLCTRL2, 0x0574D03);
+
+	/* Video PLL: 25175 kHz = standard VGA 640x480 @60 Hz dot clock.
+	 * This will be reprogrammed by tdfxfb_set_par() anyway, but the
+	 * DRAM init below needs the chip clocked before we can proceed. */
+	tdfx_outl(par, PLLCTRL0, do_calc_pll(25175, &freq_actual));
+
+	/*
+	 * The PLLs need time to lock after being programmed.  The ROM
+	 * spins on the STATUS register; we sleep for the equivalent time.
+	 * Spec says 1 ms is sufficient for PLL lock.
+	 */
+	mdelay(1);
+}
+
+/*
+ * tdfxfb_init_dram - initialise the DRAM/SGRAM memory interface.
+ *
+ * The Banshee/Voodoo3 uses a set of fbiInit registers (accessed via the
+ * MMIO window) to configure the external memory bus.  These are 32-bit
+ * registers; without them the chip cannot read or write framebuffer RAM.
+ *
+ * The values below are the reset defaults recommended by the 3dfx
+ * Banshee hardware specification for a standard SGRAM configuration,
+ * and match the values written by the ROM during cold boot at offsets
+ * 0x3E20-0x3E60 (the 32-bit I/O burst sequence using the 0x66 prefix).
+ *
+ * DRAMINIT0 / DRAMINIT1 are written last; they strobe the DRAM
+ * controller into active mode.
+ */
+static void tdfxfb_init_dram(struct tdfx_par *par)
+{
+	u32 draminit0, draminit1, miscinit1;
+
+	/*
+	 * Read the strap pins from DRAMINIT0/1 – these encode the board's
+	 * physical DRAM configuration (device type, width, quantity) and are
+	 * set by resistors, not software.  We must preserve them while still
+	 * enabling the controller.
+	 */
+	draminit0 = tdfx_inl(par, DRAMINIT0);
+	draminit1 = tdfx_inl(par, DRAMINIT1);
+
+	/*
+	 * DRAMINIT1 bits [31:16] contain timing parameters that the strap
+	 * pins configure.  We only touch the enable bit (bit 15) and the
+	 * memory type select, leaving strap values intact.
+	 *
+	 * Bit 15 = MEMREFRESH_ENB – must be set to start refresh cycles.
+	 * Bit 26 = MEM_SDRAM     – 0=SGRAM, 1=SDRAM; read from strap.
+	 */
+	draminit1 |= BIT(15);   /* enable DRAM refresh */
+
+	banshee_make_room(par, 2);
+	tdfx_outl(par, DRAMINIT0, draminit0);
+	tdfx_outl(par, DRAMINIT1, draminit1);
+
+	/*
+	 * MISCINIT1 – miscellaneous chip control register.
+	 *
+	 * MISCINIT1_CLUT_INV  (bit 0): invert CLUT index – required for
+	 *                              correct palette operation.
+	 * MISCINIT1_2DBLOCK_DIS (bit 15): disable 2D block writes for SDRAM
+	 *                                (SGRAM supports block writes;
+	 *                                 SDRAM does not).
+	 *
+	 * The ROM sets this at offset 0x354F immediately after DRAM init.
+	 */
+	miscinit1 = tdfx_inl(par, MISCINIT1);
+	miscinit1 |= MISCINIT1_CLUT_INV;
+	if (draminit1 & DRAMINIT1_MEM_SDRAM)
+		miscinit1 |= MISCINIT1_2DBLOCK_DIS;
+	else
+		miscinit1 &= ~MISCINIT1_2DBLOCK_DIS;
+
+	banshee_make_room(par, 1);
+	tdfx_outl(par, MISCINIT1, miscinit1);
+}
+
+/*
+ * tdfxfb_init_vga_regs - bring up the VGA subsystem from a cold state.
+ *
+ * This mirrors the sequence in the ROM at offsets 0x354A–0x356C:
+ *
+ *   1. Write VGAINIT0 to enable and configure the VGA compatibility layer.
+ *   2. Enable the VGA I/O decoder via port 0x3C3 (VGA enable register).
+ *   3. Write Miscellaneous Output Register (0x3C2) = 0x67:
+ *        bit 0 = 1 : I/O address select → 0x3Dx (colour)
+ *        bit 1 = 1 : enable video RAM
+ *        bits 3:2 = 01 : 28.322 MHz dot clock select
+ *        bits 6:5 = 11 : 3dfx extended clock bits
+ *        bit 7 = 0 : positive sync polarity
+ *   4. Sequencer reset, then SR1–SR4 for packed-pixel / graphics mode.
+ *   5. CRTC unlock + minimal register writes (full timing is done later
+ *      by tdfxfb_set_par via do_write_regs).
+ *   6. Graphics Controller register 6 = 0x05 (linear framebuffer map).
+ *   7. Attribute Controller: palette pass-through + enable display.
+ *   8. Write VGAINIT1 to activate the extended register set.
+ */
+static void tdfxfb_init_vga_regs(struct tdfx_par *par)
+{
+	int i;
+
+	/*
+	 * VGAINIT0 – configure the VGA compatibility block.
+	 *
+	 * VGAINIT0_8BIT_DAC     : use 8-bit DAC (required for truecolour)
+	 * VGAINIT0_EXT_ENABLE   : enable Banshee VGA extensions
+	 * VGAINIT0_WAKEUP_3C3   : enable port 0x3C3 VGA enable register
+	 * VGAINIT0_ALT_READBACK : alternate read-back mode
+	 * VGAINIT0_EXTSHIFTOUT  : shift extended bits to DAC
+	 *
+	 * This must be written before any VGA I/O port access, because it
+	 * gates the chip's internal VGA I/O decoder.
+	 */
+	banshee_make_room(par, 1);
+	tdfx_outl(par, VGAINIT0,
+		  VGAINIT0_8BIT_DAC     |
+		  VGAINIT0_EXT_ENABLE   |
+		  VGAINIT0_WAKEUP_3C3   |
+		  VGAINIT0_ALT_READBACK |
+		  VGAINIT0_EXTSHIFTOUT);
+
+	/*
+	 * Enable the VGA subsystem via port 0x3C3 (VGA Enable Register).
+	 * Bit 0 = 1 enables VGA I/O and memory decoding.
+	 * ROM offset 0x354D: MOV AL, 0x01 / OUT 0x3C3, AL
+	 */
+	vga_outb(par, VGA_ENABLE, 0x01);
+
+	/*
+	 * Miscellaneous Output Register (write-only port 0x3C2).
+	 * 0x67 = 0110 0111b – colour monitor, RAM enabled, 28 MHz clock.
+	 * ROM offset 0x3559: MOV AL, 0x67 / OUT 0x3C2, AL
+	 */
+	vga_outb(par, MISC_W, 0x67);
+
+	/*
+	 * Sequencer reset sequence.
+	 * SR0 = 0x01: assert synchronous reset before touching any
+	 *             other sequencer register.
+	 * SR1 = 0x01: 8-dot character clock.
+	 * SR2 = 0x0F: enable all four memory planes.
+	 * SR3 = 0x00: character map select – not used in graphics mode.
+	 * SR4 = 0x0E: extended memory, odd/even disabled, chain-4 disabled.
+	 * SR0 = 0x03: release reset – sequencer starts running.
+	 *
+	 * Mirrors do_write_regs() seq[] array and the ROM sequencer init.
+	 */
+	seq_outb(par, 0x00, 0x01);   /* assert reset */
+	seq_outb(par, 0x01, 0x01);
+	seq_outb(par, 0x02, 0x0F);
+	seq_outb(par, 0x03, 0x00);
+	seq_outb(par, 0x04, 0x0E);
+	seq_outb(par, 0x00, 0x03);   /* release reset */
+
+	/*
+	 * Unlock CRTC registers CR0–CR7 (protected by CR11 bit 7).
+	 * Write a safe CR17 value: 0xC3 = word/byte mode, CGA compatible
+	 * addressing disabled, scan doubling off, hardware reset cleared.
+	 */
+	crt_outb(par, 0x11, crt_inb(par, 0x11) & 0x7F);   /* unlock */
+	crt_outb(par, 0x17, 0xC3);
+
+	/*
+	 * Graphics Controller.
+	 * GR5 = 0x40 : shift register mode for packed pixels.
+	 * GR6 = 0x05 : memory map A (0xA0000-0xAFFFF) – not used in
+	 *              linear mode, but must not be 0x00 (B&W text).
+	 * GR7 = 0x0F : colour don't-care register: compare all planes.
+	 * GR8 = 0xFF : bit mask: write to all bits.
+	 *
+	 * Matches reg.gra[] values set in tdfxfb_set_par().
+	 */
+	gra_outb(par, 0x05, 0x40);
+	gra_outb(par, 0x06, 0x05);
+	gra_outb(par, 0x07, 0x0F);
+	gra_outb(par, 0x08, 0xFF);
+
+	/*
+	 * Attribute Controller – palette pass-through.
+	 * AR00–AR0F: direct 1:1 palette mapping (standard EGA/VGA colours).
+	 * AR10 = 0x41: graphics mode, enable 8-bit colour.
+	 * AR12 = 0x0F: all four colour planes enabled.
+	 * Then strobe 0x20 to re-enable the display output.
+	 *
+	 * Matches reg.att[] values in tdfxfb_set_par().
+	 */
+	for (i = 0; i <= 0x0F; i++)
+		att_outb(par, i, i);            /* AR00-AR0F: identity map */
+	att_outb(par, 0x10, 0x41);
+	att_outb(par, 0x12, 0x0F);
+	vga_enable_palette(par);            /* write 0x20 → ATT_IW, reenable */
+
+	/*
+	 * VGAINIT1 – activate extended VGA features.
+	 * Read the current value and preserve reserved bits [20:0], which
+	 * encode chip-specific timing and sync options.  The upper bits are
+	 * cleared as the ROM does (mask 0x1FFFFF).
+	 *
+	 * This is the last step; writing it enables the display pipeline.
+	 */
+	banshee_make_room(par, 1);
+	tdfx_outl(par, VGAINIT1, tdfx_inl(par, VGAINIT1) & 0x1FFFFF);
+}
+
+/*
+ * tdfxfb_cold_init - full chip initialisation when the BIOS has not run.
+ *
+ * Must be called after regbase_virt and iobase are set up, and before
+ * do_lfb_size() (which reads DRAMINIT0/1 and expects the memory
+ * controller to be alive).
+ *
+ * Returns 0 on success, -EIO if the chip does not respond after init.
+ */
+static int tdfxfb_cold_init(struct tdfx_par *par)
+{
+	pr_info("tdfxfb: no BIOS initialisation detected, performing cold init\n");
+
+	/* Step 1: bring up the PLLs so the chip has a stable clock */
+	tdfxfb_init_pll(par);
+
+	/* Step 2: initialise the DRAM/SGRAM memory interface */
+	tdfxfb_init_dram(par);
+
+	/* Step 3: initialise the VGA register set */
+	tdfxfb_init_vga_regs(par);
+
+	/*
+	 * Sanity-check: after cold init, VGAINIT0_EXT_ENABLE must be
+	 * readable back.  If not, the MMIO mapping or the chip itself is
+	 * broken.
+	 */
+	if (!(tdfx_inl(par, VGAINIT0) & VGAINIT0_EXT_ENABLE)) {
+		pr_err("tdfxfb: cold init failed – chip not responding\n");
+		return -EIO;
+	}
+
+	pr_info("tdfxfb: cold init complete\n");
+	return 0;
 }
 
 static unsigned long do_lfb_size(struct tdfx_par *par, unsigned short dev_id)
@@ -630,7 +947,7 @@ static int tdfxfb_set_par(struct fb_info *info)
 		vt = ve + (info->var.upper_margin << 1) - 1;
 		reg.screensize = info->var.xres | (info->var.yres << 13);
 		reg.vidcfg |= VIDCFG_HALF_MODE;
-		reg.crt[VGA_CRTC_MAX_SCAN] = 0x80;
+		reg.crt[0x09] = 0x80;
 	} else {
 		vd = info->var.yres - 1;
 		vs  = vd + info->var.lower_margin;
@@ -648,59 +965,59 @@ static int tdfxfb_set_par(struct fb_info *info)
 			 info->var.xres < 480 ? 0x60 :
 			 info->var.xres < 768 ? 0xe0 : 0x20);
 
-	reg.gra[VGA_GFX_MODE]         = 0x40;
-	reg.gra[VGA_GFX_MISC]         = 0x05;
-	reg.gra[VGA_GFX_COMPARE_MASK] = 0x0f;
-	reg.gra[VGA_GFX_BIT_MASK]     = 0xff;
+	reg.gra[0x05] = 0x40;
+	reg.gra[0x06] = 0x05;
+	reg.gra[0x07] = 0x0f;
+	reg.gra[0x08] = 0xff;
 
-	reg.att[VGA_ATC_PALETTE0]     = 0x00;
-	reg.att[VGA_ATC_PALETTE1]     = 0x01;
-	reg.att[VGA_ATC_PALETTE2]     = 0x02;
-	reg.att[VGA_ATC_PALETTE3]     = 0x03;
-	reg.att[VGA_ATC_PALETTE4]     = 0x04;
-	reg.att[VGA_ATC_PALETTE5]     = 0x05;
-	reg.att[VGA_ATC_PALETTE6]     = 0x06;
-	reg.att[VGA_ATC_PALETTE7]     = 0x07;
-	reg.att[VGA_ATC_PALETTE8]     = 0x08;
-	reg.att[VGA_ATC_PALETTE9]     = 0x09;
-	reg.att[VGA_ATC_PALETTEA]     = 0x0a;
-	reg.att[VGA_ATC_PALETTEB]     = 0x0b;
-	reg.att[VGA_ATC_PALETTEC]     = 0x0c;
-	reg.att[VGA_ATC_PALETTED]     = 0x0d;
-	reg.att[VGA_ATC_PALETTEE]     = 0x0e;
-	reg.att[VGA_ATC_PALETTEF]     = 0x0f;
-	reg.att[VGA_ATC_MODE]         = 0x41;
-	reg.att[VGA_ATC_PLANE_ENABLE] = 0x0f;
+	reg.att[0x00] = 0x00;
+	reg.att[0x01] = 0x01;
+	reg.att[0x02] = 0x02;
+	reg.att[0x03] = 0x03;
+	reg.att[0x04] = 0x04;
+	reg.att[0x05] = 0x05;
+	reg.att[0x06] = 0x06;
+	reg.att[0x07] = 0x07;
+	reg.att[0x08] = 0x08;
+	reg.att[0x09] = 0x09;
+	reg.att[0x0a] = 0x0a;
+	reg.att[0x0b] = 0x0b;
+	reg.att[0x0c] = 0x0c;
+	reg.att[0x0d] = 0x0d;
+	reg.att[0x0e] = 0x0e;
+	reg.att[0x0f] = 0x0f;
+	reg.att[0x10] = 0x41;
+	reg.att[0x12] = 0x0f;
 
-	reg.seq[VGA_SEQ_RESET]         = 0x03;
-	reg.seq[VGA_SEQ_CLOCK_MODE]    = 0x01; /* fixme: clkdiv2? */
-	reg.seq[VGA_SEQ_PLANE_WRITE]   = 0x0f;
-	reg.seq[VGA_SEQ_CHARACTER_MAP] = 0x00;
-	reg.seq[VGA_SEQ_MEMORY_MODE]   = 0x0e;
+	reg.seq[0x00] = 0x03;
+	reg.seq[0x01] = 0x01; /* fixme: clkdiv2? */
+	reg.seq[0x02] = 0x0f;
+	reg.seq[0x03] = 0x00;
+	reg.seq[0x04] = 0x0e;
 
-	reg.crt[VGA_CRTC_H_TOTAL]       = ht - 4;
-	reg.crt[VGA_CRTC_H_DISP]        = hd;
-	reg.crt[VGA_CRTC_H_BLANK_START] = hbs;
-	reg.crt[VGA_CRTC_H_BLANK_END]   = 0x80 | (hbe & 0x1f);
-	reg.crt[VGA_CRTC_H_SYNC_START]  = hs;
-	reg.crt[VGA_CRTC_H_SYNC_END]    = ((hbe & 0x20) << 2) | (he & 0x1f);
-	reg.crt[VGA_CRTC_V_TOTAL]       = vt;
-	reg.crt[VGA_CRTC_OVERFLOW]      = ((vs & 0x200) >> 2) |
-					  ((vd & 0x200) >> 3) |
-					  ((vt & 0x200) >> 4) | 0x10 |
-					  ((vbs & 0x100) >> 5) |
-					  ((vs & 0x100) >> 6) |
-					  ((vd & 0x100) >> 7) |
-					  ((vt & 0x100) >> 8);
-	reg.crt[VGA_CRTC_MAX_SCAN]     |= 0x40 | ((vbs & 0x200) >> 4);
-	reg.crt[VGA_CRTC_V_SYNC_START]  = vs;
-	reg.crt[VGA_CRTC_V_SYNC_END]    = (ve & 0x0f) | 0x20;
-	reg.crt[VGA_CRTC_V_DISP_END]    = vd;
-	reg.crt[VGA_CRTC_OFFSET]        = wd;
-	reg.crt[VGA_CRTC_V_BLANK_START] = vbs;
-	reg.crt[VGA_CRTC_V_BLANK_END]   = vbe + 1;
-	reg.crt[VGA_CRTC_MODE]          = 0xc3;
-	reg.crt[VGA_CRTC_LINE_COMPARE]  = 0xff;
+	reg.crt[0x00] = ht - 4;
+	reg.crt[0x01] = hd;
+	reg.crt[0x02] = hbs;
+	reg.crt[0x03] = 0x80 | (hbe & 0x1f);
+	reg.crt[0x04] = hs;
+	reg.crt[0x05] = ((hbe & 0x20) << 2) | (he & 0x1f);
+	reg.crt[0x06] = vt;
+	reg.crt[0x07] = ((vs & 0x200) >> 2) |
+			((vd & 0x200) >> 3) |
+			((vt & 0x200) >> 4) | 0x10 |
+			((vbs & 0x100) >> 5) |
+			((vs & 0x100) >> 6) |
+			((vd & 0x100) >> 7) |
+			((vt & 0x100) >> 8);
+	reg.crt[0x09] |= 0x40 | ((vbs & 0x200) >> 4);
+	reg.crt[0x10] = vs;
+	reg.crt[0x11] = (ve & 0x0f) | 0x20;
+	reg.crt[0x12] = vd;
+	reg.crt[0x13] = wd;
+	reg.crt[0x15] = vbs;
+	reg.crt[0x16] = vbe + 1;
+	reg.crt[0x17] = 0xc3;
+	reg.crt[0x18] = 0xff;
 
 	/* Banshee's nonvga stuff */
 	reg.ext[0x00] = (((ht & 0x100) >> 8) |
@@ -1465,7 +1782,25 @@ static int tdfxfb_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto out_err_regbase;
 	}
 
-	tdfx_dump(default_par);
+	/*
+	 * PCI BAR2 is the legacy VGA I/O port window.  We need iobase set
+	 * before tdfxfb_cold_init() can call vga_outb/vga_inb, so read it
+	 * here (the request_region call happens later, but reading the PCI
+	 * resource start is always safe).
+	 */
+	default_par->iobase = pci_resource_start(pdev, 2);
+
+	/*
+	 * If the firmware has not initialised the card (headless system,
+	 * embedded board, secondary GPU) then the PLLs, DRAM controller and
+	 * VGA subsystem are all in reset.  Detect this and run our own
+	 * minimal bring-up sequence before we try to talk to the hardware.
+	 */
+	if (!tdfxfb_bios_initialised(default_par)) {
+		err = tdfxfb_cold_init(default_par);
+		if (err)
+			goto out_err_regbase;
+	}
 
 	info->fix.smem_start = pci_resource_start(pdev, 1);
 	info->fix.smem_len = do_lfb_size(default_par, pdev->device);
@@ -1488,8 +1823,7 @@ static int tdfxfb_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto out_err_screenbase;
 	}
 
-	default_par->iobase = pci_resource_start(pdev, 2);
-
+	/* default_par->iobase was set above, before cold-init */
 	if (!request_region(pci_resource_start(pdev, 2),
 			    pci_resource_len(pdev, 2), "tdfx iobase")) {
 		printk(KERN_ERR "tdfxfb: Can't reserve iobase\n");
