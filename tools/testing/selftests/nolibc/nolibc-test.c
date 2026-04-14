@@ -48,6 +48,9 @@
 #include <endian.h>
 #include <alloca.h>
 
+/* For TMPFS_MAGIC */
+#include <linux/magic.h>
+
 #pragma GCC diagnostic ignored "-Wmissing-prototypes"
 
 #include "nolibc-test-linkage.h"
@@ -903,6 +906,66 @@ int test_getpagesize(void)
 	return !c;
 }
 
+int test_fallocate(void)
+{
+	struct stat st;
+	int fd, r;
+
+	/* Create a new tmp file */
+	fd = open("/tmp", O_TMPFILE | O_RDWR, 0644);
+	if (fd == -1)
+		return -1;
+
+	/* Expand it to 42 bytes */
+	r = fallocate(fd, 0, 0, 42);
+	if (r)
+		goto close_tmpfile;
+
+	/* Get the new stat */
+	r = fstat(fd, &st);
+	if (r)
+		goto close_tmpfile;
+
+	/* It should be 42 bytes long */
+	if (st.st_size != 42) {
+		r = -1;
+		goto close_tmpfile;
+	}
+
+	/* Now try to allocate 1MiB. This puts a single bit
+	 * into one of the registers if the size is split into
+	 * two registers. This shouldn't fail if the bit is in
+	 * the correct register.
+	 */
+	r = fallocate(fd, 0, 0, (1ll << 20));
+	if (r)
+		goto close_tmpfile;
+
+	/* Check a massive size that puts a single bit into
+	 * the other register if splitting.
+	 * This should return an error and errno = ENOSPC or
+	 * EFBIG indicating the value was passed correctly but it
+	 * was rejected.
+	 */
+	r = fallocate(fd, 0, 0, (1ll << (20 + 32)));
+	if (r != -1) {
+		r = -1;
+		goto close_tmpfile;
+	}
+	if (errno != ENOSPC && errno != EFBIG) {
+		r = -1;
+		goto close_tmpfile;
+	}
+
+	/* Test passed */
+	r = 0;
+
+close_tmpfile:
+	close(fd);
+
+	return r;
+}
+
 int test_file_stream(void)
 {
 	FILE *f;
@@ -1477,6 +1540,8 @@ int run_syscall(int min, int max)
 	void *p1, *p2;
 	int has_gettid = 1;
 	int has_brk;
+	int tmp_is_tmpfs = 0;
+	struct statfs tmp_statfs_buf;
 
 	/* <proc> indicates whether or not /proc is mounted */
 	proc = stat("/proc", &stat_buf) == 0;
@@ -1491,6 +1556,10 @@ int run_syscall(int min, int max)
 
 	/* on musl setting brk()/sbrk() always fails */
 	has_brk = brk(0) == 0;
+
+	/* Check if /tmp is tmpfs */
+	if (statfs("/tmp", &tmp_statfs_buf) == 0 && tmp_statfs_buf.f_type == TMPFS_MAGIC)
+		tmp_is_tmpfs = 1;
 
 	for (test = min; test >= 0 && test <= max; test++) {
 		int llen = 0; /* line length */
@@ -1534,6 +1603,7 @@ int run_syscall(int min, int max)
 		CASE_TEST(dup3_0);            tmp = dup3(0, 100, 0);  EXPECT_SYSNE(1, tmp, -1); close(tmp); break;
 		CASE_TEST(dup3_m1);           tmp = dup3(-1, 100, 0); EXPECT_SYSER(1, tmp, -1, EBADF); if (tmp != -1) close(tmp); break;
 		CASE_TEST(execve_root);       EXPECT_SYSER(1, execve("/", (char*[]){ [0] = "/", [1] = NULL }, NULL), -1, EACCES); break;
+		CASE_TEST(fallocate);         EXPECT_SYSZR(tmp_is_tmpfs, test_fallocate()); break;
 		CASE_TEST(fchdir_stdin);      EXPECT_SYSER(1, fchdir(STDIN_FILENO), -1, ENOTDIR); break;
 		CASE_TEST(fchdir_badfd);      EXPECT_SYSER(1, fchdir(-1), -1, EBADF); break;
 		CASE_TEST(file_stream);       EXPECT_SYSZR(1, test_file_stream()); break;
