@@ -443,13 +443,13 @@ static int mc68x328fb_probe(struct platform_device *pdev)
 	writeb(0x08, priv->base + DRAGONBALL_LCDC_LPICF);
 	writeb(0x35, priv->base + DRAGONBALL_LCDC_LPXCD);
 	writeb(0x20, priv->base + DRAGONBALL_LCDC_LVPW);
-	writew(0x200, priv->base + DRAGONBALL_LCDC_LXMAX);
+	__raw_writew(0x200, priv->base + DRAGONBALL_LCDC_LXMAX);
 	writeb(0x80, priv->base + DRAGONBALL_LCDC_LCKCON);
 #endif
 
 	/* initialize the default mode from the LCD controller registers */
-	mc68x328fb_default.xres = readw(priv->base + DRAGONBALL_LCDC_LXMAX);
-	mc68x328fb_default.yres = readw(priv->base + DRAGONBALL_LCDC_LYMAX) +1;
+	mc68x328fb_default.xres = __raw_readw(priv->base + DRAGONBALL_LCDC_LXMAX);
+	mc68x328fb_default.yres = __raw_readw(priv->base + DRAGONBALL_LCDC_LYMAX) +1;
 	mc68x328fb_default.xres_virtual = mc68x328fb_default.xres;
 	mc68x328fb_default.yres_virtual = mc68x328fb_default.yres;
 	mc68x328fb_default.bits_per_pixel = 1 + (readb(priv->base + DRAGONBALL_LCDC_LPICF) & 0x01);
@@ -460,7 +460,7 @@ static int mc68x328fb_probe(struct platform_device *pdev)
 	if (!priv->video_virt)
 		return -ENOMEM;
 
-	writel(virt_to_phys(priv->video_virt),
+	__raw_writel(virt_to_phys(priv->video_virt),
 			priv->base + DRAGONBALL_LCDC_LSSA);
 
 	priv->videomemory = virt_to_phys(priv->video_virt);
