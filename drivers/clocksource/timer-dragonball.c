@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 
+#include <asm/io.h>
 #include <linux/interrupt.h>
 #include <linux/ioport.h>
 #include <linux/clocksource.h>
@@ -25,10 +26,10 @@ static int dragonball_timer_set_oneshot(struct clock_event_device *evt)
 	void *base = timer_of_base(timer);
 	u16 tctl;
 
-	tctl = readw(base + REG_TCTL);
+	tctl = __raw_readw(base + REG_TCTL);
 	tctl &= ~(REG_TCTL_FRR | REG_TCTL_TEN);
 	tctl |= REG_TCTL_IRQEN;
-	writew(tctl, base + REG_TCTL);
+	__raw_writew(tctl, base + REG_TCTL);
 
 	return 0;
 }
@@ -50,12 +51,12 @@ static int dragonball_timer_next_event(unsigned long delta,
 	BUG_ON(delta > 0xffff);
 
 	/* Set compare value */
-	writew(delta & 0xffff, base + REG_TCMP);
+	__raw_writew(delta & 0xffff, base + REG_TCMP);
 
 	/* Trigger */
-	tctl = readw(base + REG_TCTL);
+	tctl = __raw_readw(base + REG_TCTL);
 	tctl |= REG_TCTL_TEN;
-	writew(tctl, base + REG_TCTL);
+	__raw_writew(tctl, base + REG_TCTL);
 
 	return 0;
 }
@@ -68,13 +69,13 @@ static irqreturn_t dragonball_timer_irq(int irq, void *dev_id)
 	u16 tctl;
 
 	/* Clear the interrupt */
-	readw(base + REG_TSTAT);
-	writew(0, base + REG_TSTAT);
+	__raw_readw(base + REG_TSTAT);
+	__raw_writew(0, base + REG_TSTAT);
 
 	/* Clear the enable bit */
-	tctl = readw(base + REG_TCTL);
+	tctl = __raw_readw(base + REG_TCTL);
 	tctl &= ~REG_TCTL_TEN;
-	writew(tctl, base + REG_TCTL);
+	__raw_writew(tctl, base + REG_TCTL);
 
 	evt->event_handler(evt);
 
@@ -112,11 +113,11 @@ static int __init dragonball_timer_init_of(struct device_node *np)
 	base = timer_of_base(to);
 
 	/* Reset the prescaler just incase someone else messed with it */
-	writew(0, base + REG_TPRER);
+	__raw_writew(0, base + REG_TPRER);
 
-	tctl = readw(base + REG_TCTL);
+	tctl = __raw_readw(base + REG_TCTL);
 	tctl &= ~(REG_TCTL_TEN | REG_TCTL_IRQEN);
-	writew(tctl, base + REG_TCTL);
+	__raw_writew(tctl, base + REG_TCTL);
 
 	dragonball_clockevent_device.cpumask = cpu_possible_mask;
 	dragonball_clockevent_device.irq = to->of_irq.irq;
@@ -127,7 +128,7 @@ static int __init dragonball_timer_init_of(struct device_node *np)
 
 	return 0;
 	//return clocksource_mmio_init(base + REG_TCN, "mc68ez328-timer",
-	//		freq, 200, 16, clocksource_mmio_readw_up);
+	//		freq, 200, 16, clocksource_mmio___raw_readw_up);
 }
 
 TIMER_OF_DECLARE(dragonball, "motorola,mc68ez328-timer", dragonball_timer_init_of);
