@@ -66,4 +66,34 @@ int open(const char *path, int flags, ...)
 	return __sysret(_sys_open(path, flags, mode));
 }
 
+/*
+ * int fallocate(int fd, int mode, off_t offset, off_t size);
+ */
+
+#define __NOLIBC_LLARGPART(_arg, _part) \
+	(((union { long long ll; long l[2]; }) { .ll = _arg }).l[_part])
+
+static __attribute__((unused))
+int sys_fallocate(int fd, int mode, off_t offset, off_t size)
+{
+#if defined(__x86_64__) && defined(__ILP32__)
+	const bool offsetsz_two_args = false;
+#else
+	const bool offsetsz_two_args = sizeof(long) != sizeof(off_t);
+#endif
+
+	if (offsetsz_two_args)
+		return __nolibc_syscall6(__NR_fallocate, fd, mode,
+			__NOLIBC_LLARGPART(offset, 0), __NOLIBC_LLARGPART(offset, 1),
+			__NOLIBC_LLARGPART(size, 0), __NOLIBC_LLARGPART(size, 1));
+	else
+		return __nolibc_syscall4(__NR_fallocate, fd, mode, offset, size);
+}
+
+static __attribute__((unused))
+int fallocate(int fd, int mode, off_t offset, off_t size)
+{
+	return __sysret(sys_fallocate(fd, mode, offset, size));
+}
+
 #endif /* _NOLIBC_FCNTL_H */
