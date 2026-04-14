@@ -29,6 +29,14 @@
 #include "stdarg.h"
 #include "types.h"
 
+/*
+ * Helper for 32bit machines where a 64bit syscall arg needs to be split into
+ * two 32bit parts while making sure the order of the low/high parts are correct
+ * for the endian:
+ * __NOLIBC_LLARGPART(x, 0), __NOLIBC_LLARGPART(x, 1)
+ */
+#define __NOLIBC_LLARGPART(_arg, _part) \
+	(((union { long long ll; long l[2]; }) { .ll = _arg }).l[_part])
 
 /* Syscall return helper: takes the syscall value in argument and checks for an
  * error in it. This may only be used with signed returns (int or long), but

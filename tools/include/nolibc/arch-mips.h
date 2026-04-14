@@ -6,6 +6,7 @@
 
 #ifndef _NOLIBC_ARCH_MIPS_H
 #define _NOLIBC_ARCH_MIPS_H
+#include <linux/unistd.h>
 
 #include "compiler.h"
 #include "crt.h"
@@ -255,6 +256,16 @@
 	);                                                                    \
 	_arg4 ? -_num : _num;                                                 \
 })
+
+/* The generic version of this will split offset and size for _ABIN32,
+ * override it and do the right thing here.
+ */
+static __attribute__((unused))
+int _sys_fallocate(int fd, int mode, off_t offset, off_t size)
+{
+	return __nolibc_syscall4(__NR_fallocate, fd, mode, offset, size);
+}
+#define _sys_fallocate _sys_fallocate
 
 #endif /* _ABIO32 */
 
