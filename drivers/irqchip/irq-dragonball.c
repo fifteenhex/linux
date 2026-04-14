@@ -37,7 +37,7 @@ static void dragonball_intc_cascade(struct irq_desc *desc)
 
 	chained_irq_enter(host_chip, desc);
 
-	pending = readl(intc->base + DRAGONBALLINTC_REG_ISR);
+	pending = __raw_readl(intc->base + DRAGONBALLINTC_REG_ISR);
 	while (pending) {
 		hwirq = __fls(pending);
 		generic_handle_domain_irq(intc->irq_domain, hwirq);
@@ -49,12 +49,12 @@ static void dragonball_intc_cascade(struct irq_desc *desc)
 
 static u32 dragonball_intc_reg_readl(const void __iomem *addr)
 {
-        return ioread32((volatile void*) addr);
+        return __raw_readl((volatile void*) addr);
 
 }
 static void dragonball_intc_reg_writel(u32 val, void __iomem *addr)
 {
-        iowrite32(val, (volatile void*) addr);
+        __raw_writel(val, (volatile void*) addr);
 }
 
 
