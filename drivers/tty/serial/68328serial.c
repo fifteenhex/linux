@@ -58,9 +58,9 @@ static void mc68328_serial_start_tx(struct uart_port *port)
 	struct mc68328_serial_port *ssp = port_to_mc68328_serial_port(port);
 	u16 ucnt;
 
-	ucnt = readw(port->membase + REG_UCNT);
+	ucnt = __raw_readw(port->membase + REG_UCNT);
 	ucnt |= UCNT_TXEE;
-	writew(ucnt , port->membase + REG_UCNT);
+	__raw_writew(ucnt, port->membase + REG_UCNT);
 }
 
 static void mc68328_serial_stop_tx(struct uart_port *port)
@@ -72,9 +72,9 @@ static void mc68328_serial_stop_tx(struct uart_port *port)
 	 * Just disable the TX interrupt, don't disable the transmitter
 	 * as that results in sometimes bytes getting trapped in the fifo.
 	 */
-	ucnt = readw(port->membase + REG_UCNT);
+	ucnt = __raw_readw(port->membase + REG_UCNT);
 	ucnt &= ~UCNT_TXEE;
-	writew(ucnt , port->membase + REG_UCNT);
+	__raw_writew(ucnt, port->membase + REG_UCNT);
 }
 
 static void mc68328_serial_stop_rx(struct uart_port *port)
@@ -82,14 +82,14 @@ static void mc68328_serial_stop_rx(struct uart_port *port)
 	struct mc68328_serial_port *ssp = port_to_mc68328_serial_port(port);
 	u16 ucnt;
 
-	ucnt = readw(port->membase + REG_UCNT);
+	ucnt = __raw_readw(port->membase + REG_UCNT);
 	ucnt &= ~(UCNT_RXEN | UCNT_RXRE);
-	writew(ucnt , port->membase + REG_UCNT);
+	__raw_writew(ucnt, port->membase + REG_UCNT);
 }
 
 static bool mc68328_serial_can_transmit(struct mc68328_serial_port *ssp)
 {
-	u16 utx = readw(ssp->port.membase + REG_UTX);
+	u16 utx = __raw_readw(ssp->port.membase + REG_UTX);
 
 	return utx & UTX_TXAVAIL ? true : false;
 }
@@ -120,7 +120,7 @@ static void mc68328_serial_do_rx(struct mc68328_serial_port *ssp)
 
 	do {
 		unsigned char ch;
-		urx = readw(ssp->port.membase + REG_URX);
+		urx = __raw_readw(ssp->port.membase + REG_URX);
 		if (!(urx & URX_DATAREADY))
 			break;
 
@@ -149,7 +149,7 @@ static irqreturn_t mc68328_serial_irq(int irq, void *dev_id)
 static unsigned int mc68328_serial_tx_empty(struct uart_port *port)
 {
 	struct mc68328_serial_port *ssp = port_to_mc68328_serial_port(port);
-	u16 utx = readw(ssp->port.membase + REG_UTX);
+	u16 utx = __raw_readw(ssp->port.membase + REG_UTX);
 
 	return (utx & UTX_TXEMPTY) ? TIOCSER_TEMT : 0;
 }
@@ -174,7 +174,7 @@ static int mc68328_serial_startup(struct uart_port *port)
 	struct mc68328_serial_port *ssp = port_to_mc68328_serial_port(port);
 	u16 ucnt;
 
-	ucnt = readw(port->membase + REG_UCNT);
+	ucnt = __raw_readw(port->membase + REG_UCNT);
 
 	/* Enable RX and RX int */
 	ucnt |= UCNT_RXEN | UCNT_RXRE;
@@ -185,7 +185,7 @@ static int mc68328_serial_startup(struct uart_port *port)
 	/* Disable all TX interrupts */
 	ucnt &= ~(UCNT_THAE | UCNT_TXHE | UCNT_TXEE);
 
-	writew(ucnt , port->membase + REG_UCNT);
+	__raw_writew(ucnt, port->membase + REG_UCNT);
 
 	return 0;
 }
@@ -237,7 +237,7 @@ static void early_mc68328_serial_putc(struct uart_port *port, unsigned char c)
 	u16 utx;
 
 	do {
-		utx = readw(port->membase + REG_UTX);
+		utx = __raw_readw(port->membase + REG_UTX);
 	} while (!(utx & UTX_TXAVAIL));
 
 	writeb(c, port->membase + REG_UTX + 1);
@@ -280,7 +280,7 @@ static void mc68328_serial_console_putchar(struct uart_port *port, unsigned char
 	u16 utx;
 
 	do {
-		utx = readw(port->membase + REG_UTX);
+		utx = __raw_readw(port->membase + REG_UTX);
 	} while (!(utx & UTX_TXAVAIL));
 
 	writeb(ch, port->membase + REG_UTX + 1);
