@@ -101,9 +101,9 @@ void __init setup_arch(char **cmdline_p)
 	memory_start = memblock_start_of_DRAM();
 	memory_end = memblock_end_of_DRAM();
 
-	empty_zero_page = memblock_alloc(PAGE_SIZE, PAGE_SIZE);
-	if (!empty_zero_page)
-		BUG();
+	//empty_zero_page = memblock_alloc(PAGE_SIZE, PAGE_SIZE);
+	//if (!empty_zero_page)
+	//	BUG();
 
 	pr_info("Flat model support (C) 1998,1999 Kenneth Albanowski, D. Jeff Dionne\n");
 	pr_info("Generic DT Machine (C) 2024 Daniel Palmer <daniel@thingy.jp>\n");
