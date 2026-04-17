@@ -108,10 +108,17 @@ static const struct platform_device_id qemu_virt_ctrl_id[] = {
 };
 MODULE_DEVICE_TABLE(platform, qemu_virt_ctrl_id);
 
+static const struct of_device_id virt_ctrl_of_match_table[] = {
+        { .compatible = "qemu,virt-ctrl" },
+        {}
+};
+MODULE_DEVICE_TABLE(of, virt_ctrl_of_match_table);
+
 static struct platform_driver qemu_virt_ctrl_driver = {
 	.probe = qemu_virt_ctrl_probe,
 	.driver = {
 		.name = "qemu-virt-ctrl",
+		.of_match_table = virt_ctrl_of_match_table,
 	},
 	.id_table = qemu_virt_ctrl_id,
 };
