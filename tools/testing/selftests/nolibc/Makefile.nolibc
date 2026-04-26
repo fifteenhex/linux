@@ -304,7 +304,7 @@ sysroot/$(ARCH)/include:
 
 nolibc-test: $(NOLIBC_TEST_SOURCES) sysroot/$(ARCH)/include
 	$(QUIET_CC)$(CC) $(CFLAGS) $(LDFLAGS) -o $@ \
-	  -nostdlib -nostdinc $(STATIC_FLAG) -Isysroot/$(ARCH)/include $(NOLIBC_TEST_SOURCES) $(LDLIBS)
+	  -ggdb -nostdlib -nostdinc $(STATIC_FLAG) -Isysroot/$(ARCH)/include $(NOLIBC_TEST_SOURCES) $(LDLIBS)
 
 libc-test: $(NOLIBC_TEST_SOURCES)
 	$(QUIET_CC)$(HOSTCC) -o $@ $(NOLIBC_TEST_SOURCES)
