@@ -48,6 +48,45 @@ int access(const char *path, int amode)
 	return faccessat(AT_FDCWD, path, amode, 0);
 }
 
+/*
+ * char *getcwd(char *buf, size_t size);
+ */
+
+static __attribute__((unused))
+int _sys_getcwd(char *buf, size_t size)
+{
+	return __nolibc_syscall2(__NR_getcwd, buf, size);
+}
+
+static __attribute__((unused))
+char *getcwd(char *buf, size_t size)
+{
+	int ret;
+
+	/* Unlike other libc's we don't handle passing NULL for buf,
+	 * we just call the syscall, if you passed NULL you'll get
+	 * an error.
+	 */
+	ret = __sysret(_sys_getcwd(buf, size));
+
+	/* On error return NULL, __sysret() above will have set errno */
+	if (ret < 0)
+		return NULL;
+
+	/* Handle no path being written or the kernel putting
+	 * "(unreachable)" into the buffer instead of a path.
+	 * This matches what musl is doing.
+	 */
+	if (ret == 0 || buf[0] != '/') {
+		SET_ERRNO(ENOENT);
+		return NULL;
+	}
+
+	/* ret must be the number of bytes written at this point,
+	 * so return the pointer to buf.
+	 */
+	return buf;
+}
 
 static __attribute__((unused))
 int msleep(unsigned int msecs)
