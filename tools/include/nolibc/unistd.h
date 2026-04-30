@@ -73,6 +73,29 @@ int ftruncate(int fd, off_t length)
 	return __sysret(_sys_ftruncate(fd, length));
 }
 
+/*
+ * char *getcwd(char *buf, size_t size);
+ */
+
+static __attribute__((unused))
+int _sys_getcwd(char *buf, size_t size)
+{
+	return __nolibc_syscall2(__NR_getcwd, buf, size);
+}
+
+static __attribute__((unused))
+char *getcwd(char *buf, size_t size)
+{
+	/* If successful we get the number of bytes written into
+	 * the buffer, so check the result is positive.
+	 */
+	if (__sysret(_sys_getcwd(buf, size)) > 0)
+		return buf;
+
+	/* On error return NULL, __sysret() above will have set errno */
+	return NULL;
+}
+
 static __attribute__((unused))
 int msleep(unsigned int msecs)
 {
