@@ -101,6 +101,22 @@ int msleep(unsigned int msecs)
 		return 0;
 }
 
+/*
+ * ssize_t readlink(const char *path, char *buf, size_t bufsiz);
+ */
+
+static __attribute__((unused))
+ssize_t _sys_readlink(const char *path, char *buf, size_t bufsiz)
+{
+	return __nolibc_syscall4(__NR_readlinkat, AT_FDCWD, path, buf, bufsiz);
+}
+
+static __attribute__((unused))
+ssize_t readlink(const char *path, char *buf, size_t bufsiz)
+{
+	return __sysret(_sys_readlink(path, buf, bufsiz));
+}
+
 static __attribute__((unused))
 unsigned int sleep(unsigned int seconds)
 {
