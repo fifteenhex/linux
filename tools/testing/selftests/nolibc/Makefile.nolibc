@@ -140,7 +140,7 @@ QEMU_ARCH_USER_mipsn32be = mipsn32
 QEMU_ARCH_USER         = $(or $(QEMU_ARCH_USER_$(XARCH)),$(QEMU_ARCH))
 
 QEMU_BIOS_DIR = /usr/share/edk2/
-QEMU_BIOS_loongarch = $(QEMU_BIOS_DIR)/loongarch64/OVMF_CODE.fd
+QEMU_BIOS_loongarch = /usr/share/qemu-efi-loongarch64/QEMU_EFI.fd
 
 ifneq ($(QEMU_BIOS_$(XARCH)),)
 QEMU_ARGS_BIOS = -bios $(QEMU_BIOS_$(XARCH))
