@@ -108,6 +108,7 @@
 #include "sys/select.h"
 #include "sys/sendfile.h"
 #include "sys/stat.h"
+#include "sys/statfs.h"
 #include "sys/syscall.h"
 #include "sys/sysmacros.h"
 #include "sys/time.h"
