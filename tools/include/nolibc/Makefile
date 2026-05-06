@@ -62,6 +62,7 @@ all_files := \
 		sys/select.h \
 		sys/sendfile.h \
 		sys/stat.h \
+		sys/statfs.h \
 		sys/syscall.h \
 		sys/sysmacros.h \
 		sys/time.h \
