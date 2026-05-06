@@ -60,6 +60,7 @@ all_files := \
 		sys/resource.h \
 		sys/select.h \
 		sys/stat.h \
+		sys/statfs.h \
 		sys/syscall.h \
 		sys/sysmacros.h \
 		sys/time.h \
