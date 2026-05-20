@@ -19,6 +19,7 @@
 #include <linux/export.h>
 #include <linux/mm.h>
 #include <linux/sched/mm.h>
+#include <linux/hash.h>
 #include <linux/mman.h>
 #include <linux/swap.h>
 #include <linux/file.h>
@@ -52,6 +53,18 @@ atomic_long_t mmap_pages_allocated;
 static struct kmem_cache *vm_region_jar;
 struct rb_root nommu_region_tree = RB_ROOT;
 DECLARE_RWSEM(nommu_region_sem);
+
+/* Tracking for our "poor man's" vmap */
+#define VMAP_HASH_BITS  6
+static struct hlist_head vmap_hash[1 << VMAP_HASH_BITS];
+static DEFINE_SPINLOCK(vmap_lock);
+
+struct nommu_vmap_area {
+	struct hlist_node node;
+	struct page **pages;
+	unsigned int count;
+	void *addr;
+};
 
 const struct vm_operations_struct generic_file_vm_ops = {
 };
@@ -305,29 +318,137 @@ void *vmalloc_32_user_noprof(unsigned long size)
 }
 EXPORT_SYMBOL(vmalloc_32_user_noprof);
 
-void *vmap(struct page **pages, unsigned int count, unsigned long flags, pgprot_t prot)
+static bool vmap_needs_bounce(struct page **pages, unsigned int count)
 {
-	BUG();
+	unsigned long pfn = page_to_pfn(pages[0]);
+	unsigned int i;
+
+	for (i = 1; i < count; i++)
+		if (page_to_pfn(pages[i]) != pfn + i)
+			return true;
+
+	return false;
+}
+
+static inline unsigned int vmap_key(const void *addr)
+{
+	return hash_ptr(addr, VMAP_HASH_BITS);
+}
+
+static struct nommu_vmap_area *vmap_area_find(const void *addr)
+{
+	struct nommu_vmap_area *va;
+
+	hlist_for_each_entry(va, &vmap_hash[vmap_key(addr)], node)
+		if (va->addr == addr)
+			return va;
+
 	return NULL;
+}
+
+static void *nommu_vmap_map(struct page **pages, unsigned int count)
+{
+	struct nommu_vmap_area *va __free(kfree) = NULL;
+	struct page **_pages __free(kfree) = NULL;
+	void *copy __free(kvfree) = NULL;
+	unsigned int i;
+
+	va = kmalloc_obj(struct nommu_vmap_area);
+	if (!va)
+		return NULL;
+
+	if (vmap_needs_bounce(pages, count)) {
+		copy = kvmalloc_array(count, PAGE_SIZE, GFP_KERNEL);
+		if (!copy)
+			return NULL;
+
+		_pages = kmemdup(pages, count * sizeof(*pages), GFP_KERNEL);
+		if (!_pages)
+			return NULL;
+
+		/*
+		 * Copy the original contents of the pages into the new
+		 * pages to pretend we virtually mapped them.
+		 */
+		for (i = 0; i < count; i++) {
+			void *p = copy + (i * PAGE_SIZE);
+
+			memcpy(p, page_address(pages[i]), PAGE_SIZE);
+		}
+
+		va->addr = no_free_ptr(copy);
+		va->pages = no_free_ptr(_pages);
+	} else {
+		va->addr = page_address(pages[0]);
+		va->pages = NULL;
+	}
+
+	va->count = count;
+
+	scoped_guard(spinlock, &vmap_lock) {
+		hlist_add_head(&va->node,
+			       &vmap_hash[vmap_key(va->addr)]);
+	}
+
+	return no_free_ptr(va)->addr;
+}
+
+static void nommu_vmap_unmap(const void *addr)
+{
+	struct nommu_vmap_area *va;
+	unsigned int i;
+
+	scoped_guard(spinlock, &vmap_lock) {
+		va = vmap_area_find(addr);
+		if (va)
+			hlist_del(&va->node);
+	}
+
+	if (WARN_ON_ONCE(!va))
+		return;
+
+	if (va->pages) {
+		/*
+		 * Write back the new contents of the pages to
+		 * the original ones, this is a waste of time if
+		 * the pages weren't written to but we can't tell.
+		 */
+		for (i = 0; i < va->count; i++) {
+			const void *src = addr + (i * PAGE_SIZE);
+			void *dst = page_address(va->pages[i]);
+
+			memcpy(dst, src, PAGE_SIZE);
+		}
+
+		kvfree(va->addr);
+		kfree(va->pages);
+	}
+
+	kfree(va);
+}
+
+void *vmap(struct page **pages, unsigned int count,
+	   unsigned long flags, pgprot_t prot)
+{
+	return nommu_vmap_map(pages, count);
 }
 EXPORT_SYMBOL(vmap);
 
 void vunmap(const void *addr)
 {
-	BUG();
+	nommu_vmap_unmap(addr);
 }
 EXPORT_SYMBOL(vunmap);
 
 void *vm_map_ram(struct page **pages, unsigned int count, int node)
 {
-	BUG();
-	return NULL;
+	return nommu_vmap_map(pages, count);
 }
 EXPORT_SYMBOL(vm_map_ram);
 
 void vm_unmap_ram(const void *mem, unsigned int count)
 {
-	BUG();
+	nommu_vmap_unmap(mem);
 }
 EXPORT_SYMBOL(vm_unmap_ram);
 
