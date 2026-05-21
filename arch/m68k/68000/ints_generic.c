@@ -66,8 +66,6 @@ asmlinkage irqreturn_t inthandler71(void);
  * the machine vector table.
  */
 
-#define VEC_PRIV 8
-
 void __init trap_init(void)
 {
 	/* set up the vectors */
@@ -93,9 +91,18 @@ asmlinkage void process_int_oops(struct pt_regs *fp)
 {
 	int sig, si_code;
 
-	switch (fp->vector) {
+	switch (fp->vector / 4) {
+	case VEC_ILLEGAL:
+		si_code = ILL_ILLOPC;
+		sig = SIGILL;
+		break;
 	case VEC_PRIV :
 		si_code = ILL_PRVOPC;
+		sig = SIGILL;
+		break;
+	default:
+		pr_err("Unhandled exception: vector=%d\n", fp->vector);
+		si_code = ILL_ILLOPC;
 		sig = SIGILL;
 		break;
 	}
