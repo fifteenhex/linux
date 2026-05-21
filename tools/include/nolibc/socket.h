@@ -42,28 +42,25 @@ typedef uint32_t socklen_t;
 static __inline__
 uint16_t htons(uint16_t hostshort)
 {
-	return (hostshort >> 8) | (hostshort << 8);
+	return htobe16(hostshort);
 }
 
 static __inline__
 uint32_t htonl(uint32_t hostlong)
 {
-	return ((hostlong >> 24) & 0x000000ff) |
-	       ((hostlong >> 8)  & 0x0000ff00) |
-	       ((hostlong << 8)  & 0x00ff0000) |
-	       ((hostlong << 24) & 0xff000000);
+	return htobe32(hostlong);
 }
 
 static __inline__
 uint32_t ntohl(uint32_t netlong)
 {
-	return htonl(netlong);
+	return be32toh(netlong);
 }
 
 static __inline__
 uint32_t ntohs(uint16_t netshort)
 {
-	return htons(netshort);
+	return be16toh(netshort);
 }
 
 static __attribute__((unused))
