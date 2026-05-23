@@ -101,7 +101,7 @@ asmlinkage void process_int_oops(struct pt_regs *fp)
 		sig = SIGILL;
 		break;
 	default:
-		pr_err("Unhandled exception: vector=%d\n", fp->vector);
+		pr_err("Unhandled exception: vector=%d, pc=0x%08x\n", fp->vector, (unsigned int) fp->pc);
 		si_code = ILL_ILLOPC;
 		sig = SIGILL;
 		break;
