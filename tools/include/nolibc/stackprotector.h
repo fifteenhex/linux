@@ -42,8 +42,22 @@ uintptr_t __stack_chk_guard;
 
 static __nolibc_no_stack_protector void __stack_chk_init(void)
 {
-	__nolibc_syscall3(__NR_getrandom, &__stack_chk_guard, sizeof(__stack_chk_guard),
-			  GRND_INSECURE | GRND_NONBLOCK);
+	int ret = -EINVAL;
+
+	/* GRND_INSECURE is available in kernel 5.6+ */
+#ifdef GRND_INSECURE
+	ret = __nolibc_syscall3(__NR_getrandom, &__stack_chk_guard, sizeof(__stack_chk_guard),
+				GRND_INSECURE | GRND_NONBLOCK);
+#endif
+
+	/* Where GRND_INSECURE was present at build but the running kernel
+	 * doesn't understand it.
+	 */
+	if (ret == -EINVAL) {
+		__nolibc_syscall3(__NR_getrandom, &__stack_chk_guard, sizeof(__stack_chk_guard),
+				  GRND_NONBLOCK);
+	}
+
 	/* a bit more randomness in case getrandom() fails, ensure the guard is never 0 */
 	if (__stack_chk_guard != (uintptr_t) &__stack_chk_guard)
 		__stack_chk_guard ^= (uintptr_t) &__stack_chk_guard;
