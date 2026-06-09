@@ -97,3 +97,4 @@ obj-$(CONFIG_RALINK_TIMER)		+= timer-ralink.o
 obj-$(CONFIG_NXP_STM_TIMER)		+= timer-nxp-stm.o
 obj-$(CONFIG_RTK_SYSTIMER)		+= timer-realtek.o
 obj-$(CONFIG_DRAGONBALL_TIMER)	+= timer-dragonball.o
+obj-y					+= timer-everdrive.o
