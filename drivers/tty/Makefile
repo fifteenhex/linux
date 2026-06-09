@@ -28,3 +28,5 @@ obj-$(CONFIG_VCC)		+= vcc.o
 obj-$(CONFIG_RPMSG_TTY)		+= rpmsg_tty.o
 
 obj-y += ipwireless/
+
+obj-$(CONFIG_VDP_TTY) += vdp.o

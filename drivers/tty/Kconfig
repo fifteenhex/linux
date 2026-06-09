@@ -415,6 +415,9 @@ config RPMSG_TTY
 	  To compile this driver as a module, choose M here: the module will be
 	  called rpmsg_tty.
 
+config VDP_TTY
+	bool "Megadrive TTY driver"
+
 endif # TTY
 
 source "drivers/tty/serdev/Kconfig"
