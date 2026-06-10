@@ -30,6 +30,7 @@ struct subprocess_info {
 	void *data;
 } __randomize_layout;
 
+#ifdef CONFIG_UMH
 extern int
 call_usermodehelper(const char *path, char **argv, char **envp, int wait);
 
@@ -38,6 +39,22 @@ call_usermodehelper_setup(const char *path, char **argv, char **envp,
 			  gfp_t gfp_mask,
 			  int (*init)(struct subprocess_info *info, struct cred *new),
 			  void (*cleanup)(struct subprocess_info *), void *data);
+#else
+static inline int
+call_usermodehelper(const char *path, char **argv, char **envp, int wait) {
+	return -ENOTSUPP;
+}
+
+
+static inline struct subprocess_info *
+call_usermodehelper_setup(const char *path, char **argv, char **envp,
+			  gfp_t gfp_mask,
+			  int (*init)(struct subprocess_info *info, struct cred *new),
+			  void (*cleanup)(struct subprocess_info *), void *data)
+{
+	return NULL;
+}
+#endif
 
 extern int
 call_usermodehelper_exec(struct subprocess_info *info, int wait);
@@ -53,12 +70,18 @@ extern void __usermodehelper_set_disable_depth(enum umh_disable_depth depth);
 
 static inline int usermodehelper_disable(void)
 {
+#ifdef CONFIG_UMF
 	return __usermodehelper_disable(UMH_DISABLED);
+#else
+	return 0;
+#endif
 }
 
 static inline void usermodehelper_enable(void)
 {
+#ifdef CONFIG_UMG
 	__usermodehelper_set_disable_depth(UMH_ENABLED);
+#endif
 }
 
 extern int usermodehelper_read_trylock(void);
