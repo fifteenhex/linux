@@ -418,6 +418,9 @@ config RPMSG_TTY
 config VDP_TTY
 	bool "Megadrive TTY driver"
 
+config EVERDRIVE_TTY
+	bool "Everdrive TTY driver"
+
 endif # TTY
 
 source "drivers/tty/serdev/Kconfig"
