@@ -29,6 +29,8 @@ static inline void __runtime_fixup_ptr(void *where, unsigned long val)
 
 	*value = val;
 
+	printk("patching 0x%px with 0x%lx\n", where, val);
+
 	flush_icache_range(start, end);
 }
 
@@ -58,6 +60,8 @@ static inline void __runtime_fixup_shift(void *where, unsigned long val)
 {
 	const unsigned long shifts_start = (unsigned long) where;
 	u16 *insn = where;
+
+	printk("patching shift at 0x%px with 0x%lx\n", where, val);
 
 	for (int i = 0; i < SHIFT_32_INSNS; i++, insn++) {
 		if (val >= 8) {
