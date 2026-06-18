@@ -3,6 +3,7 @@
 #
 # Makefile for m68k-specific library files..
 #
+ccflags-y += -O3
 
 lib-y	:= memcpy.o memset.o memmove.o
 
