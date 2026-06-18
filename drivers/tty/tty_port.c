@@ -74,6 +74,9 @@ const struct tty_port_client_operations tty_port_default_client_ops = {
 };
 EXPORT_SYMBOL_GPL(tty_port_default_client_ops);
 
+static const struct tty_port_operations tty_dummy_port_ops = {
+};
+
 /**
  * tty_port_init - initialize tty_port
  * @port: tty_port to initialize
@@ -95,6 +98,7 @@ void tty_port_init(struct tty_port *port)
 	port->close_delay = (50 * HZ) / 100;
 	port->closing_wait = (3000 * HZ) / 100;
 	port->client_ops = &tty_port_default_client_ops;
+	port->ops = &tty_dummy_port_ops;
 	kref_init(&port->kref);
 }
 EXPORT_SYMBOL(tty_port_init);
