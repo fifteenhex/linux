@@ -128,8 +128,11 @@ struct z_erofs_pcluster_slab {
 #define _PCLP(n) { .maxpages = n }
 
 static struct z_erofs_pcluster_slab pcluster_pool[] __read_mostly = {
-	_PCLP(1), _PCLP(4), _PCLP(16), _PCLP(64), _PCLP(128),
+	_PCLP(1),
+#if 0
+_PCLP(4), _PCLP(16), _PCLP(64), _PCLP(128),
 	_PCLP(Z_EROFS_PCLUSTER_MAX_PAGES + 1)
+#endif
 };
 
 struct z_erofs_bvec_iter {
