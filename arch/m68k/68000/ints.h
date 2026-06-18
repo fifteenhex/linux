@@ -8,3 +8,4 @@ asmlinkage void bad_trap(struct pt_regs *fp);
 asmlinkage void process_int_oops(struct pt_regs *fp);
 asmlinkage void process_int_autovec(struct pt_regs *fp);
 asmlinkage void process_int_user(struct pt_regs *fp);
+asmlinkage void process_68000_stacka(void *fp);

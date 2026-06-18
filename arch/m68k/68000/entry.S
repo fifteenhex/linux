@@ -159,13 +159,21 @@ Lsignal_return:
 	inthandlerbody \func
  .endm
 
+ .macro inthandler_stacka num func
+	.globl inthandler\num
+	inthandler\num:
+	pea	%sp@
+	jbsr	\func
+	jmp .
+ .endm
+
 /* processor exceptions */
 .globl inthandler_cpuexception
 inthandler_cpuexception:
 	inthandlerbody process_int_oops
 /* shit happened vectors */
 inthandler 2 process_int_oops
-inthandler 3 process_int_oops
+inthandler_stacka 3 process_68000_stacka
 inthandler 4 process_int_oops
 inthandler 5 process_int_oops
 inthandler 6 process_int_oops

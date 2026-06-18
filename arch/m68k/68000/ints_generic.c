@@ -19,6 +19,8 @@
 #include <asm/io.h>
 #include <asm/machdep.h>
 
+#include <linux/sched/debug.h>
+
 #include "ints.h"
 
 //new
@@ -85,6 +87,29 @@ void __init trap_init(void)
 asmlinkage void process_int_badtrap(struct pt_regs *fp)
 {
 	panic("Hit bad trap, NULL function pointer, bad stack?\n");
+}
+
+struct mc68000_stacka {
+	u16 info;
+	u32 addr;
+	u16 ir;
+	u16 sr;
+	u32 pc;
+} __packed;
+
+asmlinkage void process_68000_stacka(void *fp)
+{
+	struct mc68000_stacka *frame = fp;
+
+	printk("info 0x%04x\n", (unsigned int) frame->info);
+	printk("addr 0x%08x\n", (unsigned int) frame->addr);
+	printk("ir   0x%04x\n", (unsigned int) frame->ir);
+	printk("sr   0x%04x\n", (unsigned int) frame->sr);
+	printk("pc   0x%08x\n", (unsigned int) frame->pc);
+
+	show_stack(NULL, fp + sizeof(*frame), KERN_DEFAULT);
+
+	panic("Address or bus error\n");
 }
 
 asmlinkage void process_int_oops(struct pt_regs *fp)
