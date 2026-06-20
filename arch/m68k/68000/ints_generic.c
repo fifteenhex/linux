@@ -259,8 +259,8 @@ asmlinkage void process_int_user(struct pt_regs *fp)
 
 	irq_enter();
 	generic_handle_domain_irq(mc68000_irq_user_domain, irq);
-	irq_exit()
-;
+	irq_exit();
+
 	set_irq_regs(fp);
 }
 
