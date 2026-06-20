@@ -28,6 +28,9 @@ config M68KDT_VIRT
 	help
 	  Support for QEMU virt M68K machine with Device Tree
 
+config M68KDT_MEGADRIVE
+	bool "Sega MegaDrive"
+	
 if !M68KDT
 config AMIGA
 	bool "Amiga support"
