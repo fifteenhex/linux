@@ -187,7 +187,7 @@ static inline void __raw_writeq(u64 value, volatile void __iomem *addr)
 
 #ifndef readb
 #define readb readb
-static inline u8 readb(const volatile void __iomem *addr)
+static __always_inline u8 readb(const volatile void __iomem *addr)
 {
 	u8 val;
 
@@ -204,7 +204,7 @@ static inline u8 readb(const volatile void __iomem *addr)
 
 #ifndef readw
 #define readw readw
-static inline u16 readw(const volatile void __iomem *addr)
+static __always_inline u16 readw(const volatile void __iomem *addr)
 {
 	u16 val;
 
@@ -221,7 +221,7 @@ static inline u16 readw(const volatile void __iomem *addr)
 
 #ifndef readl
 #define readl readl
-static inline u32 readl(const volatile void __iomem *addr)
+static __always_inline u32 readl(const volatile void __iomem *addr)
 {
 	u32 val;
 
@@ -257,7 +257,7 @@ static inline u64 readq(const volatile void __iomem *addr)
 
 #ifndef writeb
 #define writeb writeb
-static inline void writeb(u8 value, volatile void __iomem *addr)
+static __always_inline void writeb(u8 value, volatile void __iomem *addr)
 {
 	if (rwmmio_tracepoint_enabled(rwmmio_write))
 		log_write_mmio(value, 8, addr, _THIS_IP_, _RET_IP_);
@@ -271,7 +271,7 @@ static inline void writeb(u8 value, volatile void __iomem *addr)
 
 #ifndef writew
 #define writew writew
-static inline void writew(u16 value, volatile void __iomem *addr)
+static __always_inline void writew(u16 value, volatile void __iomem *addr)
 {
 	if (rwmmio_tracepoint_enabled(rwmmio_write))
 		log_write_mmio(value, 16, addr, _THIS_IP_, _RET_IP_);
@@ -285,7 +285,7 @@ static inline void writew(u16 value, volatile void __iomem *addr)
 
 #ifndef writel
 #define writel writel
-static inline void writel(u32 value, volatile void __iomem *addr)
+static __always_inline void writel(u32 value, volatile void __iomem *addr)
 {
 	if (rwmmio_tracepoint_enabled(rwmmio_write))
 		log_write_mmio(value, 32, addr, _THIS_IP_, _RET_IP_);
