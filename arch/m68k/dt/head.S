@@ -41,6 +41,7 @@ __HEAD
 #define MC68EZ328_UART_TXFLAGS	0x6
 #define MC68EZ328_UART_TXDATA	0x7
 
+#if 0
 .macro __putch val
 1:
 	//and.w	#(1 << 13),(MC68EZ328_UART + MC68EZ328_UART_TXFLAGS)
@@ -49,6 +50,25 @@ __HEAD
 	beq		1b
 	move.b	#\val,(MC68EZ328_UART + MC68EZ328_UART_TXDATA)
 .endm
+#endif
+
+#if 1 /* megadrive */
+#define MEGADRIVE_EVERDRIVE_MAILBOX             0xa130d0
+.macro __putch val
+        /* hdr */
+        move.w #0x2b, MEGADRIVE_EVERDRIVE_MAILBOX
+        move.w #0xd4, MEGADRIVE_EVERDRIVE_MAILBOX
+        move.w #0x22, MEGADRIVE_EVERDRIVE_MAILBOX
+        move.w #0xdd, MEGADRIVE_EVERDRIVE_MAILBOX
+
+        /* len */
+        move.w #0x00, MEGADRIVE_EVERDRIVE_MAILBOX
+        move.w #0x01, MEGADRIVE_EVERDRIVE_MAILBOX
+
+        /* Data */
+        move.w #\val, MEGADRIVE_EVERDRIVE_MAILBOX
+.endm
+#endif
 
 .macro _putch val
 	__putch \val
@@ -57,7 +77,7 @@ __HEAD
 .endm
 
 _start:
-//	_putch 'L'
+	_putch 'L'
 	/* disable all interrupts */
 	movew	#0x2700, %sr
 
@@ -91,7 +111,8 @@ _clear_bss:
  *****************************************************************************/
 	lea	init_thread_union,%a0
 	lea	THREAD_SIZE(%a0),%sp
-//	_putch 'n'
+	_putch 's'
 	jsr	start_kernel			/* start Linux kernel */
+	_putch 'c'
 _exit:
 	jmp	_exit				/* should never get here */
