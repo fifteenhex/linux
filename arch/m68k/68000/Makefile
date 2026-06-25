@@ -13,4 +13,6 @@
 obj-y += entry.o entry_common.o
 obj-$(CONFIG_ROM)	+= romvec.o
 obj-$(CONFIG_ISDRAGONBALL) += ints_dragonball.o
+
 obj-$(CONFIG_M68KDT) += ints_generic.o
+obj-y += everdrive_fifo.o
