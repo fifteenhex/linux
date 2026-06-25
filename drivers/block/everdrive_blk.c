@@ -13,6 +13,7 @@
 
 #include <asm/everdrive.h>
 #include <asm/everdrive-fifo.h>
+#include <asm/vdp.h>
 
 #define EVERDRIVE_BLK_DRIVER_NAME	"everdrive-blk"
 #define EVERDRIVE_BLK_DEVICE_NAME	"edblk"
@@ -54,6 +55,8 @@ static int everdrive_file_read(volatile void *dst)
 		.return_data = dst,
 		.status = &status,
 	};
+
+	vdp_disk_activity();
 
 	return everdrive_fifo_enqueue_wait(&msg);
 }
