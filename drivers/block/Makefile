@@ -40,4 +40,6 @@ obj-$(CONFIG_BLK_DEV_RUST_NULL) += rnull/
 obj-$(CONFIG_BLK_DEV_UBLK)			+= ublk_drv.o
 obj-$(CONFIG_BLK_DEV_ZONED_LOOP) += zloop.o
 
+obj-y += everdrive_blk.o
+
 swim_mod-y	:= swim.o swim_asm.o
