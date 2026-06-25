@@ -979,7 +979,7 @@ static inline u64 ioread64be(const volatile void __iomem *addr)
 
 #ifndef iowrite16be
 #define iowrite16be iowrite16be
-static inline void iowrite16be(u16 value, void volatile __iomem *addr)
+static __always_inline void iowrite16be(u16 value, void volatile __iomem *addr)
 {
 	writew(swab16(value), addr);
 }
