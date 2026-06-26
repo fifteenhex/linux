@@ -109,7 +109,7 @@ asmlinkage void process_68000_stacka(void *fp)
 
 	show_stack(NULL, fp + sizeof(*frame), KERN_DEFAULT);
 
-	panic("Address or bus error\n");
+ 	panic("Address or bus error\n");
 }
 
 asmlinkage void process_int_oops(struct pt_regs *fp)
