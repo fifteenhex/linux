@@ -141,6 +141,7 @@ static struct irq_domain *mc68000_irq_domain = NULL;
 
 asmlinkage void process_int_autovec(struct pt_regs *fp)
 {
+	struct pt_regs *oldregs = set_irq_regs(fp);
 	int irq = (fp->vector)/4;
 
 	BUG_ON(irq < AUTOVECSTART || irq > (AUTOVECSTART + AUTOVECNUM));
@@ -151,7 +152,7 @@ asmlinkage void process_int_autovec(struct pt_regs *fp)
 	generic_handle_domain_irq(mc68000_irq_domain, irq);
 	irq_exit();
 
-	set_irq_regs(fp);
+	set_irq_regs(oldregs);
 }
 
 void __init init_IRQ(void)
@@ -251,6 +252,7 @@ static struct irq_domain *mc68000_irq_user_domain = NULL;
 
 asmlinkage void process_int_user(struct pt_regs *fp)
 {
+	struct pt_regs *oldregs = set_irq_regs(fp);
 	int irq = (fp->vector)/4;
 
 	BUG_ON(irq < USERSTART || irq > (USERSTART + MC68000_IRQ_USER_NR));
@@ -261,7 +263,7 @@ asmlinkage void process_int_user(struct pt_regs *fp)
 	generic_handle_domain_irq(mc68000_irq_user_domain, irq);
 	irq_exit();
 
-	set_irq_regs(fp);
+	set_irq_regs(oldregs);
 }
 
 static struct irq_chip intc_user_irq_chip = {
