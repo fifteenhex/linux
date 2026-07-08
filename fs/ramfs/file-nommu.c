@@ -80,8 +80,6 @@ int ramfs_nommu_expand_for_mapping(struct inode *inode, size_t newsize)
 	if (ret)
 		return ret;
 
-	i_size_write(inode, newsize);
-
 	/* allocate enough contiguous pages to be able to satisfy the
 	 * request */
 	pages = alloc_pages(gfp, order);
@@ -99,9 +97,15 @@ int ramfs_nommu_expand_for_mapping(struct inode *inode, size_t newsize)
 		__free_page(pages + loop);
 
 	/* clear the memory we allocated */
-	newsize = PAGE_SIZE * npages;
 	data = page_address(pages);
-	memset(data, 0, newsize);
+	memset(data, 0, PAGE_SIZE * npages);
+
+	/* block the read and splice paths from instantiating pagecache
+	 * folios whilst we build the contiguous mapping, and evict any
+	 * folio they may already have instantiated (the read path only
+	 * checks i_size after folio lookup/creation) */
+	filemap_invalidate_lock(inode->i_mapping);
+	truncate_inode_pages(inode->i_mapping, 0);
 
 	/* attach all the pages to the inode's address space */
 	for (loop = 0; loop < npages; loop++) {
@@ -120,11 +124,20 @@ int ramfs_nommu_expand_for_mapping(struct inode *inode, size_t newsize)
 		put_page(page);
 	}
 
+	/* only publish the new size once all of the backing pages are in
+	 * place, so that readers never observe a size without the pages to
+	 * back it and a failure leaves the inode unchanged at size 0 */
+	i_size_write(inode, newsize);
+	filemap_invalidate_unlock(inode->i_mapping);
 	return 0;
 
 add_error:
+	/* free the pages we hadn't inserted yet... */
 	while (loop < npages)
 		__free_page(pages + loop++);
+	/* ...and evict the ones we had; they belong to the page cache now */
+	truncate_inode_pages(inode->i_mapping, 0);
+	filemap_invalidate_unlock(inode->i_mapping);
 	return ret;
 }
 
