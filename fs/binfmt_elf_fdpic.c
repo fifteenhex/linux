@@ -16,6 +16,7 @@
 #include <linux/sched/cputime.h>
 #include <linux/mm.h>
 #include <linux/mman.h>
+#include <linux/overflow.h>
 #include <linux/errno.h>
 #include <linux/signal.h>
 #include <linux/binfmts.h>
@@ -157,18 +158,29 @@ static int elf_fdpic_fetch_phdrs(struct elf_fdpic_params *params,
 	if (unlikely(retval != size))
 		return retval < 0 ? retval : -ENOEXEC;
 
-	/* reject any PT_LOAD segment that claims to hold more data in the file
-	 * than it reserves in memory; the loaders below assume
-	 * p_filesz <= p_memsz and overrun/underflow their size arithmetic
-	 * otherwise
+	/* reject any PT_LOAD segment that the loaders below cannot map safely:
+	 * they assume p_filesz <= p_memsz and that p_vaddr + p_memsz does not
+	 * overflow, and overrun/underflow their size arithmetic otherwise
 	 */
 	phdr = params->phdrs;
 	for (loop = 0; loop < params->hdr.e_phnum; loop++, phdr++) {
+		typeof(phdr->p_vaddr) seg_end;
+
 		if (phdr->p_type != PT_LOAD)
 			continue;
 
 		if (phdr->p_filesz > phdr->p_memsz) {
 			kdebug("Bad segment %d: p_filesz > p_memsz", loop);
+			return -ENOEXEC;
+		}
+
+		/* the loaders derive the segment end, and the size of the
+		 * mapping they allocate, from p_vaddr + p_memsz; if that
+		 * overflows the address type, an undersized mapping is
+		 * allocated and later written out of bounds
+		 */
+		if (check_add_overflow(phdr->p_vaddr, phdr->p_memsz, &seg_end)) {
+			kdebug("Bad segment %d: p_vaddr + p_memsz overflows", loop);
 			return -ENOEXEC;
 		}
 	}
