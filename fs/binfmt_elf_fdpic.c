@@ -969,7 +969,7 @@ static int elf_fdpic_map_file_constdisp_on_uclinux(
 			continue;
 
 		if (phdr->p_filesz > phdr->p_memsz) {
-			pr_err("FDPIC segment %d has p_filesz > p_memsz\n", loop);
+			kdebug("Bad segment %d: p_filesz > p_memsz\n", loop);
 			return -ENOEXEC;
 		}
 
