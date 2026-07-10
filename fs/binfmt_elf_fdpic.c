@@ -247,6 +247,17 @@ static int load_elf_fdpic_binary(struct linux_binprm *bprm)
 	for (i = 0; i < exec_params.hdr.e_phnum; i++, phdr++) {
 		switch (phdr->p_type) {
 		case PT_INTERP:
+			/*
+			 * Only the first PT_INTERP is honoured, as in the
+			 * regular ELF loader.  Ignore any further ones: the
+			 * break below only leaves the switch, not the loop, so
+			 * without this a crafted binary with multiple PT_INTERP
+			 * segments would overwrite (and leak) interpreter_name
+			 * and the interpreter file on each pass.
+			 */
+			if (interpreter_name)
+				break;
+
 			retval = -ENOMEM;
 			if (phdr->p_filesz > PATH_MAX)
 				goto error;
