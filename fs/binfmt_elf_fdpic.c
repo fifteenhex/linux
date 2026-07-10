@@ -968,6 +968,11 @@ static int elf_fdpic_map_file_constdisp_on_uclinux(
 		if (params->phdrs[loop].p_type != PT_LOAD)
 			continue;
 
+		if (phdr->p_filesz > phdr->p_memsz) {
+			pr_err("FDPIC segment %d has p_filesz > p_memsz\n", loop);
+			return -ENOEXEC;
+		}
+
 		seg->addr = maddr + (phdr->p_vaddr - base);
 		seg->p_vaddr = phdr->p_vaddr;
 		seg->p_memsz = phdr->p_memsz;
