@@ -157,6 +157,22 @@ static int elf_fdpic_fetch_phdrs(struct elf_fdpic_params *params,
 	if (unlikely(retval != size))
 		return retval < 0 ? retval : -ENOEXEC;
 
+	/* reject any PT_LOAD segment that claims to hold more data in the file
+	 * than it reserves in memory; the loaders below assume
+	 * p_filesz <= p_memsz and overrun/underflow their size arithmetic
+	 * otherwise
+	 */
+	phdr = params->phdrs;
+	for (loop = 0; loop < params->hdr.e_phnum; loop++, phdr++) {
+		if (phdr->p_type != PT_LOAD)
+			continue;
+
+		if (phdr->p_filesz > phdr->p_memsz) {
+			kdebug("Bad segment %d: p_filesz > p_memsz", loop);
+			return -ENOEXEC;
+		}
+	}
+
 	/* determine stack size for this binary */
 	phdr = params->phdrs;
 	for (loop = 0; loop < params->hdr.e_phnum; loop++, phdr++) {
