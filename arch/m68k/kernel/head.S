@@ -472,6 +472,14 @@ func_define	console_plot_pixel,3
 func_define	console_scroll
 
 .macro	putc	ch
+#ifdef CONFIG_ELTEC_E17
+	/*
+	 * Also drop the checkpoint on the E17's POST display (Z8536 CIO1
+	 * port C at 0xfec30000, low nibble shown) so early progress is
+	 * visible even before / without a working serial console.
+	 */
+	moveb	#\ch,0xfec30000
+#endif
 #if defined(CONSOLE_DEBUG) || defined(SERIAL_DEBUG)
 	pea	\ch
 #endif
@@ -594,6 +602,11 @@ ENTRY(__start)
  * Setup initial stack pointer
  */
 	lea	%pc@(_stext),%sp
+
+#ifdef CONFIG_ELTEC_E17
+	/* POST code 0xc0 = reached the kernel entry (before bootinfo/machtype) */
+	moveb	#0xee,0xfec30000
+#endif
 
 /*
  * Record the CPU and machine type.
@@ -1539,6 +1552,11 @@ L(cache_done):
 
 	putc	'\n'
 	leds	0x55
+
+#ifdef CONFIG_ELTEC_E17
+	/* POST code 0xf0 = head.S done, entering start_kernel() */
+	moveb	#0xff,0xfec30000
+#endif
 
 	jbsr	start_kernel
 
