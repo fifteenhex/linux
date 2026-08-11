@@ -3186,9 +3186,12 @@ func_start	serial_putc,%d0/%d1/%a0/%a1
 	clrb	%a1@(0xee)		| CAR   = channel 0
 	moveb	#0x02,%a1@(0xe0)	| TPILR = tx priority level 2
 	moveb	#0x01,%a1@(0x11)	| IER   = tx-data interrupt enable
+	movel	#0x80000,%d1		| poll timeout (never hang)
 1:	btst	#3,%a0@(0x3b)		| VIC LICR6 STATE: 0 => CD2401 asserting
+	jeq	3f
+	subql	#1,%d1
 	jne	1b
-	tstb	%a1@(0x2002)		| IACK at level 2 -> enter tx service
+3:	tstb	%a1@(0x2002)		| IACK at level 2 -> enter tx service
 	moveb	%d0,%a1@(0xf8)		| TDR   = char
 	clrb	%a1@(0x85)		| TEOIR = end of tx interrupt
 	clrb	%a1@(0x11)		| IER   = 0
