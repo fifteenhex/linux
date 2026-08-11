@@ -30,6 +30,15 @@
 #include "eltec.h"
 
 /*
+ * Boot diagnostics: drop a distinct code on the board's 7-seg POST display
+ * (Z8536 CIO1 port C at 0xfec30000, low nibble shown) at each milestone so
+ * the furthest point reached is visible without a serial console.  A plain
+ * store -- it can never hang the CPU.  Codes 0xf1..0xf7 are used in
+ * setup_arch(); this file continues the sequence into IRQ/timer bring-up.
+ */
+#define E17_POST(code)	(*(volatile u8 *)0xfec30000 = (code))
+
+/*
  * Cirrus CD2401 serial controller at 0xfec64000, channel 0 = the RMON
  * console (Serial Port 1).  The real chip only transmits from its
  * interrupt-service context - a bare TDR write is ignored - so a byte is
@@ -61,23 +70,19 @@ static volatile u8 *const e17_cd2401_iack __maybe_unused =
 	(volatile u8 *)E17_CD2401_IACK;
 static volatile u8 *const e17_vic = (volatile u8 *)E17_VIC_BASE;
 
-/* Z8536 CIO1 port C -- the board's 7-segment POST display (low nibble). */
-#define E17_POST_DISPLAY	((volatile u8 *)0xfec30000)
-
 static void e17_cons_putc(char c)
 {
 	/*
 	 * DIAGNOSTIC console.  The interrupt-service-context CD2401 tx
 	 * handshake wedges early boot on real hardware (the IACK read appears
-	 * to fault), so for now the console does two things that cannot hang
-	 * the CPU: it drops each byte on the POST display (so kernel liveness
-	 * is visible on the 7-seg readout -- a changing digit means printk is
-	 * running) and does a bare TDR write.  The bare write is honoured by
-	 * QEMU (so the emulated boot still shows real console text) and simply
-	 * ignored by the real chip.  A proper tx path is restored once the
-	 * service-context handshake is understood.
+	 * to fault), so for now the console only does a bare TDR write, which
+	 * cannot hang the CPU: QEMU honours it (so the emulated boot still
+	 * shows real console text) and the real chip simply ignores it.  Board
+	 * progress on real hardware is reported instead by the distinct POST
+	 * codes E17_POST() drops on the 7-seg display along the boot path.  A
+	 * proper tx path is restored once the service-context handshake is
+	 * understood.
 	 */
-	*E17_POST_DISPLAY = c;
 	e17_cd2401[CD2401_CAR] = 0;		/* select channel 0 */
 	e17_cd2401[CD2401_DR] = c;		/* bare write: QEMU tx, HW no-op */
 }
@@ -165,6 +170,7 @@ static void e17_cio_wr(u8 reg, u8 val)
 
 static irqreturn_t e17_timer_int(int irq, void *dev_id)
 {
+	E17_POST(0xfd);			/* 'd': first/every timer interrupt */
 	/* acknowledge: clear CT3's interrupt-pending (it auto-reloads) */
 	e17_cio_wr(Z8536_CT3CS, Z8536_CMD_CLR_IPUS);
 	legacy_timer_tick(1);
@@ -173,6 +179,7 @@ static irqreturn_t e17_timer_int(int irq, void *dev_id)
 
 static void __init eltec_e17_sched_init(void)
 {
+	E17_POST(0xf9);			/* '9': timer/sched_init entry */
 	/*
 	 * Reset the CIO, then bring it out of reset.  A control-port read
 	 * syncs the internal pointer/data flip-flop; pointing at the MICR
@@ -199,6 +206,7 @@ static void __init eltec_e17_sched_init(void)
 	if (request_irq(E17_IRQ_TIMER, e17_timer_int, IRQF_TIMER, "timer",
 			NULL))
 		pr_err("E17: unable to register timer interrupt\n");
+	E17_POST(0xfb);			/* 'b': timer irq registered */
 
 	/* route VIC local IRQ 1 (CIO timers) to CPU IPL 6, unmasked */
 	e17_vic[E17_VIC_LICR1] = E17_VIC_LICR_LEVEL(6);
@@ -206,10 +214,12 @@ static void __init eltec_e17_sched_init(void)
 	/* enable CT3 interrupt and start it counting */
 	e17_cio_wr(Z8536_CT3CS, Z8536_CMD_SET_IE);
 	e17_cio_wr(Z8536_CT3CS, Z8536_CS_TCB);
+	E17_POST(0xfc);			/* 'c': timer running, waiting for tick */
 }
 
 static void __init eltec_e17_init_IRQ(void)
 {
+	E17_POST(0xf8);			/* '8': init_IRQ */
 	/* onboard interrupters are routed through the VIC068A; a proper
 	 * irqchip is TODO -- use the generic user-vector setup for now. */
 	m68k_setup_user_interrupt(VEC_USER, 192);
