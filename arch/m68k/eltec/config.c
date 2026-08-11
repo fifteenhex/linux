@@ -48,7 +48,15 @@
  */
 #define E17_CD2401_BASE		0xfec64000
 #define E17_CD2401_IACK		0xfec66000	/* interrupt-acknowledge window */
-#define E17_VIC_BASE		0xfec00000
+/*
+ * VIC068A: the chip's *primary* decode is at 0xfec01000; it is only
+ * secondarily mirrored at 0xfec00000.  u-boot uses the 0xfec00000 mirror
+ * and it works there, but the kernel wedges on any access to that mirror
+ * (the mirror decode seems to depend on a chip-select state u-boot leaves
+ * set and the kernel does not).  Use the primary window, which is always
+ * decoded.
+ */
+#define E17_VIC_BASE		0xfec01000
 #define E17_VIC_LICR6		0x3b		/* CD2401 local interrupt */
 #define E17_VIC_LICR_STATE	0x08		/* raw pin level (active low) */
 #define CD2401_CAR		0xee	/* channel access (select) register */
