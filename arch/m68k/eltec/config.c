@@ -209,16 +209,20 @@ static void __init eltec_e17_sched_init(void)
 	E17_POST(0xfb);			/* 'b': timer irq registered */
 
 	/*
-	 * DIAGNOSTIC: the board wedges here (POST stays on 'b').  u-boot only
-	 * ever *reads* the VIC (vic_lirq_state on LICR6); this is the first
-	 * code to write an LICR.  Split read vs write to see which stalls.
+	 * DIAGNOSTIC: the board wedges reading the VIC (POST stays on 'b').
+	 * The 0xfec00000 page is the first onboard-I/O page the kernel touches
+	 * (0xfec30000/0xfec10000 that worked are *other* pages), so this may be
+	 * a missing kernel mapping rather than a VIC problem.  Read exactly the
+	 * register u-boot reads (LICR6 0x3b) first, then LICR1 0x27.
 	 */
-	{ volatile u8 v = e17_vic[E17_VIC_LICR1]; (void)v; }	/* read test */
-	E17_POST(0xfa);			/* 'A': VIC LICR1 read returned */
+	{ volatile u8 v = e17_vic[E17_VIC_LICR6]; (void)v; }	/* u-boot's reg */
+	E17_POST(0xfa);			/* 'A': VIC LICR6 (0x3b) read returned */
+
+	{ volatile u8 v = e17_vic[E17_VIC_LICR1]; (void)v; }	/* 0x27 read */
+	E17_POST(0xfc);			/* 'c': VIC LICR1 (0x27) read returned */
 
 	/* route VIC local IRQ 1 (CIO timers) to CPU IPL 6, unmasked */
 	e17_vic[E17_VIC_LICR1] = E17_VIC_LICR_LEVEL(6);
-	E17_POST(0xfc);			/* 'c': VIC LICR1 write returned */
 
 	/* enable CT3 interrupt and start it counting */
 	e17_cio_wr(Z8536_CT3CS, Z8536_CMD_SET_IE);
