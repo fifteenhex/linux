@@ -1546,15 +1546,21 @@ L(cache_done):
 /*
  * The new 64bit printf support requires an early exception initialization.
  */
+#ifdef CONFIG_ELTEC_E17
+	/* '0' on the POST display = about to call base_trap_init().  If the
+	 * display stays on '0' the board wedged inside base_trap_init (which
+	 * installs a partial vector table with VBR -> kernel vectors); if it
+	 * advances to 'F' base_trap_init returned cleanly. */
+	moveb	#0xf0,0xfec30000
+#endif
 	jbsr	base_trap_init
 
 /* jump to the kernel start */
 
-	putc	'\n'
 	leds	0x55
 
 #ifdef CONFIG_ELTEC_E17
-	/* POST code 0xf0 = head.S done, entering start_kernel() */
+	/* 'F' = base_trap_init returned, entering start_kernel() */
 	moveb	#0xff,0xfec30000
 #endif
 
