@@ -22,27 +22,40 @@ Done
   - eltec-e17_defconfig; full vmlinux builds and links.
 
 Boot status (tested in QEMU -M e17 -kernel vmlinux)
-  The kernel boots through head.S, MMU/paging, DT unflatten and early
-  start_kernel, reaching calibrate_delay with NO faults.  Fixed along
-  the way: the embedded-DTB pointer (&symbol, not its first word), and
-  unflatten_device_tree() must run after paging_init() (memblock has no
-  RAM before that) - reordered in setup_mm.c.  The QEMU e17 machine now
-  builds an m68k bootinfo (MACH_E17, CPU/FPU/MMU 68040, memchunk,
-  cmdline) for -kernel.
+  *** Linux boots to userspace: "Run /init as init process" and the
+  init binary runs. ***  With an embedded initramfs (CONFIG_INITRAMFS_
+  SOURCE) the kernel goes through head.S, MMU/paging, DT unflatten,
+  start_kernel, calibrate_delay, driver init (DT-bound M48T02 RTC,
+  SCSI/NET stacks), frees initmem and execs /init.
 
-Next (boot bring-up, roughly in order)
-  1. Timer tick: calibrate_delay spins waiting for jiffies.  Wire a
-     tick source (Z8536 CT3 via the VIC, or a LEGACY_TIMER_TICK) so
-     time advances.
-  2. Console output: the early CD2401 console (config.c) produces
-     nothing yet.  The E17 CD2401 TX goes through the VIC068A / the
-     0xfec660fb ack (as the qemu model and RMON use), not a plain TDR
-     write - implement that polled TX so the boot banner appears.
-  3. VIC068A irqchip driver + wire the DT interrupts (LIRQ1=CIO tick,
-     LIRQ6=CD2401).
-  4. A real CD2401 tty driver (mainline dropped cyclades) for the
-     login console; LANCE and 53C720 already have mainline drivers.
-  5. Userspace / rootfs (initramfs first, then SCSI or NFS root).
+  Fixes that got us here:
+   - embedded-DTB pointer: use &symbol, not its first word; and the
+     DTB must be page-aligned in embedded_dtbs.S (it followed
+     mvme147.dtb at an odd address, so libfdt rejected it).
+   - unflatten_device_tree() must run after paging_init() (memblock
+     has no RAM before that) - reordered in setup_mm.c.
+   - head.S: transparently map 0xe0000000-0xffffffff on the E17 so the
+     onboard I/O window (CD2401 console, VIC, CIO) is reachable early.
+   - system tick: eltec_e17_sched_init() drives Z8536 CIO CT3 (PCLK/HZ)
+     routed through VIC LICR1 as a vectored IRQ on VEC_USER/IRQ_USER;
+     calibrate_delay now passes.
+   - the QEMU e17 machine builds an m68k bootinfo (MACH_E17, CPU/FPU/MMU
+     68040, memchunk, cmdline) for -kernel.
+
+Next (roughly in order)
+  1. A real CD2401 console tty (mainline dropped cyclades) so init has
+     stdin/stdout and an interactive shell works.  Today userspace has
+     no /dev/console tty ("unable to open an initial console"); init
+     writes to /dev/kmsg to be visible.  QEMU already raises CD2401 RX
+     IRQs via VIC LIRQ6, so an interrupt-driven serial_core driver
+     modelled on serial_mvme147_scc.c is the path.
+  2. VIC068A irqchip driver so DT interrupts (LIRQ1=CIO tick,
+     LIRQ6=CD2401, LANCE/SCSI) resolve via of_irq_get instead of the
+     hand-programmed user-vector setup.
+  3. -initrd support in the QEMU e17 machine (BI_RAMDISK) so a rootfs
+     can be supplied without rebuilding the kernel.
+  4. Root on real storage: LANCE and 53C720 have mainline drivers;
+     bring them up (NFS root or SCSI disk).
 
 SMP (the hard part - honest assessment)
   m68k Linux has NO SMP support today, and the dual-68040 has no
