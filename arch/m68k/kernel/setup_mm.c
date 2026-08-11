@@ -305,7 +305,8 @@ void __init setup_arch(char **cmdline_p)
 			fdt_blob = (phys_addr_t) mvme147_dtb;
 		if (MACH_IS_E17) {
 			extern void *eltec_e17_dtb;
-			fdt_blob = (phys_addr_t) eltec_e17_dtb;
+			/* the symbol marks the DTB bytes; take its address */
+			fdt_blob = (phys_addr_t) &eltec_e17_dtb;
 		}
 	}
 
@@ -405,15 +406,19 @@ void __init setup_arch(char **cmdline_p)
 		panic("No configuration setup");
 	}
 
-	if (fdt_blob) {
-		memblock_reserve(fdt_blob, fdt_totalsize(__va(fdt_blob)));
-		unflatten_device_tree();
-	}
-
 	if (IS_ENABLED(CONFIG_BLK_DEV_INITRD) && m68k_ramdisk.size)
 		memblock_reserve(m68k_ramdisk.addr, m68k_ramdisk.size);
 
 	paging_init();
+
+	/*
+	 * Unflatten after paging_init(): copy_device_tree() allocates from
+	 * memblock, which is only populated (and the RAM mapped) once
+	 * paging_init() has run.  The embedded DTB lives in the kernel image
+	 * and is already covered by the kernel reservation.
+	 */
+	if (fdt_blob)
+		unflatten_device_tree();
 
 	if (IS_ENABLED(CONFIG_BLK_DEV_INITRD) && m68k_ramdisk.size) {
 		initrd_start = (unsigned long)phys_to_virt(m68k_ramdisk.addr);
