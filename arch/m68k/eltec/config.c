@@ -57,25 +57,29 @@
  * this polled boot console (as on mvme16x).
  */
 static volatile u8 *const e17_cd2401 = (volatile u8 *)E17_CD2401_BASE;
-static volatile u8 *const e17_cd2401_iack = (volatile u8 *)E17_CD2401_IACK;
+static volatile u8 *const e17_cd2401_iack __maybe_unused =
+	(volatile u8 *)E17_CD2401_IACK;
 static volatile u8 *const e17_vic = (volatile u8 *)E17_VIC_BASE;
+
+/* Z8536 CIO1 port C -- the board's 7-segment POST display (low nibble). */
+#define E17_POST_DISPLAY	((volatile u8 *)0xfec30000)
 
 static void e17_cons_putc(char c)
 {
-	int timeout = 200000;
-
+	/*
+	 * DIAGNOSTIC console.  The interrupt-service-context CD2401 tx
+	 * handshake wedges early boot on real hardware (the IACK read appears
+	 * to fault), so for now the console does two things that cannot hang
+	 * the CPU: it drops each byte on the POST display (so kernel liveness
+	 * is visible on the 7-seg readout -- a changing digit means printk is
+	 * running) and does a bare TDR write.  The bare write is honoured by
+	 * QEMU (so the emulated boot still shows real console text) and simply
+	 * ignored by the real chip.  A proper tx path is restored once the
+	 * service-context handshake is understood.
+	 */
+	*E17_POST_DISPLAY = c;
 	e17_cd2401[CD2401_CAR] = 0;		/* select channel 0 */
-	e17_cd2401[CD2401_TPILR] = CD2401_TX_IPL;
-	e17_cd2401[CD2401_IER] = CD2401_IER_TXD;	/* enable tx interrupt */
-
-	/* wait for the VIC to see the CD2401 asserting (STATE is active low) */
-	while ((e17_vic[E17_VIC_LICR6] & E17_VIC_LICR_STATE) && --timeout)
-		cpu_relax();
-
-	(void)e17_cd2401_iack[CD2401_TX_IPL];	/* IACK -> enter tx service */
-	e17_cd2401[CD2401_DR] = c;		/* write the byte */
-	e17_cd2401[CD2401_TEOIR] = 0;		/* end of tx interrupt */
-	e17_cd2401[CD2401_IER] = 0;		/* disable tx interrupt */
+	e17_cd2401[CD2401_DR] = c;		/* bare write: QEMU tx, HW no-op */
 }
 
 static void e17_cons_write(struct console *co, const char *s, unsigned int n)

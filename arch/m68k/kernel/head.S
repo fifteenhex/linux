@@ -3172,29 +3172,14 @@ func_start	serial_putc,%d0/%d1/%a0/%a1
 #ifdef CONFIG_ELTEC_E17
 	is_not_e17(2f)
 	/*
-	 * CD2401 at 0xfec64000, channel 0 = the console.  The real chip only
-	 * transmits from its interrupt-service context (a plain TDR write is
-	 * ignored), so drive it the way the firmware does: select the
-	 * channel, enable the tx interrupt, wait for the VIC to see the line
-	 * asserted (LICR6 STATE, active low), acknowledge it through the
-	 * board's IACK window (base + 0x2000, at the tx priority level) to
-	 * enter tx service, write the byte and end the service with TEOIR.
-	 * The IACK window is 0x2000 above the register base.
+	 * The E17 early serial console is temporarily disabled: driving the
+	 * CD2401 from head.S wedges the boot the moment base_trap_init() has
+	 * installed the kernel vector table (the interrupt-service tx handshake
+	 * -- IACK read at base+0x2002 -- appears to fault once the chip stops
+	 * asserting).  head.S progress is reported on the POST display by the
+	 * putc macro (0xfec30000, low nibble), which is a plain store and can
+	 * never hang; the real ttyS0 console takes over in start_kernel().
 	 */
-	movel	#0xfec64000,%a1		| CD2401 register base
-	movel	#0xfec00000,%a0		| VIC068A base
-	clrb	%a1@(0xee)		| CAR   = channel 0
-	moveb	#0x02,%a1@(0xe0)	| TPILR = tx priority level 2
-	moveb	#0x01,%a1@(0x11)	| IER   = tx-data interrupt enable
-	movel	#0x80000,%d1		| poll timeout (never hang)
-1:	btst	#3,%a0@(0x3b)		| VIC LICR6 STATE: 0 => CD2401 asserting
-	jeq	3f
-	subql	#1,%d1
-	jne	1b
-3:	tstb	%a1@(0x2002)		| IACK at level 2 -> enter tx service
-	moveb	%d0,%a1@(0xf8)		| TDR   = char
-	clrb	%a1@(0x85)		| TEOIR = end of tx interrupt
-	clrb	%a1@(0x11)		| IER   = 0
 	jbra	L(serial_putc_done)
 2:
 #endif /* CONFIG_ELTEC_E17 */
