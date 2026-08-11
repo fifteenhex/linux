@@ -527,6 +527,8 @@ func_define	putn,1
 #define is_mvme147(lab) cmpl &MACH_MVME147,%pc@(m68k_machtype); jeq lab
 #define is_mvme16x(lab) cmpl &MACH_MVME16x,%pc@(m68k_machtype); jeq lab
 #define is_bvme6000(lab) cmpl &MACH_BVME6000,%pc@(m68k_machtype); jeq lab
+#define is_not_e17(lab) cmpl &MACH_E17,%pc@(m68k_machtype); jne lab
+#define is_e17(lab) cmpl &MACH_E17,%pc@(m68k_machtype); jeq lab
 #define is_not_hp300(lab) cmpl &MACH_HP300,%pc@(m68k_machtype); jne lab
 #define is_not_apollo(lab) cmpl &MACH_APOLLO,%pc@(m68k_machtype); jne lab
 #define is_not_q40(lab) cmpl &MACH_Q40,%pc@(m68k_machtype); jne lab
@@ -1087,6 +1089,23 @@ L(nothp300):
 
 L(not147):
 #endif /* CONFIG_MVME147 */
+
+#ifdef CONFIG_ELTEC_E17
+
+	is_not_e17(L(note17))
+
+	/*
+	 * ELTEC E17: RAM is already mapped above.  Transparently map the
+	 * top 0.5GB (supervisor, no-cache) so the onboard I/O window at
+	 * 0xfec00000 (and the ROM/SRAM) is reachable, as on the other
+	 * VME boards.
+	 */
+	mmu_map_tt	#1,#0xe0000000,#0x20000000,#_PAGE_NOCACHE_S
+
+	jbra	L(mmu_init_done)
+
+L(note17):
+#endif	/* CONFIG_ELTEC_E17 */
 
 #ifdef CONFIG_MVME16x
 
