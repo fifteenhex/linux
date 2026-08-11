@@ -27,10 +27,13 @@
 		stdout-path = "serial0:9600n8";
 	};
 
-	memory@0 {
-		device_type = "memory";
-		reg = <0x0 0x2000000>;		/* 32 MiB (shiro) */
-	};
+	/*
+	 * No /memory node: on m68k the RAM size is conveyed by the
+	 * bootloader's bootinfo (BI_MEMCHUNK) - QEMU's -kernel path and the
+	 * board firmware both supply the real size.  A hardcoded reg here
+	 * would be unioned into memblock and, if larger than the fitted RAM,
+	 * make the kernel use the aliased DRAM mirror and corrupt itself.
+	 */
 
 	soc {
 		compatible = "simple-bus";
