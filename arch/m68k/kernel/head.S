@@ -3151,6 +3151,23 @@ func_start	serial_putc,%d0/%d1/%a0/%a1
 2:
 #endif /* CONFIG_MVME16x */
 
+#ifdef CONFIG_ELTEC_E17
+	is_not_e17(2f)
+	/*
+	 * CD2401 at 0xfec64000, channel 0 = the console.  Polled transmit:
+	 * select the channel (CAR=0xee), wait for TISR TXEMPTY (0x8a bit 1),
+	 * then write the byte to the data register (0xf8).  Matches the
+	 * eltec/config.c boot console.
+	 */
+	movel	#0xfec64000,%a1
+	clrb	%a1@(0xee)
+1:	btst	#1,%a1@(0x8a)
+	jeq	1b
+	moveb	%d0,%a1@(0xf8)
+	jbra	L(serial_putc_done)
+2:
+#endif /* CONFIG_ELTEC_E17 */
+
 #ifdef CONFIG_BVME6000
 	is_not_bvme6000(2f)
 	/*
