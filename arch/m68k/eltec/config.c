@@ -188,6 +188,18 @@ static irqreturn_t e17_timer_int(int irq, void *dev_id)
 static void __init eltec_e17_sched_init(void)
 {
 	E17_POST(0xf9);			/* '9': timer/sched_init entry */
+
+	/*
+	 * DIAGNOSTIC: probe VIC reads here, *before* request_irq() enables the
+	 * user interrupt.  The wedge address (0xfec10003) worked earlier in
+	 * this function, so if these VIC reads succeed now, the VIC is fine and
+	 * request_irq (a pending interrupt firing) is the real culprit.
+	 */
+	(void)*(volatile u8 *)0xfec01003;	/* VIC reg 0 (own base) */
+	E17_POST(0xfa);			/* 'A': VIC reg0 read OK (pre-irq) */
+	(void)*(volatile u8 *)0xfec0103b;	/* VIC LICR6 */
+	E17_POST(0xfc);			/* 'c': VIC LICR6 read OK (pre-irq) */
+
 	/*
 	 * Reset the CIO, then bring it out of reset.  A control-port read
 	 * syncs the internal pointer/data flip-flop; pointing at the MICR
@@ -215,18 +227,6 @@ static void __init eltec_e17_sched_init(void)
 			NULL))
 		pr_err("E17: unable to register timer interrupt\n");
 	E17_POST(0xfb);			/* 'b': timer irq registered */
-
-	/*
-	 * DIAGNOSTIC: probe a ladder of onboard-I/O reads to map exactly what
-	 * the kernel can reach.  Each successful read advances the POST digit;
-	 * the resting digit names the first read that wedges.
-	 */
-	(void)*(volatile u8 *)0xfec10003;	/* CIO2 ctrl (known good) */
-	E17_POST(0xfa);			/* 'A': CIO2  0xfec10003 read OK */
-	(void)*(volatile u8 *)0xfec01003;	/* VIC reg 0 (own base), lane 3 */
-	E17_POST(0xfc);			/* 'c': VIC reg0 0xfec01003 read OK */
-	(void)*(volatile u8 *)0xfec0103b;	/* VIC LICR6 */
-	E17_POST(0xfd);			/* 'd': VIC LICR6 0xfec0103b read OK */
 
 	/* route VIC local IRQ 1 (CIO timers) to CPU IPL 6, unmasked */
 	e17_vic[E17_VIC_LICR1] = E17_VIC_LICR_LEVEL(6);
