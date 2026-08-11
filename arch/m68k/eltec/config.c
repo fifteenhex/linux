@@ -210,6 +210,7 @@ static void __init eltec_e17_sched_init(void)
 
 	/* route VIC local IRQ 1 (CIO timers) to CPU IPL 6, unmasked */
 	e17_vic[E17_VIC_LICR1] = E17_VIC_LICR_LEVEL(6);
+	E17_POST(0xfa);			/* 'A': VIC LICR1 write returned */
 
 	/* enable CT3 interrupt and start it counting */
 	e17_cio_wr(Z8536_CT3CS, Z8536_CMD_SET_IE);
