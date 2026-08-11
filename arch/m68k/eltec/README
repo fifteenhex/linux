@@ -1,0 +1,46 @@
+ELTEC Eurocom E17 Linux port - status & plan
+============================================
+
+Base: the 030funtime MMU+device-tree line (setup_mm.c selects an
+embedded DTB per machine; boards keep a small config.c for machine id,
+early console and IRQ setup, while the DT drives the peripherals).
+Modelled on MVME147 (the closest VME MMU board).
+
+Hardware (reverse-engineered; see E17-NOTES.md in the qemu-e17 tree):
+  MC68040/060, VMEbus, 0xfec00000 onboard I/O window.
+  CD2401 serial (0xfec64000), Am79C900/LANCE (0xfec68000),
+  NCR 53C720 SCSI (0xfec6c000), Z8536 CIO timers (0xfec10000/30000),
+  M48T02 RTC/NVRAM (0xfec20000), VIC068A interrupt controller
+  (0xfec01000), AT keyboard, onboard video.
+
+Done
+  - arch/m68k/dts/{mc68040.dtsi,eltec-e17.dts} (embedded DTB), validates.
+  - arch/m68k/eltec/config.c: machine id, early polled CD2401 boot
+    console, user-vector IRQ setup.
+  - machine wiring: MACH_E17, VME_TYPE_E17, Kconfig ELTEC_E17,
+    setup.h MACH_IS_E17, setup_mm.c dispatch + DTB fallback + bootinfo.
+  - eltec-e17_defconfig; full vmlinux builds and links.
+
+Next (boot bring-up, roughly in order)
+  1. u-boot -> Linux hand-off: u-boot must pass an m68k bootinfo
+     (BI_MACHTYPE = MACH_E17, memory, optional DTB) so m68k_machtype
+     is set and config_eltec_e17() runs.  Alternatively boot in QEMU
+     -M e17 once that machine is rebuilt.
+  2. Verify the early CD2401 console prints the boot banner; fix the
+     TX register offsets against the qemu cd2401 model if needed.
+  3. VIC068A irqchip driver + wire the DT interrupts (LIRQ1=CIO tick,
+     LIRQ6=CD2401); real timer tick from Z8536 CT3.
+  4. A real CD2401 tty driver (mainline dropped cyclades) for the
+     login console; LANCE and 53C720 already have mainline drivers.
+  5. Userspace / rootfs (initramfs first, then SCSI or NFS root).
+
+SMP (the hard part - honest assessment)
+  m68k Linux has NO SMP support today, and the dual-68040 has no
+  hardware cache coherency between CPUs and no hardware IPI beyond the
+  shared-DRAM + 0xfec58000 release we found.  Plan: bring the second
+  CPU up as a controlled AP (reset vector at DRAM 0/4, release via
+  0xfec58000 - proven with the qemu mailbox probe), then build the
+  minimum SMP scaffolding (CAS-based spinlocks, per-cpu, an IPI over
+  a VIC/shared-mem doorbell, explicit cache management at coherency
+  points).  Full symmetric scheduling may not be reachable on this
+  hardware; progress will be reported honestly as it goes.

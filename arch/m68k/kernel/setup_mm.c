@@ -229,6 +229,8 @@ static void __init m68k_parse_bootinfo(const struct bi_record *record)
 				unknown = mvme16x_parse_bootinfo(record);
 			else if (MACH_IS_MVME147)
 				unknown = mvme147_parse_bootinfo(record);
+			else if (MACH_IS_E17)
+				unknown = eltec_e17_parse_bootinfo(record);
 			else if (MACH_IS_HP300)
 				unknown = hp300_parse_bootinfo(record);
 			else if (MACH_IS_APOLLO)
@@ -301,6 +303,10 @@ void __init setup_arch(char **cmdline_p)
 		pr_info("FDT blob was not provided, will use embedded one if available\n");
 		if (MACH_IS_MVME147)
 			fdt_blob = (phys_addr_t) mvme147_dtb;
+		if (MACH_IS_E17) {
+			extern void *eltec_e17_dtb;
+			fdt_blob = (phys_addr_t) eltec_e17_dtb;
+		}
 	}
 
 	if (fdt_blob)
@@ -350,6 +356,11 @@ void __init setup_arch(char **cmdline_p)
 #ifdef CONFIG_MVME147
 	case MACH_MVME147:
 		config_mvme147();
+		break;
+#endif
+#ifdef CONFIG_ELTEC_E17
+	case MACH_E17:
+		config_eltec_e17();
 		break;
 #endif
 #ifdef CONFIG_MVME16x

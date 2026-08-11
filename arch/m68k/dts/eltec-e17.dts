@@ -1,0 +1,90 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * ELTEC Eurocom E17 - VMEbus MC68040/060 single-board computer.
+ *
+ * Onboard I/O lives in the 0xfec00000 window; see the reverse-
+ * engineering notes in the qemu-e17 tree (E17-NOTES.md).  The VIC068A
+ * routes the onboard interrupters to the CPU (LIRQ1 = CIO timers,
+ * LIRQ6 = CD2401 serial); for now peripherals hang off the generic
+ * m68k user-interrupt controller until a VIC068A irqchip exists.
+ */
+
+/dts-v1/;
+#include "mc68040.dtsi"
+
+/ {
+	#address-cells = <1>;
+	#size-cells = <1>;
+
+	compatible = "eltec,e17";
+
+	aliases {
+		serial0 = &uart0;
+		ethernet0 = &lance;
+	};
+
+	chosen {
+		stdout-path = "serial0:9600n8";
+	};
+
+	memory@0 {
+		device_type = "memory";
+		reg = <0x0 0x2000000>;		/* 32 MiB (shiro) */
+	};
+
+	soc {
+		compatible = "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		uart0: serial@fec64000 {
+			compatible = "eltec,e17-cd2401", "cirrus,cd2401";
+			reg = <0xfec64000 0x100>;
+			interrupt-parent = <&intc_user>;
+			interrupts = <6>;
+			clock-frequency = <20000000>;
+			status = "okay";
+		};
+
+		cio0: timer@fec10000 {
+			compatible = "zilog,z8536";
+			reg = <0xfec10000 0x4>;
+			interrupt-parent = <&intc_user>;
+			interrupts = <1>;
+			status = "okay";
+		};
+
+		cio1: timer@fec30000 {
+			compatible = "zilog,z8536";
+			reg = <0xfec30000 0x4>;
+			status = "okay";
+		};
+
+		lance: ethernet@fec68000 {
+			compatible = "amd,am79900";
+			reg = <0xfec68000 0x8>;
+			interrupt-parent = <&intc_user>;
+			interrupts = <5>;
+			rdp-offset = <0x2>;
+			rap-offset = <0x6>;
+		};
+
+		scsi: scsi@fec6c000 {
+			compatible = "eltec,e17-53c720";
+			reg = <0xfec6c000 0x100>;
+			interrupt-parent = <&intc_user>;
+			interrupts = <4>;
+		};
+
+		rtc: rtc@fec20000 {
+			compatible = "st,m48t02";
+			reg = <0xfec20000 0x800>;
+		};
+
+		vic: interrupt-controller@fec01000 {
+			compatible = "eltec,e17-vic068a";
+			reg = <0xfec01000 0x100>;
+		};
+	};
+};
