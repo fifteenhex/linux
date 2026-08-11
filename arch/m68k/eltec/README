@@ -21,15 +21,25 @@ Done
     setup.h MACH_IS_E17, setup_mm.c dispatch + DTB fallback + bootinfo.
   - eltec-e17_defconfig; full vmlinux builds and links.
 
+Boot status (tested in QEMU -M e17 -kernel vmlinux)
+  The kernel boots through head.S, MMU/paging, DT unflatten and early
+  start_kernel, reaching calibrate_delay with NO faults.  Fixed along
+  the way: the embedded-DTB pointer (&symbol, not its first word), and
+  unflatten_device_tree() must run after paging_init() (memblock has no
+  RAM before that) - reordered in setup_mm.c.  The QEMU e17 machine now
+  builds an m68k bootinfo (MACH_E17, CPU/FPU/MMU 68040, memchunk,
+  cmdline) for -kernel.
+
 Next (boot bring-up, roughly in order)
-  1. u-boot -> Linux hand-off: u-boot must pass an m68k bootinfo
-     (BI_MACHTYPE = MACH_E17, memory, optional DTB) so m68k_machtype
-     is set and config_eltec_e17() runs.  Alternatively boot in QEMU
-     -M e17 once that machine is rebuilt.
-  2. Verify the early CD2401 console prints the boot banner; fix the
-     TX register offsets against the qemu cd2401 model if needed.
+  1. Timer tick: calibrate_delay spins waiting for jiffies.  Wire a
+     tick source (Z8536 CT3 via the VIC, or a LEGACY_TIMER_TICK) so
+     time advances.
+  2. Console output: the early CD2401 console (config.c) produces
+     nothing yet.  The E17 CD2401 TX goes through the VIC068A / the
+     0xfec660fb ack (as the qemu model and RMON use), not a plain TDR
+     write - implement that polled TX so the boot banner appears.
   3. VIC068A irqchip driver + wire the DT interrupts (LIRQ1=CIO tick,
-     LIRQ6=CD2401); real timer tick from Z8536 CT3.
+     LIRQ6=CD2401).
   4. A real CD2401 tty driver (mainline dropped cyclades) for the
      login console; LANCE and 53C720 already have mainline drivers.
   5. Userspace / rootfs (initramfs first, then SCSI or NFS root).
