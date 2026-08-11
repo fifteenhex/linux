@@ -208,14 +208,22 @@ static void __init eltec_e17_sched_init(void)
 		pr_err("E17: unable to register timer interrupt\n");
 	E17_POST(0xfb);			/* 'b': timer irq registered */
 
+	/*
+	 * DIAGNOSTIC: the board wedges here (POST stays on 'b').  u-boot only
+	 * ever *reads* the VIC (vic_lirq_state on LICR6); this is the first
+	 * code to write an LICR.  Split read vs write to see which stalls.
+	 */
+	{ volatile u8 v = e17_vic[E17_VIC_LICR1]; (void)v; }	/* read test */
+	E17_POST(0xfa);			/* 'A': VIC LICR1 read returned */
+
 	/* route VIC local IRQ 1 (CIO timers) to CPU IPL 6, unmasked */
 	e17_vic[E17_VIC_LICR1] = E17_VIC_LICR_LEVEL(6);
-	E17_POST(0xfa);			/* 'A': VIC LICR1 write returned */
+	E17_POST(0xfc);			/* 'c': VIC LICR1 write returned */
 
 	/* enable CT3 interrupt and start it counting */
 	e17_cio_wr(Z8536_CT3CS, Z8536_CMD_SET_IE);
 	e17_cio_wr(Z8536_CT3CS, Z8536_CS_TCB);
-	E17_POST(0xfc);			/* 'c': timer running, waiting for tick */
+	/* (tick handler shows 'd' once interrupts are unmasked) */
 }
 
 static void __init eltec_e17_init_IRQ(void)
