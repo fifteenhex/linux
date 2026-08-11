@@ -31,16 +31,23 @@
 
 /*
  * Cirrus CD2401 serial controller at 0xfec64000, channel 0 = the RMON
- * console (Serial Port 1).  Registers used for a polled transmit:
- *   +0xee CAR   - channel select (write the channel number)
- *   +0x62 TDR   - transmit data
- *   +0x60 ...   - (see the qemu cd2401 model / u-boot driver)
- * This is only the boot/early console; a real tty driver comes later.
+ * console (Serial Port 1).  The real chip only transmits from its
+ * interrupt-service context - a bare TDR write is ignored - so a byte is
+ * sent the way the firmware does: enable the tx interrupt, wait for the
+ * VIC to see the line asserted, acknowledge it through the board IACK
+ * window to enter tx service, write the byte and end with TEOIR.
  */
 #define E17_CD2401_BASE		0xfec64000
+#define E17_CD2401_IACK		0xfec66000	/* interrupt-acknowledge window */
+#define E17_VIC_BASE		0xfec00000
+#define E17_VIC_LICR6		0x3b		/* CD2401 local interrupt */
+#define E17_VIC_LICR_STATE	0x08		/* raw pin level (active low) */
 #define CD2401_CAR		0xee	/* channel access (select) register */
-#define CD2401_TISR		0x8a	/* transmit interrupt status */
-#define CD2401_TISR_TXEMPTY	0x02
+#define CD2401_IER		0x11	/* interrupt enable register */
+#define CD2401_IER_TXD		0x01
+#define CD2401_TEOIR		0x85	/* transmit end of interrupt */
+#define CD2401_TPILR		0xe0	/* tx priority interrupt level */
+#define CD2401_TX_IPL		0x02
 #define CD2401_DR		0xf8	/* rx/tx data register */
 
 /*
@@ -50,15 +57,25 @@
  * this polled boot console (as on mvme16x).
  */
 static volatile u8 *const e17_cd2401 = (volatile u8 *)E17_CD2401_BASE;
+static volatile u8 *const e17_cd2401_iack = (volatile u8 *)E17_CD2401_IACK;
+static volatile u8 *const e17_vic = (volatile u8 *)E17_VIC_BASE;
 
 static void e17_cons_putc(char c)
 {
 	int timeout = 200000;
 
 	e17_cd2401[CD2401_CAR] = 0;		/* select channel 0 */
-	while (!(e17_cd2401[CD2401_TISR] & CD2401_TISR_TXEMPTY) && --timeout)
+	e17_cd2401[CD2401_TPILR] = CD2401_TX_IPL;
+	e17_cd2401[CD2401_IER] = CD2401_IER_TXD;	/* enable tx interrupt */
+
+	/* wait for the VIC to see the CD2401 asserting (STATE is active low) */
+	while ((e17_vic[E17_VIC_LICR6] & E17_VIC_LICR_STATE) && --timeout)
 		cpu_relax();
-	e17_cd2401[CD2401_DR] = c;
+
+	(void)e17_cd2401_iack[CD2401_TX_IPL];	/* IACK -> enter tx service */
+	e17_cd2401[CD2401_DR] = c;		/* write the byte */
+	e17_cd2401[CD2401_TEOIR] = 0;		/* end of tx interrupt */
+	e17_cd2401[CD2401_IER] = 0;		/* disable tx interrupt */
 }
 
 static void e17_cons_write(struct console *co, const char *s, unsigned int n)
@@ -104,7 +121,7 @@ static void eltec_e17_get_model(char *model)
  * vector programmed into the CIO's CTVEC register; we use the first user
  * vector, which the generic user-vector setup maps to IRQ_USER.
  */
-#define E17_VIC_BASE		0xfec01000
+/* E17_VIC_BASE / e17_vic are defined with the boot console above */
 #define E17_VIC_LICR1		0x27	/* local IRQ 1 control (CIO timers) */
 #define E17_VIC_LICR_LEVEL(l)	((l) & 0x07)	/* bit7=0 -> unmasked */
 
@@ -133,7 +150,6 @@ static void eltec_e17_get_model(char *model)
 
 #define E17_IRQ_TIMER		IRQ_USER	/* CTVEC = VEC_USER */
 
-static volatile u8 *const e17_vic = (volatile u8 *)E17_VIC_BASE;
 static volatile u8 *const e17_cio2 = (volatile u8 *)E17_CIO2_BASE;
 
 /* write value V to indirect CIO register REG via the control port */

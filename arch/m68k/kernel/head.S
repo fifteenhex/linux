@@ -3154,16 +3154,26 @@ func_start	serial_putc,%d0/%d1/%a0/%a1
 #ifdef CONFIG_ELTEC_E17
 	is_not_e17(2f)
 	/*
-	 * CD2401 at 0xfec64000, channel 0 = the console.  Polled transmit:
-	 * select the channel (CAR=0xee), wait for TISR TXEMPTY (0x8a bit 1),
-	 * then write the byte to the data register (0xf8).  Matches the
-	 * eltec/config.c boot console.
+	 * CD2401 at 0xfec64000, channel 0 = the console.  The real chip only
+	 * transmits from its interrupt-service context (a plain TDR write is
+	 * ignored), so drive it the way the firmware does: select the
+	 * channel, enable the tx interrupt, wait for the VIC to see the line
+	 * asserted (LICR6 STATE, active low), acknowledge it through the
+	 * board's IACK window (base + 0x2000, at the tx priority level) to
+	 * enter tx service, write the byte and end the service with TEOIR.
+	 * The IACK window is 0x2000 above the register base.
 	 */
-	movel	#0xfec64000,%a1
-	clrb	%a1@(0xee)
-1:	btst	#1,%a1@(0x8a)
-	jeq	1b
-	moveb	%d0,%a1@(0xf8)
+	movel	#0xfec64000,%a1		| CD2401 register base
+	movel	#0xfec00000,%a0		| VIC068A base
+	clrb	%a1@(0xee)		| CAR   = channel 0
+	moveb	#0x02,%a1@(0xe0)	| TPILR = tx priority level 2
+	moveb	#0x01,%a1@(0x11)	| IER   = tx-data interrupt enable
+1:	btst	#3,%a0@(0x3b)		| VIC LICR6 STATE: 0 => CD2401 asserting
+	jne	1b
+	tstb	%a1@(0x2002)		| IACK at level 2 -> enter tx service
+	moveb	%d0,%a1@(0xf8)		| TDR   = char
+	clrb	%a1@(0x85)		| TEOIR = end of tx interrupt
+	clrb	%a1@(0x11)		| IER   = 0
 	jbra	L(serial_putc_done)
 2:
 #endif /* CONFIG_ELTEC_E17 */

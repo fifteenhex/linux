@@ -49,6 +49,7 @@
 #define CD2401_CMR_ASYNC	0x02
 #define CD2401_RFOC		0x30	/* receive FIFO output count */
 #define CD2401_REOIR		0x84	/* receive end of interrupt */
+#define CD2401_TEOIR		0x85	/* transmit end of interrupt */
 #define CD2401_RISRH		0x88	/* receive interrupt status, high */
 #define CD2401_RISRL		0x89	/* receive interrupt status, low */
 #define CD2401_TISR		0x8a	/* transmit interrupt status */
@@ -66,6 +67,7 @@
 #define E17_VIC_BASE		0xfec00000
 #define E17_VIC_LICR6		0x3b
 #define E17_VIC_LICR_MASK	0x80
+#define E17_VIC_LICR_STATE	0x08	/* raw CD2401 pin level (active low) */
 #define E17_VIC_CD2401_LEVEL	6	/* m68k IPL the VIC raises for it */
 
 #define E17_CD2401_MAX_PORTS	1
@@ -90,22 +92,48 @@ static inline void cd_write(struct uart_port *port, unsigned int reg, u8 val)
 	writeb(val, port->membase + reg);
 }
 
+/*
+ * Transmit one byte.  The CD2401 only sends from its interrupt-service
+ * context, so enable the tx interrupt, wait for the VIC to see the line
+ * asserted (LICR6 STATE, active low), acknowledge through the IACK
+ * window to enter tx service, write the byte and end with TEOIR.  The
+ * receive interrupt-enable bit is preserved so input keeps working.
+ */
+static void e17_cd2401_tx_one(struct e17_cd2401_port *up, u8 ch)
+{
+	struct uart_port *port = &up->port;
+	int timeout = 200000;
+	u8 ier;
+
+	cd_write(port, CD2401_CAR, 0);		/* channel 0 */
+	cd_write(port, CD2401_TPILR, CD2401_TX_IPL);
+	ier = cd_read(port, CD2401_IER);
+	cd_write(port, CD2401_IER, ier | CD2401_IER_TXD);
+
+	while ((readb(up->vic + E17_VIC_LICR6) & E17_VIC_LICR_STATE) && --timeout)
+		cpu_relax();
+
+	readb(up->iack + CD2401_TX_IPL);	/* IACK -> enter tx service */
+	cd_write(port, CD2401_DR, ch);
+	cd_write(port, CD2401_TEOIR, 0);
+	cd_write(port, CD2401_IER, ier);	/* restore (tx irq off) */
+}
+
 static void e17_cd2401_putchar(struct uart_port *port, unsigned char ch)
 {
-	cd_write(port, CD2401_CAR, 0);		/* console = channel 0 */
-	while (!(cd_read(port, CD2401_TISR) & CD2401_TISR_TXEMPTY))
-		cpu_relax();
-	cd_write(port, CD2401_DR, ch);
+	struct e17_cd2401_port *up =
+		container_of(port, struct e17_cd2401_port, port);
+
+	e17_cd2401_tx_one(up, ch);
 }
 
 static void e17_cd2401_tx_chars(struct uart_port *port)
 {
+	struct e17_cd2401_port *up =
+		container_of(port, struct e17_cd2401_port, port);
 	u8 ch;
 
-	cd_write(port, CD2401_CAR, 0);
-	uart_port_tx(port, ch,
-		     cd_read(port, CD2401_TISR) & CD2401_TISR_TXEMPTY,
-		     cd_write(port, CD2401_DR, ch));
+	uart_port_tx(port, ch, true, e17_cd2401_tx_one(up, ch));
 }
 
 static void e17_cd2401_rx_chars(struct uart_port *port)
