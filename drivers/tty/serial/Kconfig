@@ -205,6 +205,22 @@ config SERIAL_MVME147_SCC
 	help
 	  This driver supports the Zilog SCC present on MVME147
 
+config SERIAL_E17_CD2401
+	bool "ELTEC E17 CD2401 serial support"
+	depends on ELTEC_E17 || COMPILE_TEST
+	select SERIAL_CORE
+	help
+	  This driver supports the Cirrus Logic CD2401 serial controller on
+	  the ELTEC Eurocom E17 board (channel 0 is the RMON console).
+
+config SERIAL_E17_CD2401_CONSOLE
+	bool "Console on the ELTEC E17 CD2401 serial port"
+	depends on SERIAL_E17_CD2401=y
+	select SERIAL_CORE_CONSOLE
+	help
+	  Say Y to use the CD2401 (ttyS0) as the system console, e.g. with
+	  "console=ttyS0" on the kernel command line.
+
 config SERIAL_CLPS711X
 	tristate "CLPS711X serial port support"
 	depends on ARCH_CLPS711X || COMPILE_TEST
