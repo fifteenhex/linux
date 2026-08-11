@@ -42,19 +42,23 @@ Boot status (tested in QEMU -M e17 -kernel vmlinux)
    - the QEMU e17 machine builds an m68k bootinfo (MACH_E17, CPU/FPU/MMU
      68040, memchunk, cmdline) for -kernel.
 
+  *** Interactive console: drivers/tty/serial/serial_e17_cd2401.c gives
+  an interrupt-driven CD2401 tty (ttyS0).  With console=ttyS0 the boot
+  console hands over from the early e17cons, /dev/console works, and an
+  init shell reads and writes interactively.  Polled TX; RX via an m68k
+  vectored interrupt (DT cell 7 on intc_user -> vector 0x47 / IRQ 15);
+  the handler reads the board's IACK window (0xfec66000) to enter the
+  receive service context, drains the FIFO, clears receive exceptions
+  via RISR (as in the u-boot fix) and ends with REOIR. ***
+
 Next (roughly in order)
-  1. A real CD2401 console tty (mainline dropped cyclades) so init has
-     stdin/stdout and an interactive shell works.  Today userspace has
-     no /dev/console tty ("unable to open an initial console"); init
-     writes to /dev/kmsg to be visible.  QEMU already raises CD2401 RX
-     IRQs via VIC LIRQ6, so an interrupt-driven serial_core driver
-     modelled on serial_mvme147_scc.c is the path.
-  2. VIC068A irqchip driver so DT interrupts (LIRQ1=CIO tick,
+  1. VIC068A irqchip driver so DT interrupts (LIRQ1=CIO tick,
      LIRQ6=CD2401, LANCE/SCSI) resolve via of_irq_get instead of the
-     hand-programmed user-vector setup.
-  3. -initrd support in the QEMU e17 machine (BI_RAMDISK) so a rootfs
+     hand-programmed user-vector setup (the timer and CD2401 tty both
+     currently pick their own user vectors).
+  2. -initrd support in the QEMU e17 machine (BI_RAMDISK) so a rootfs
      can be supplied without rebuilding the kernel.
-  4. Root on real storage: LANCE and 53C720 have mainline drivers;
+  3. Root on real storage: LANCE and 53C720 have mainline drivers;
      bring them up (NFS root or SCSI disk).
 
 SMP (the hard part - honest assessment)

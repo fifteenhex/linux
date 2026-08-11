@@ -40,9 +40,17 @@
 
 		uart0: serial@fec64000 {
 			compatible = "eltec,e17-cd2401", "cirrus,cd2401";
-			reg = <0xfec64000 0x100>;
+			/* register file, then the interrupt-acknowledge window */
+			reg = <0xfec64000 0x100>, <0xfec66000 0x100>;
+			/*
+			 * No VIC irqchip yet: route through the generic
+			 * user-vector controller.  Cell N -> CPU vector
+			 * VEC_USER+N; the CD2401 fills the low two bits with
+			 * the interrupt type (11 = receive data), so cell 7
+			 * (vector 0x47) matches a receive-data interrupt.
+			 */
 			interrupt-parent = <&intc_user>;
-			interrupts = <6>;
+			interrupts = <7>;
 			clock-frequency = <20000000>;
 			status = "okay";
 		};

@@ -59,6 +59,7 @@ obj-$(CONFIG_SERIAL_MSM)		+= msm_serial.o
 obj-$(CONFIG_SERIAL_MUX)		+= mux.o
 obj-$(CONFIG_SERIAL_MVEBU_UART)		+= mvebu-uart.o
 obj-$(CONFIG_SERIAL_MVME147_SCC)	+= serial_mvme147_scc.o
+obj-$(CONFIG_SERIAL_E17_CD2401)		+= serial_e17_cd2401.o
 obj-$(CONFIG_SERIAL_MXS_AUART)		+= mxs-auart.o
 obj-$(CONFIG_SERIAL_OMAP)		+= omap-serial.o
 obj-$(CONFIG_SERIAL_OWL)		+= owl-uart.o
