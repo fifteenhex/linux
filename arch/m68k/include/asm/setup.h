@@ -96,6 +96,20 @@ extern unsigned long m68k_machtype;
 #  define MACH_TYPE (MACH_APOLLO)
 #endif
 
+#if !defined (CONFIG_ELTEC_E17)
+#  define MACH_IS_E17 (0)
+#elif defined(CONFIG_AMIGA) || defined(CONFIG_MAC) || defined(CONFIG_ATARI) \
+	|| defined(CONFIG_APOLLO) || defined(CONFIG_BVME6000)               \
+	|| defined(CONFIG_HP300) || defined(CONFIG_Q40)                     \
+	|| defined(CONFIG_SUN3X) || defined(CONFIG_MVME16x)                 \
+	|| defined(CONFIG_MVME147) || defined(CONFIG_VIRT)
+#  define MACH_IS_E17 (m68k_machtype == MACH_E17)
+#else
+#  define MACH_E17_ONLY
+#  define MACH_IS_E17 (1)
+#  define MACH_TYPE (MACH_E17)
+#endif
+
 #if !defined (CONFIG_MVME147)
 #  define MACH_IS_MVME147 (0)
 #elif defined(CONFIG_AMIGA) || defined(CONFIG_MAC) || defined(CONFIG_ATARI) \

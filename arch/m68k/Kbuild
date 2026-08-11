@@ -9,6 +9,7 @@ obj-$(CONFIG_APOLLO)		+= apollo/
 obj-$(CONFIG_MVME147)		+= mvme147/
 obj-$(CONFIG_MVME16x)		+= mvme16x/
 obj-$(CONFIG_BVME6000)		+= bvme6000/
+obj-$(CONFIG_ELTEC_E17)		+= eltec/
 obj-$(CONFIG_SUN3X)		+= sun3x/ sun3/
 obj-$(CONFIG_SUN3)		+= sun3/
 obj-$(CONFIG_NATFEAT)		+= emu/

@@ -24,6 +24,7 @@
 
 #define VME_TYPE_TP34V		0x0034	/* Tadpole TP34V */
 #define VME_TYPE_MVME147	0x0147	/* Motorola MVME147 */
+#define VME_TYPE_E17		0x0017	/* ELTEC Eurocom E17 */
 #define VME_TYPE_MVME162	0x0162	/* Motorola MVME162 */
 #define VME_TYPE_MVME166	0x0166	/* Motorola MVME166 */
 #define VME_TYPE_MVME167	0x0167	/* Motorola MVME167 */

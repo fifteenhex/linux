@@ -95,6 +95,7 @@ struct mem_info {
 #define MACH_M5441X		13
 #define MACH_VIRT		14
 #define MACH_GENERIC		15
+#define MACH_E17		16
 
 
     /*

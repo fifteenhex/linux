@@ -66,6 +66,17 @@ config MVME147
 	  you select this option you will have to select the appropriate
 	  drivers for SCSI, Ethernet and serial ports later on.
 
+config ELTEC_E17
+	bool "ELTEC Eurocom E17 support"
+	depends on MMU
+	depends on VME
+	select M68040
+	select LEGACY_TIMER_TICK
+	help
+	  Say Y to include support for the ELTEC Eurocom E17, a VMEbus
+	  single-board computer based on the MC68040 (or MC68060).  The
+	  board is described to the kernel by an embedded device tree.
+
 config MVME16x
 	bool "MVME162, 166 and 167 support"
 	depends on MMU
