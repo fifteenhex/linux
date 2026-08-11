@@ -303,11 +303,18 @@ void __init setup_arch(char **cmdline_p)
 		pr_info("FDT blob was not provided, will use embedded one if available\n");
 		if (MACH_IS_MVME147)
 			fdt_blob = (phys_addr_t) mvme147_dtb;
-		if (MACH_IS_E17) {
-			extern void *eltec_e17_dtb;
-			/* the symbol marks the DTB bytes; take its address */
-			fdt_blob = (phys_addr_t) &eltec_e17_dtb;
-		}
+	}
+
+	/*
+	 * The E17 always uses its own embedded device tree, which describes
+	 * the board's hardware correctly (CD2401 IACK window and interrupt,
+	 * and no conflicting /memory node).  Ignore any FDT the bootloader
+	 * passed via BI_FDT.
+	 */
+	if (MACH_IS_E17) {
+		extern void *eltec_e17_dtb;
+
+		fdt_blob = (phys_addr_t) &eltec_e17_dtb;
 	}
 
 	if (fdt_blob)
