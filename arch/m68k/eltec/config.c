@@ -226,14 +226,24 @@ static void __init eltec_e17_sched_init(void)
 	if (request_irq(E17_IRQ_TIMER, e17_timer_int, IRQF_TIMER, "timer",
 			NULL))
 		pr_err("E17: unable to register timer interrupt\n");
-	E17_POST(0xfb);			/* 'b': timer irq registered */
+
+	/*
+	 * DIAGNOSTIC: the VIC reads fine above (pre-irq), yet any I/O access
+	 * after request_irq() wedges -- the signature of a stale interrupt
+	 * storming once IRQ_USER is enabled.  Mask interrupts and see if that
+	 * unblocks the timer-arming pokes.
+	 */
+	local_irq_disable();
+	E17_POST(0xfb);			/* 'b': timer irq registered, irqs masked */
 
 	/* route VIC local IRQ 1 (CIO timers) to CPU IPL 6, unmasked */
 	e17_vic[E17_VIC_LICR1] = E17_VIC_LICR_LEVEL(6);
+	E17_POST(0xfe);			/* 'E': VIC LICR1 write returned */
 
 	/* enable CT3 interrupt and start it counting */
 	e17_cio_wr(Z8536_CT3CS, Z8536_CMD_SET_IE);
 	e17_cio_wr(Z8536_CT3CS, Z8536_CS_TCB);
+	E17_POST(0xfc);			/* 'c': timer armed */
 }
 
 static void __init eltec_e17_init_IRQ(void)
