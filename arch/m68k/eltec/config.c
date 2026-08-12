@@ -321,9 +321,19 @@ static void __init eltec_e17_sched_init(void)
 	e17_cio_wr(Z8536_MCCR, Z8536_MCCR_CT3E);
 	e17_cio_wr(Z8536_MICR, Z8536_MICR_MIE);
 
+	/*
+	 * Claim both the base CTVEC IRQ and the +2 status-folded IRQ: the real
+	 * Z8536 folds CT3's status into the vector and delivers VEC_USER+2,
+	 * while the QEMU model delivers CTVEC (VEC_USER) verbatim.  Registering
+	 * both makes the same kernel work on hardware and in emulation; only the
+	 * one that actually fires is used.
+	 */
 	if (request_irq(E17_IRQ_TIMER, e17_timer_int, IRQF_TIMER, "timer",
 			NULL))
 		pr_err("E17: unable to register timer interrupt\n");
+	if (request_irq(IRQ_USER, e17_timer_int, IRQF_TIMER, "timer-base",
+			NULL))
+		pr_err("E17: unable to register base timer interrupt\n");
 
 	/* route VIC local IRQ 1 (CIO timers) to CPU IPL 6, unmasked */
 	e17_vic[E17_VIC_LICR1] = E17_VIC_LICR_LEVEL(6);
