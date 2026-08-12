@@ -1189,6 +1189,9 @@ void start_kernel(void)
 	arch_post_acpi_subsys_init();
 	kcsan_init();
 
+#ifdef CONFIG_ELTEC_E17
+	{ extern void e17_early_puts(const char *); e17_early_puts("[E17 rest_init]"); }
+#endif
 	/* Do the rest non-__init'ed, we're now alive */
 	rest_init();
 
@@ -1558,12 +1561,18 @@ static int __ref kernel_init(void *unused)
 {
 	int ret;
 
+#ifdef CONFIG_ELTEC_E17
+	{ extern void e17_early_puts(const char *); e17_early_puts("[E17 kernel_init]"); }
+#endif
 	/*
 	 * Wait until kthreadd is all set-up.
 	 */
 	wait_for_completion(&kthreadd_done);
 
 	kernel_init_freeable();
+#ifdef CONFIG_ELTEC_E17
+	{ extern void e17_early_puts(const char *); e17_early_puts("[E17 freeable_done]"); }
+#endif
 	/* need to finish all async __init code before freeing the memory */
 	async_synchronize_full();
 
@@ -1588,6 +1597,9 @@ static int __ref kernel_init(void *unused)
 
 	do_sysctl_args();
 
+#ifdef CONFIG_ELTEC_E17
+	{ extern void e17_early_puts(const char *); e17_early_puts("[E17 run_init]"); }
+#endif
 	if (ramdisk_execute_command) {
 		ret = run_init_process(ramdisk_execute_command);
 		if (!ret)

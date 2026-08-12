@@ -556,10 +556,12 @@ void __init config_eltec_e17(void)
 	 */
 	e17_fb_init();			/* screen console */
 	/*
-	 * Framebuffer is the console.  The CD2401 serial still hard-locks the
-	 * boot (a cache-independent bus wedge) -- leave it off for now and revisit
-	 * once the rest of the board is up.
+	 * Do NOT register the fb as the full printk console yet: with wrap (no
+	 * scroll) the printk flood overwrites itself into unreadable noise.  Keep
+	 * only the explicit e17_early_puts markers so we can read how far boot
+	 * gets.  Serial stays off (still wedges).
 	 */
-	register_console(&e17_fb_console);
+	/* register_console(&e17_fb_console); */
 	(void)e17_early_console;				/* silence unused */
+	(void)e17_fb_console;					/* silence unused */
 }
