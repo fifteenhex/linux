@@ -3328,30 +3328,43 @@ ENTRY(e17_exc_report)
 	addl	#7,%d0			| 'A'..'F'
 1:	movel	%d0,%d2			| d2 = vector as ascii ('3' or '4')
 	/*
-	 * PC is 0 (NULL jump).  Scan the crashed stack from just above the frame
-	 * for the first value that looks like a kernel-text address
-	 * (0x1000..0x6bf000) -- the return address of whoever jumped to NULL.
+	 * Gather three return-address candidates into scratch BEFORE switching
+	 * stacks:
+	 *   v0 = sp@8   -- the word just above the 8-byte format-0 frame = the
+	 *                  jsr return address (the NULL call site in the caller)
+	 *   v1 = a6@4   -- return address of the current frame (via the frame
+	 *                  pointer chain), bounds-checked so a bad a6 can't fault
+	 *   v2 = first .text/.init.text value scanned up the stack
 	 */
-	lea	%sp@(8),%a1		| scan pointer (original stack)
-	movel	#0x40,%d1		| scan up to 64 longwords (clean stack now)
-	suba	%a2,%a2			| a2 = 0 (result, "none found")
-2:	movel	%a1@,%d3
-	/* .text: [0x1000, 0x3fb000) */
+	lea	%pc@(L(e17_rep_vals)),%a1
+	movel	%sp@(8),%a1@		| v0 = sp@8
+	clrl	%a1@(4)			| v1 = 0 (default)
+	movel	%a6,%d3
+	btst	#0,%d3
+	jne	6f			| odd a6 -> skip
+	cmpl	#0x1000,%d3
+	jcs	6f
+	cmpl	#0x02000000,%d3
+	jcc	6f			| a6 out of RAM -> skip
+	movel	%a6@(4),%a1@(4)		| v1 = a6@4
+6:	clrl	%a1@(8)			| v2 = 0 (default)
+	lea	%sp@(8),%a0		| scan the crashed stack for a text address
+	movel	#0x40,%d1
+7:	movel	%a0@,%d3
 	cmpl	#0x00001000,%d3
-	jcs	3f			| < 0x1000 -> not code
+	jcs	9f
 	cmpl	#0x003fb000,%d3
-	jcs	4f			| in .text -> found
-	/* .init.text: [0x598000, 0x5b7000) */
+	jcs	5f			| in .text
 	cmpl	#0x00598000,%d3
-	jcs	3f			| 0x3fb000..0x598000 -> data, not code
+	jcs	9f
 	cmpl	#0x005b7000,%d3
-	jcc	3f			| >= 0x5b7000 -> not code
-4:	movel	%d3,%a2			| a plausible return address (in text)
-	jra	5f
-3:	addql	#4,%a1
+	jcc	9f
+5:	movel	%d3,%a1@(8)		| v2 = scanned text address
+	jra	4f
+9:	addql	#4,%a0
 	subql	#1,%d1
-	jne	2b
-5:
+	jne	7b
+4:
 	/*
 	 * Report ONCE, then STOP -- a flag stops a recurring fault re-entering
 	 * and overwriting; print on a private stack (crashed stack may be bad).
@@ -3365,7 +3378,16 @@ ENTRY(e17_exc_report)
 	movel	%d2,%sp@-		| vector digit
 	jbsr	L(serial_putc)
 	addql	#4,%sp
-	movel	%a2,%sp@-		| caller/return addr as 8 hex (" XXXXXXXX")
+	lea	%pc@(L(e17_rep_vals)),%a2	| v0 = sp@8
+	movel	%a2@,%sp@-
+	jbsr	L(putn)
+	addql	#4,%sp
+	lea	%pc@(L(e17_rep_vals)),%a2	| v1 = a6@4
+	movel	%a2@(4),%sp@-
+	jbsr	L(putn)
+	addql	#4,%sp
+	lea	%pc@(L(e17_rep_vals)),%a2	| v2 = scanned text addr
+	movel	%a2@(8),%sp@-
 	jbsr	L(putn)
 	addql	#4,%sp
 	pea	10			| '\n'
@@ -3379,6 +3401,8 @@ ENTRY(e17_exc_report)
 L(e17_rep_flag):
 	.byte	0
 	.align	2
+L(e17_rep_vals):
+	.long	0,0,0			| v0=sp@8, v1=a6@4, v2=scan
 	.space	512
 L(e17_rep_stack):
 	.long	0,0,0,0
