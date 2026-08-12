@@ -234,7 +234,9 @@ static void __init eltec_e17_sched_init(void)
 	 * unblocks the timer-arming pokes.
 	 */
 	local_irq_disable();
-	E17_POST(0xfb);			/* 'b': timer irq registered, irqs masked */
+	E17_POST(0x05);			/* '5': timer irq registered, irqs masked
+					 * (distinct value: confirms we reach here
+					 *  and the 'b' isn't head.S putc 'K'=0x4b) */
 
 	/* route VIC local IRQ 1 (CIO timers) to CPU IPL 6, unmasked */
 	e17_vic[E17_VIC_LICR1] = E17_VIC_LICR_LEVEL(6);
