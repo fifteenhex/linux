@@ -3314,66 +3314,49 @@ func_return	serial_putc
 ENTRY(e17_exc_report)
 	movew	#0x2700,%sr		| supervisor, mask all interrupts
 	/*
-	 * Read the vector (frame+6, fixed in every frame) and the faulting PC
-	 * (frame+2, fixed in every frame) BEFORE switching stacks.  Vector goes
-	 * to d2 as an ascii hex digit, PC to a2 -- both survive serial_putc/putn.
-	 */
-	movew	%sp@(6),%d0
-	andw	#0x0fff,%d0
-	lsrw	#2,%d0			| d0 = vector number
-	andl	#0xf,%d0
-	addl	#'0',%d0
-	cmpl	#'9',%d0
-	jle	1f
-	addl	#7,%d0			| 'A'..'F'
-1:	movel	%d0,%d2			| d2 = vector as ascii ('3' or '4')
-	/*
-	 * Gather three return-address candidates into scratch BEFORE switching
-	 * stacks:
-	 *   v0 = sp@8   -- the word just above the 8-byte format-0 frame = the
-	 *                  jsr return address (the NULL call site in the caller)
-	 *   v1 = a6@4   -- return address of the current frame (via the frame
-	 *                  pointer chain), bounds-checked so a bad a6 can't fault
-	 *   v2 = first .text/.init.text value scanned up the stack
-	 */
-	lea	%pc@(L(e17_rep_vals)),%a1
-	movel	%sp@(8),%a1@		| v0 = sp@8
-	clrl	%a1@(4)			| v1 = 0 (default)
-	movel	%a6,%d3
-	btst	#0,%d3
-	jne	6f			| odd a6 -> skip
-	cmpl	#0x1000,%d3
-	jcs	6f
-	cmpl	#0x02000000,%d3
-	jcc	6f			| a6 out of RAM -> skip
-	movel	%a6@(4),%a1@(4)		| v1 = a6@4
-6:	clrl	%a1@(8)			| v2 = 0 (default)
-	lea	%sp@(8),%a0		| scan the crashed stack for a text address
-	movel	#0x40,%d1
-7:	movel	%a0@,%d3
-	cmpl	#0x00001000,%d3
-	jcs	9f
-	cmpl	#0x003fb000,%d3
-	jcs	5f			| in .text
-	cmpl	#0x00598000,%d3
-	jcs	9f
-	cmpl	#0x005b7000,%d3
-	jcc	9f
-5:	movel	%d3,%a1@(8)		| v2 = scanned text address
-	jra	4f
-9:	addql	#4,%a0
-	subql	#1,%d1
-	jne	7b
-4:
-	/*
-	 * Report ONCE, then STOP -- a flag stops a recurring fault re-entering
-	 * and overwriting; print on a private stack (crashed stack may be bad).
+	 * Latch the "already reported" flag FIRST, before any read that could
+	 * fault (an address error re-enters this very handler): a re-entry then
+	 * short-circuits straight to the halt instead of looping forever.
 	 */
 	lea	%pc@(L(e17_rep_flag)),%a3
 	tstb	%a3@
 	jne	8f
 	st	%a3@
-	lea	%pc@(L(e17_rep_stack)),%sp
+	/* vector number -> d2 as an ascii hex digit (fixed at frame+6) */
+	movew	%sp@(6),%d0
+	andw	#0x0fff,%d0
+	lsrw	#2,%d0
+	andl	#0xf,%d0
+	addl	#'0',%d0
+	cmpl	#'9',%d0
+	jle	1f
+	addl	#7,%d0
+1:	movel	%d0,%d2
+	/*
+	 * v0 = sp@8 (frame return slot), v1 = a6@4 (frame-pointer chain).  Both
+	 * reads bounds-checked (even, in RAM) so a wild sp/a6 can't fault.  No
+	 * stack scan -- that walked off into unmapped memory and re-faulted.
+	 */
+	lea	%pc@(L(e17_rep_vals)),%a1
+	clrl	%a1@
+	clrl	%a1@(4)
+	movel	%sp,%d3			| v0 = sp@8, if sp sane
+	btst	#0,%d3
+	jne	2f
+	cmpl	#0x1000,%d3
+	jcs	2f
+	cmpl	#0x02000000,%d3
+	jcc	2f
+	movel	%sp@(8),%a1@
+2:	movel	%a6,%d3			| v1 = a6@4, if a6 sane
+	btst	#0,%d3
+	jne	3f
+	cmpl	#0x1000,%d3
+	jcs	3f
+	cmpl	#0x02000000,%d3
+	jcc	3f
+	movel	%a6@(4),%a1@(4)
+3:	lea	%pc@(L(e17_rep_stack)),%sp	| private stack for printing
 	moveb	#0x0e,0xfec30000	| 'E' on the display
 	movel	%d2,%sp@-		| vector digit
 	jbsr	L(serial_putc)
@@ -3384,10 +3367,6 @@ ENTRY(e17_exc_report)
 	addql	#4,%sp
 	lea	%pc@(L(e17_rep_vals)),%a2	| v1 = a6@4
 	movel	%a2@(4),%sp@-
-	jbsr	L(putn)
-	addql	#4,%sp
-	lea	%pc@(L(e17_rep_vals)),%a2	| v2 = scanned text addr
-	movel	%a2@(8),%sp@-
 	jbsr	L(putn)
 	addql	#4,%sp
 	pea	10			| '\n'
