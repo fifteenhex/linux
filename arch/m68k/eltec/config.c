@@ -183,7 +183,7 @@ static void e17_cd2401_write(const char *s, unsigned int n)
  * async mode, give tx/rx distinct priority levels, and (re)enable the
  * transmitter via CCR.  Baud/format stay as RMON/u-boot programmed them.
  */
-static void e17_cd2401_init(void)
+void e17_cd2401_init(void)
 {
 	int i, bound;
 

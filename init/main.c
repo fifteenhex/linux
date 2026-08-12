@@ -976,7 +976,18 @@ void start_kernel(void)
 #ifdef CONFIG_ELTEC_E17
 	/* reliable single-char boot checkpoints (see setup_mm.c); self-guarded */
 	extern void e17_dbg_putc(int);
+	extern void e17_cd2401_init(void);
+	extern void e17_early_puts(const char *);
 	e17_dbg_putc('O');		/* O = start_kernel entry */
+	/*
+	 * DIAGNOSTIC: does the batched u-boot-style C tx work at all on real hw?
+	 * Re-init the chip and print a long string, bypassing register_console.
+	 * If the whole string appears, the C console works and the boot is dying
+	 * later (before register_console); if it caps/vanishes, the C tx itself
+	 * is the problem.
+	 */
+	e17_cd2401_init();
+	e17_early_puts("\r\n[E17-Cconsole 0123456789 abcdefghijklmnopqrstuvwxyz END]\r\n");
 #endif
 
 	set_task_stack_end_magic(&init_task);
