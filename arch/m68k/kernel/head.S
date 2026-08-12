@@ -3312,21 +3312,12 @@ ENTRY(e17_exc_report)
 	 * Print "\nVNN PC=XXXXXXXX\n" on serial (NN = faulting vector, then the
 	 * PC), far easier to read than the display; then halt.
 	 */
-	pea	10			| '\n'
-	jbsr	L(serial_putc)
-	addql	#4,%sp
-	pea	86			| 'V'
-	jbsr	L(serial_putc)
-	addql	#4,%sp
-	movel	%d2,%d0
-	lsrl	#4,%d0			| high nibble of vector
-	bsr	L(e17_hexd)
-	movel	%d2,%d0			| low nibble of vector
-	bsr	L(e17_hexd)
-	pea	80			| 'P'
-	jbsr	L(serial_putc)
-	addql	#4,%sp
-	movel	%a2,%sp@-		| the faulting PC (putn prints " XXXXXXXX")
+	/*
+	 * Print just the faulting PC as 8 hex digits (putn emits " XXXXXXXX"),
+	 * no prefix -- the CD2401 only reliably sends ~11 chars, and the PC is
+	 * what matters (vector is already known from the display 'E').
+	 */
+	movel	%a2,%sp@-
 	jbsr	L(putn)
 	addql	#4,%sp
 	pea	10			| '\n'
