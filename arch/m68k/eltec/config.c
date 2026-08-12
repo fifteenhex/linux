@@ -78,34 +78,43 @@ static volatile u8 *const e17_cd2401_iack __maybe_unused =
 static volatile u8 *const e17_vic = (volatile u8 *)E17_VIC_BASE;
 
 /*
- * Enter the CD2401 tx interrupt-service context: wait (bounded) for the VIC
- * to see the tx line asserted, acknowledge through the board IACK window to
- * read the vector, and confirm the tx service is active for our channel.
- * Mirrors u-boot's serial_cd2401_ack_tx_irq().  Returns 0 on success.
+ * Enter the CD2401 tx interrupt-service context.  Ported verbatim from
+ * u-boot's serial_cd2401_ack_tx_irq() (which reliably prints pages on this
+ * board): wait for the VIC to see the tx line asserted (LICR6 STATE, active
+ * low), IACK through the board window, then RETRY -- up to 64K times -- until
+ * the chip reports its tx service is actually active (TIR & TACT) for channel
+ * 0.  The generous retry is the crucial difference from the old one-shot
+ * version, which dropped everything after the first fifo-full.  Returns 0 ok.
  */
+#define E17_CD2401_ACK_LOOPS	0x10000
+
+static int e17_cd2401_ack_irq(u8 ipl)
+{
+	unsigned int i;
+
+	for (i = E17_CD2401_ACK_LOOPS; i; i--) {
+		/* STATE is active low: bit clear => CD2401 asserting */
+		if (!(e17_vic[E17_VIC_LICR6] & E17_VIC_LICR_STATE)) {
+			(void)e17_cd2401_iack[ipl];	/* IACK -> enter service */
+			return 0;
+		}
+		cpu_relax();
+	}
+	return -1;
+}
+
 static int e17_cd2401_ack_tx(void)
 {
-	int outer = 64;			/* wait long enough for the fifo to drain */
+	unsigned int i;
 
-	while (outer--) {
-		int inner = 40000;
-
-		/* VIC LICR6 STATE is active low: wait for it to go low */
-		while ((e17_vic[E17_VIC_LICR6] & E17_VIC_LICR_STATE) && --inner)
-			cpu_relax();
-		if (!inner)
+	for (i = E17_CD2401_ACK_LOOPS; i; i--) {
+		if (e17_cd2401_ack_irq(CD2401_TX_IPL))
 			return -1;
-
-		(void)e17_cd2401_iack[CD2401_TX_IPL];	/* IACK -> read vector */
-
-		/* tx service must be active */
 		if (!(e17_cd2401[CD2401_TIR] & CD2401_TIR_TACT))
-			continue;
-
-		/* must be channel 0 (LICR interrupting-port field) */
+			continue;		/* service not active yet -- retry */
 		if (((e17_cd2401[CD2401_LICR] >> 2) & 3) != 0) {
 			e17_cd2401[CD2401_TEOIR] = CD2401_TEOIR_NOTRANS;
-			continue;
+			continue;		/* not channel 0 -- dismiss, retry */
 		}
 		return 0;
 	}
@@ -113,68 +122,49 @@ static int e17_cd2401_ack_tx(void)
 }
 
 /*
- * Transmit a run of bytes the way the firmware does, in fifo-sized batches.
- * The important property (vs the earlier one-service-per-byte version that
- * died on the real chip) is that a whole batch is written into the tx fifo
- * *before* the closing TEOIR: once the bytes are in the fifo they transmit
- * regardless of whether the fragile per-service re-arm succeeds.  Newlines
- * are expanded to CR/LF.  Bytes are dropped (not hung) if we cannot enter
- * the tx service.
+ * Transmit a run of bytes exactly as u-boot's serial_cd2401_write_tx() does:
+ * enter tx service, fill up to TFTC fifo slots, TEOIR=0 to launch the batch,
+ * re-enter service, TEOIR=NOTRANS to close it.  Loop for the whole string.
+ * Newlines expand to CR/LF.  Never drop-and-pace; the ack retry above is what
+ * makes it reliable.
  */
-/*
- * Only IER=TxD (0x01) transmits on this board, and TxD does not reliably
- * re-post once the fifo has filled -- so we cannot rely on re-entering the tx
- * service to drain a backlog.  Instead we PACE: write a batch, then busy-wait
- * long enough for those bytes to physically leave the shift register before
- * the next batch, so every service starts from an empty fifo where TxD is
- * guaranteed to assert.  Slow but reliable and never drops.
- */
-#define E17_CD2401_DRAIN_PER_BYTE	40000	/* ~ one char-time at the line rate */
-
 static void e17_cd2401_write(const char *s, unsigned int n)
 {
 	e17_cd2401[CD2401_CAR] = 0;		/* select channel 0 */
 	e17_cd2401[CD2401_TPILR] = CD2401_TX_IPL;
 
 	while (n) {
-		int space, written = 0;
-		long drain;
+		unsigned int cnt, w;
 
-		e17_cd2401[CD2401_IER] = CD2401_IER_TXD;	/* enable tx irq */
-		if (e17_cd2401_ack_tx() != 0) {		/* enter tx service */
-			e17_cd2401[CD2401_IER] = 0;
+		e17_cd2401[CD2401_IER] |= CD2401_IER_TXD;	/* enable tx irq */
+		if (e17_cd2401_ack_tx() != 0) {
+			e17_cd2401[CD2401_IER] &= ~CD2401_IER_TXD;
 			return;				/* give up (drop rest) */
 		}
 
-		/* fill the fifo (leave room for a possible CR before an LF) */
-		space = e17_cd2401[CD2401_TFTC];
-		while (space >= 2 && n) {
-			char c = *s++;
+		cnt = e17_cd2401[CD2401_TFTC];		/* free fifo slots */
+		for (w = 0; w < cnt && n; ) {
+			char c = *s;
 
-			n--;
 			if (c == '\n') {
+				if (w + 2 > cnt)
+					break;		/* need 2 slots for CR/LF */
 				e17_cd2401[CD2401_DR] = '\r';
-				space--;
-				written++;
+				e17_cd2401[CD2401_DR] = '\n';
+				w += 2;
+			} else {
+				e17_cd2401[CD2401_DR] = c;
+				w++;
 			}
-			e17_cd2401[CD2401_DR] = c;
-			space--;
-			written++;
+			s++;
+			n--;
 		}
 
-		e17_cd2401[CD2401_TEOIR] = 0;		/* transfer the batch */
-		e17_cd2401[CD2401_IER] = 0;		/* disable tx irq */
-
-		/*
-		 * Drain after EVERY batch (including the last) so this call
-		 * returns with an empty fifo -- otherwise the next, separate
-		 * write starts against a still-full fifo and drops (this was the
-		 * "[arch1:entry][" cutoff).
-		 */
-		for (drain = (long)written * E17_CD2401_DRAIN_PER_BYTE;
-		     drain > 0; drain--)
-			cpu_relax();
+		e17_cd2401[CD2401_TEOIR] = 0;		/* launch the batch */
+		e17_cd2401_ack_tx();			/* re-enter service */
+		e17_cd2401[CD2401_TEOIR] = CD2401_TEOIR_NOTRANS;
 	}
+	e17_cd2401[CD2401_IER] &= ~CD2401_IER_TXD;	/* disable tx irq */
 }
 
 static void e17_cons_write(struct console *co, const char *s, unsigned int n)
@@ -368,6 +358,5 @@ void __init config_eltec_e17(void)
 	 * from the POST display milestones instead.  Re-enable once the tx is
 	 * bulletproof.
 	 */
-	if (0)
-		register_console(&e17_early_console);
+	register_console(&e17_early_console);
 }

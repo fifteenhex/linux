@@ -73,30 +73,12 @@ void __init base_trap_init(void)
 	vectors[VEC_ILLEGAL] = trap;
 	vectors[VEC_SYS] = system_call;
 
-#ifdef CONFIG_ELTEC_E17
 	/*
-	 * DIAGNOSTIC: on the E17, point every remaining (otherwise-NULL) vector
-	 * at the head.S exception reporter, so an early fault freezes with the
-	 * faulting vector on the POST display instead of jumping through a NULL
-	 * entry to address 0 and silently re-running head.S.  Overrides the
-	 * three handlers above too, so bus/address/illegal faults are caught as
-	 * well.  (Breaks syscalls, but we crash long before userspace.)
+	 * NB: the E17 diagnostic e17_exc_report override is disabled -- with the
+	 * (now reliable, u-boot-derived) serial console, let faults reach the
+	 * kernel's own die()/Oops path, which prints a real address-validated
+	 * Call Trace.
 	 */
-	if (MACH_IS_E17) {
-		extern void e17_exc_report(void);
-
-		/*
-		 * ONLY the genuine-fatal-fault vectors -- address error and illegal
-		 * instruction.  Crucially NOT VEC_BUSERR (2): on the 040 that is the
-		 * MMU access-fault (page fault) vector and must reach access_error040,
-		 * or normal demand paging / copy_from_user faults are mistaken for
-		 * crashes and the boot corrupts.  Likewise leave the trap/FP/syscall
-		 * vectors and the device interrupt vectors to their real handlers.
-		 */
-		vectors[VEC_ADDRERR] = (e_vector)e17_exc_report;
-		vectors[VEC_ILLEGAL] = (e_vector)e17_exc_report;
-	}
-#endif
 }
 
 void __init trap_init (void)
