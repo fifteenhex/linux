@@ -3316,7 +3316,25 @@ ENTRY(e17_exc_report)
 	jle	1f
 	addl	#7,%d0			| 'A'..'F'
 1:	movel	%d0,%d2			| d2 = vector as ascii ('3' or '4')
-	movel	%sp@(2),%a2		| a2 = faulting PC
+	/*
+	 * PC is 0 (NULL jump).  Scan the crashed stack from just above the frame
+	 * for the first value that looks like a kernel-text address
+	 * (0x1000..0x6bf000) -- the return address of whoever jumped to NULL.
+	 */
+	lea	%sp@(8),%a1		| scan pointer (original stack)
+	movel	#0x100,%d1		| scan up to 256 longwords
+	suba	%a2,%a2			| a2 = 0 (result, "none found")
+2:	movel	%a1@,%d3
+	cmpl	#0x00001000,%d3
+	jcs	3f			| < 0x1000 -> skip
+	cmpl	#0x006bf000,%d3
+	jcc	3f			| > kernel end -> skip
+	movel	%d3,%a2			| found a plausible return address
+	jra	4f
+3:	addql	#4,%a1
+	subql	#1,%d1
+	jne	2b
+4:
 	/*
 	 * Report ONCE, then STOP -- a flag stops a recurring fault re-entering
 	 * and overwriting; print on a private stack (crashed stack may be bad).
@@ -3330,7 +3348,7 @@ ENTRY(e17_exc_report)
 	movel	%d2,%sp@-		| vector digit
 	jbsr	L(serial_putc)
 	addql	#4,%sp
-	movel	%a2,%sp@-		| PC as 8 hex (putn: " XXXXXXXX")
+	movel	%a2,%sp@-		| caller/return addr as 8 hex (" XXXXXXXX")
 	jbsr	L(putn)
 	addql	#4,%sp
 	pea	10			| '\n'
