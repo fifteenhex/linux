@@ -1227,20 +1227,32 @@ bool __init early_init_dt_verify(void *dt_virt, phys_addr_t dt_phys)
 void __init early_init_dt_scan_nodes(void)
 {
 	int rc;
+#ifdef CONFIG_ELTEC_E17
+	extern void e17_early_puts(const char *);
+#define E17SN(s) e17_early_puts(s)
+#else
+#define E17SN(s) do {} while (0)
+#endif
 
+	E17SN("sn1 ");
 	/* Retrieve various information from the /chosen node */
 	rc = early_init_dt_scan_chosen(boot_command_line);
 	if (rc)
 		pr_warn("No chosen node found, continuing without\n");
+	E17SN("sn2 ");
 
 	/* Setup memory, calling early_init_dt_add_memory_arch */
 	early_init_dt_scan_memory();
+	E17SN("sn3 ");
 
 	/* Handle linux,usable-memory-range property */
 	early_init_dt_check_for_usable_mem_range();
+	E17SN("sn4 ");
 
 	/* Handle kexec handover */
 	early_init_dt_check_kho();
+	E17SN("sn5 ");
+#undef E17SN
 }
 
 bool __init early_init_dt_scan(void *dt_virt, phys_addr_t dt_phys)
