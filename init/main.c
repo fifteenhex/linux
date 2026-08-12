@@ -973,6 +973,11 @@ void start_kernel(void)
 {
 	char *command_line;
 	char *after_dashes;
+#ifdef CONFIG_ELTEC_E17
+	/* reliable single-char boot checkpoints (see setup_mm.c); self-guarded */
+	extern void e17_dbg_putc(int);
+	e17_dbg_putc('O');		/* O = start_kernel entry */
+#endif
 
 	set_task_stack_end_magic(&init_task);
 	smp_setup_processor_id();
@@ -991,7 +996,13 @@ void start_kernel(void)
 	boot_cpu_init();
 	page_address_init();
 	pr_notice("%s", linux_banner);
+#ifdef CONFIG_ELTEC_E17
+	e17_dbg_putc('P');		/* P = about to call setup_arch */
+#endif
 	setup_arch(&command_line);
+#ifdef CONFIG_ELTEC_E17
+	e17_dbg_putc('W');		/* W = setup_arch returned */
+#endif
 	mm_core_init_early();
 	/* Static keys and static calls are needed by LSMs */
 	jump_label_init();

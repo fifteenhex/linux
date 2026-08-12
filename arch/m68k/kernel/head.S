@@ -3302,6 +3302,21 @@ func_return	serial_putc
 
 #ifdef CONFIG_ELTEC_E17
 /*
+ * C-callable single-character debug output, using the SAME proven serial_putc
+ * path that reliably prints the head.S A..N checkpoints.  Lets us extend the
+ * checkpoint trail into start_kernel()/setup_arch() to see where the boot dies,
+ * since the C console (register_console) is silent on real hardware.  One char
+ * per call, spaced by real work, is what the CD2401 tolerates.
+ *   void e17_dbg_putc(int ch);   ch at sp@(4) on entry (m68k C ABI)
+ */
+	.globl	e17_dbg_putc
+e17_dbg_putc:
+	movel	%sp@(4),%sp@-		| re-push ch as serial_putc's ARG1
+	jbsr	L(serial_putc)
+	addql	#4,%sp
+	rts
+
+/*
  * ELTEC E17 diagnostic exception reporter.  base_trap_init() points every
  * vector here so that any early fault (before the real handlers are in place)
  * is FROZEN instead of vectoring through a NULL entry to address 0 and
