@@ -55,10 +55,23 @@
 #define CD2401_CAR		0xee	/* channel access (select) register */
 #define CD2401_IER		0x11	/* interrupt enable register */
 #define CD2401_IER_TXD		0x01
-#define CD2401_TEOIR		0x85	/* transmit end of interrupt */
+#define CD2401_IER_TXMPTY	0x02	/* transmitter fully idle */
+#define CD2401_LICR		0x26	/* (in service) interrupting channel << 2 */
+#define CD2401_TFTC		0x80	/* (in tx service) writable byte count */
+#define CD2401_REOIR		0x84	/* rx end-of-interrupt */
+#define CD2401_TEOIR		0x85	/* tx end-of-interrupt */
+#define CD2401_MEOIR		0x86	/* modem end-of-interrupt */
+#define CD2401_EOIR_NOTRANS	0x08	/* "no data transferred" end-of-interrupt */
+#define CD2401_RISRH		0x88	/* rx interrupt status (reading clears specials) */
+#define CD2401_RISRL		0x89
 #define CD2401_TPILR		0xe0	/* tx priority interrupt level */
-#define CD2401_TX_IPL		0x02
+#define CD2401_RPILR		0xe1	/* rx priority interrupt level */
+#define CD2401_MPILR		0xe3	/* modem priority interrupt level */
 #define CD2401_DR		0xf8	/* rx/tx data register */
+
+#define E17_CD2401_IPL		2	/* one level for all three PILRs (RMON-style) */
+#define E17_CD2401_TIMEOUT	0x200000 /* ~1-4s of uncached VIC reads; >> 17 char times */
+#define E17_CD2401_RETRIES	16	/* foreign-service dismissals per batch */
 
 /*
  * The onboard I/O window (0xfec00000) is reached at its physical
@@ -72,40 +85,131 @@ static volatile u8 *const e17_cd2401_iack __maybe_unused =
 static volatile u8 *const e17_vic = (volatile u8 *)E17_VIC_BASE;
 
 /*
- * Transmit one byte via the CD2401 interrupt-service context (the only way
- * the real chip actually transmits -- a bare TDR write is ignored).  Enable
- * the tx interrupt, wait (bounded, generous enough to let the fifo drain at
- * the line rate) for the VIC to see the line asserted, acknowledge through
- * the board IACK window to enter service, write the byte and end with TEOIR.
- * If the line never asserts we drop the byte -- crucially we do NOT issue the
- * IACK in that case: acking a non-pending interrupt gets no DTACK and wedges
- * the bus.
+ * CD2401 transmit -- see /workspace/files/CD2401-TX-DESIGN.md.
+ *
+ * The chip only moves data in interrupt-service context (a bare TDR write is
+ * ignored), entered by reading the board IACK window.  The one way to wedge
+ * the CPU is to issue an IACK whose level matches no internally-posted
+ * interrupt: that bus cycle never gets a DTACK and stalls until the watchdog.
+ * u-boot walks into this because it splits the priority levels and leaves rx
+ * enabled, so typing during tx collides ("locks up if you send too fast").
+ *
+ * We follow RMON's scheme instead: program all three PILRs to the SAME level,
+ * so an IACK issued while the (shared) VIC line is asserted is always answered
+ * by *some* pending interrupt; the ack byte's low two bits say which type
+ * arrived, and we dismiss anything that isn't our channel-0 tx service with a
+ * NOTRANS end-of-interrupt.  One IACK, one TEOIR, no re-arm.
  */
-static void e17_cd2401_putc(char c)
+
+/* One-time interrupt plumbing; channel format/baud are inherited from the firmware. */
+static void e17_cd2401_init(void)
 {
-	int timeout = 4000000;
+	int ch;
 
-	e17_cd2401[CD2401_CAR] = 0;		/* select channel 0 */
-	e17_cd2401[CD2401_TPILR] = CD2401_TX_IPL;
-	e17_cd2401[CD2401_IER] = CD2401_IER_TXD;	/* enable tx interrupt */
-
-	while ((e17_vic[E17_VIC_LICR6] & E17_VIC_LICR_STATE) && --timeout)
-		cpu_relax();
-
-	if (timeout) {				/* line asserted: tx int pending */
-		(void)e17_cd2401_iack[CD2401_TX_IPL];	/* IACK -> enter service */
-		e17_cd2401[CD2401_DR] = c;	/* write the byte */
-		e17_cd2401[CD2401_TEOIR] = 0;	/* end of tx interrupt */
+	for (ch = 3; ch >= 0; ch--) {		/* silence ALL channels (u-boot misses ch3) */
+		e17_cd2401[CD2401_CAR] = ch;
+		e17_cd2401[CD2401_IER] = 0;
 	}
-	e17_cd2401[CD2401_IER] = 0;		/* disable tx interrupt */
+	/* equal PILRs: an IACK at this level is answered by any pending type */
+	e17_cd2401[CD2401_TPILR] = E17_CD2401_IPL;
+	e17_cd2401[CD2401_RPILR] = E17_CD2401_IPL;
+	e17_cd2401[CD2401_MPILR] = E17_CD2401_IPL;
+
+	/* we poll; the CPU must never vector on LIRQ6 */
+	e17_vic[E17_VIC_LICR6] |= 0x80;
+}
+
+/*
+ * Enter a channel-0 transmit service.  Returns 1 on success (caller writes the
+ * bytes, then TEOIR=0 and IER=0), 0 on timeout/failure (IER already cleared,
+ * caller drops the data).  Never IACKs unless the shared line is asserted;
+ * foreign services (rx/modem/other channel) are dismissed with a NOTRANS EOI
+ * and the poll retried, which also scavenges anything stale left by RMON/u-boot.
+ */
+static int e17_cd2401_enter_tx_service(void)
+{
+	int retry;
+
+	e17_cd2401[CD2401_CAR] = 0;
+	e17_cd2401[CD2401_IER] = CD2401_IER_TXMPTY | CD2401_IER_TXD;
+
+	for (retry = 0; retry < E17_CD2401_RETRIES; retry++) {
+		long t = E17_CD2401_TIMEOUT;
+		u8 ack;
+
+		while ((e17_vic[E17_VIC_LICR6] & E17_VIC_LICR_STATE) && --t)
+			cpu_relax();		/* STATE is active low */
+		if (!t)
+			break;			/* stalled/absent uart: drop */
+
+		ack = e17_cd2401_iack[E17_CD2401_IPL];	/* the one IACK */
+		switch (ack & 3) {
+		case 2:					/* transmit */
+			if (!(e17_cd2401[CD2401_LICR] & 0x0c))
+				return 1;		/* ch0 tx service entered */
+			e17_cd2401[CD2401_TEOIR] = CD2401_EOIR_NOTRANS;
+			break;			/* another channel: dismiss */
+		case 3:					/* rx data: discard */
+		case 0:					/* rx exception: RISR read clears it */
+			(void)e17_cd2401[CD2401_RISRH];
+			(void)e17_cd2401[CD2401_RISRL];
+			e17_cd2401[CD2401_REOIR] = CD2401_EOIR_NOTRANS;
+			break;
+		case 1:					/* modem */
+			e17_cd2401[CD2401_MEOIR] = CD2401_EOIR_NOTRANS;
+			break;
+		}
+	}
+	e17_cd2401[CD2401_IER] = 0;
+	return 0;
+}
+
+/* transmit raw bytes; batches of up to TFTC (<=16) per service */
+static void e17_cd2401_tx(const char *s, unsigned int n)
+{
+	while (n) {
+		unsigned int cnt;
+
+		if (!e17_cd2401_enter_tx_service())
+			return;				/* drop the rest, never hang */
+
+		cnt = e17_cd2401[CD2401_TFTC];
+		if (cnt > 16)
+			cnt = 16;
+		if (!cnt) {				/* shouldn't happen; be paranoid */
+			e17_cd2401[CD2401_TEOIR] = CD2401_EOIR_NOTRANS;
+			e17_cd2401[CD2401_IER] = 0;
+			continue;
+		}
+		if (cnt > n)
+			cnt = n;
+		n -= cnt;
+		while (cnt--)
+			e17_cd2401[CD2401_DR] = *s++;
+		e17_cd2401[CD2401_TEOIR] = 0;		/* data transferred */
+		e17_cd2401[CD2401_IER] = 0;		/* no re-arm, no 2nd ack */
+	}
 }
 
 static void e17_cd2401_write(const char *s, unsigned int n)
 {
-	while (n--) {
-		if (*s == '\n')
-			e17_cd2401_putc('\r');
-		e17_cd2401_putc(*s++);
+	static bool inited;
+
+	if (!inited) {
+		e17_cd2401_init();
+		inited = true;
+	}
+	while (n) {
+		unsigned int i = 0;
+
+		while (i < n && s[i] != '\n')
+			i++;
+		e17_cd2401_tx(s, i);
+		s += i; n -= i;
+		if (n) {				/* s[0] == '\n' */
+			e17_cd2401_tx("\r\n", 2);
+			s++; n--;
+		}
 	}
 }
 

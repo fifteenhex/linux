@@ -2889,6 +2889,28 @@ func_start	serial_init,%d0/%d1/%a0/%a1
 	 *		d0 = init data for serial port
 	 */
 
+#ifdef CONFIG_ELTEC_E17
+	/*
+	 * ELTEC E17: CD2401 channel 0 interrupt plumbing (see config.c /
+	 * CD2401-TX-DESIGN.md).  Silence every channel's IER, program all three
+	 * priority-interrupt levels to the SAME value (so a polled IACK is always
+	 * answered by whatever is pending) and mask the CD2401's VIC line so the
+	 * CPU never vectors on it.  Format/baud are inherited from RMON/u-boot.
+	 */
+	is_not_e17(L(serial_init_not_e17))
+	movel	#0xfec64000,%a1
+	moveq	#3,%d0
+1:	moveb	%d0,%a1@(0xee)		| CAR = ch 3..0
+	clrb	%a1@(0x11)		| IER = 0 (every channel, incl. 3)
+	dbra	%d0,1b
+	moveb	#2,%a1@(0xe0)		| TPILR = 2
+	moveb	#2,%a1@(0xe1)		| RPILR = 2   } all equal: any pending type
+	moveb	#2,%a1@(0xe3)		| MPILR = 2   } answers an IACK at level 2
+	bset	#7,0xfec0003b		| mask VIC LICR6: polled, never vectored
+	jra	L(serial_init_done)
+L(serial_init_not_e17):
+#endif
+
 #ifdef CONFIG_AMIGA
 #define SERIAL_DTR	7
 #define SERIAL_CNTRL	CIABBASE+C_PRA
@@ -3042,7 +3064,7 @@ func_return	serial_init
 /*
  * Output character on serial port.
  */
-func_start	serial_putc,%d0/%d1/%a0/%a1
+func_start	serial_putc,%d0/%d1/%d2/%a0/%a1
 
 	movel	ARG1,%d0
 	cmpib	#'\n',%d0
@@ -3181,31 +3203,46 @@ func_start	serial_putc,%d0/%d1/%a0/%a1
 #ifdef CONFIG_ELTEC_E17
 	is_not_e17(2f)
 	/*
-	 * CD2401 at 0xfec64000, channel 0 = the console.  The real chip only
-	 * transmits from its interrupt-service context (a bare TDR write is
-	 * ignored), so: select the channel, enable the tx interrupt, wait
-	 * (bounded, generously) for the VIC to see the line asserted (LICR6
-	 * STATE, active low), acknowledge through the board IACK window
-	 * (base + 0x2000, at the tx priority level) to enter service, write the
-	 * byte and end with TEOIR.  On timeout drop the byte without an IACK
-	 * (acking a non-pending interrupt gets no DTACK and wedges the bus).
+	 * CD2401 ch0, one interrupt-service entry per byte (see config.c /
+	 * CD2401-TX-DESIGN.md).  IER = TxMpty|TxD; wait (bounded) for VIC LICR6
+	 * STATE (active low); one IACK at level 2 (all PILRs equal via
+	 * serial_init, so it is always answered); dispatch on the ack byte's
+	 * type bits, dismissing foreign services (rx/modem/other channel) with a
+	 * NOTRANS EOI and re-polling; for our tx service write TDR, TEOIR=0.
+	 * On timeout drop the byte WITHOUT an IACK -- an unanswered IACK gets no
+	 * DTACK and stalls the CPU until the watchdog.
 	 */
-	movel	#0xfec64000,%a1		| CD2401 register base
+	movel	#0xfec64000,%a1		| CD2401 base
 	movel	#0xfec00000,%a0		| VIC068A base
-	clrb	%a1@(0xee)		| CAR   = channel 0
-	moveb	#0x02,%a1@(0xe0)	| TPILR = tx priority level 2
-	moveb	#0x01,%a1@(0x11)	| IER   = tx-data interrupt enable
-	movel	#0x400000,%d1		| poll timeout (generous; never hang)
-1:	btst	#3,%a0@(0x3b)		| VIC LICR6 STATE: 0 => CD2401 asserting
-	jeq	3f
+	clrb	%a1@(0xee)		| CAR = 0
+	moveb	#0x03,%a1@(0x11)	| IER = TxMpty|TxD
+	moveq	#15,%d2			| foreign-service retry budget
+1:	movel	#0x200000,%d1		| assert-wait timeout (~1-4s, >> 17 char times)
+4:	btst	#3,%a0@(0x3b)		| LICR6 STATE: 0 => CD2401 asserting
+	jeq	5f
 	subql	#1,%d1
-	jne	1b
-	clrb	%a1@(0x11)		| timed out: drop byte, IER = 0
-	jbra	L(serial_putc_done)
-3:	tstb	%a1@(0x2002)		| IACK at level 2 -> enter tx service
-	moveb	%d0,%a1@(0xf8)		| TDR   = char
-	clrb	%a1@(0x85)		| TEOIR = end of tx interrupt
-	clrb	%a1@(0x11)		| IER   = 0
+	jne	4b
+	jra	9f			| timeout: drop byte (no IACK!)
+5:	moveb	%a1@(0x2002),%d1	| IACK at level 2 -> ack byte
+	andiw	#3,%d1
+	cmpib	#2,%d1
+	jeq	7f			| tx service
+	cmpib	#1,%d1
+	jeq	6f			| modem
+	tstb	%a1@(0x88)		| rx (data or exception): read RISRH
+	tstb	%a1@(0x89)		|   and RISRL (clears latched specials)
+	moveb	#0x08,%a1@(0x84)	| REOIR = NOTRANS (discard input)
+	jra	8f
+6:	moveb	#0x08,%a1@(0x86)	| MEOIR = NOTRANS
+	jra	8f
+7:	tstb	%a1@(0x26)		| LICR: interrupting channel (0 => ours)
+	jeq	3f
+	moveb	#0x08,%a1@(0x85)	| TEOIR = NOTRANS (other channel)
+8:	dbra	%d2,1b			| dismissed something: bounded re-poll
+	jra	9f			| budget exhausted: drop
+3:	moveb	%d0,%a1@(0xf8)		| TDR = the byte
+	clrb	%a1@(0x85)		| TEOIR = 0 (data transferred)
+9:	clrb	%a1@(0x11)		| IER = 0
 	jbra	L(serial_putc_done)
 2:
 #endif /* CONFIG_ELTEC_E17 */
