@@ -1543,25 +1543,28 @@ L(cache_done):
 
 	subl	%a6,%a6		/* clear a6 for gdb */
 
+	putc	'L'		/* L = past init-stack setup, about to trap_init */
+#ifdef CONFIG_ELTEC_E17
+	moveb	#0xf0,0xfec30000	/* display '0' = about to call base_trap_init */
+#endif
+
 /*
  * The new 64bit printf support requires an early exception initialization.
  */
-#ifdef CONFIG_ELTEC_E17
-	/* '0' on the POST display = about to call base_trap_init().  If the
-	 * display stays on '0' the board wedged inside base_trap_init (which
-	 * installs a partial vector table with VBR -> kernel vectors); if it
-	 * advances to 'F' base_trap_init returned cleanly. */
-	moveb	#0xf0,0xfec30000
-#endif
 	jbsr	base_trap_init
+
+	putc	'M'		/* M = base_trap_init returned */
+#ifdef CONFIG_ELTEC_E17
+	moveb	#0xf5,0xfec30000	/* display '5' = base_trap_init returned */
+#endif
 
 /* jump to the kernel start */
 
 	leds	0x55
 
+	putc	'N'		/* N = about to call start_kernel() */
 #ifdef CONFIG_ELTEC_E17
-	/* 'F' = base_trap_init returned, entering start_kernel() */
-	moveb	#0xff,0xfec30000
+	moveb	#0xff,0xfec30000	/* display 'F' = about to call start_kernel */
 #endif
 
 	jbsr	start_kernel
@@ -3196,6 +3199,12 @@ func_start	serial_putc,%d0/%d1/%a0/%a1
 	jeq	3f
 	subql	#1,%d1
 	jne	1b
+	| Timed out: no tx interrupt is pending (the fifo is full and this
+	| simplified per-byte handshake doesn't re-arm).  Drop the byte -- do
+	| NOT issue an IACK here: acknowledging a non-pending interrupt gets no
+	| DTACK from the CD2401 and wedges the bus (this was the ~8-char hang).
+	clrb	%a1@(0x11)		| IER = 0
+	jbra	L(serial_putc_done)
 3:	tstb	%a1@(0x2002)		| IACK at level 2 -> enter tx service
 	moveb	%d0,%a1@(0xf8)		| TDR   = char
 	clrb	%a1@(0x85)		| TEOIR = end of tx interrupt

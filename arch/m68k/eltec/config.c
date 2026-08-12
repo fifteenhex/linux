@@ -54,8 +54,13 @@
 #define CD2401_CAR		0xee	/* channel access (select) register */
 #define CD2401_IER		0x11	/* interrupt enable register */
 #define CD2401_IER_TXD		0x01
+#define CD2401_LICR		0x26	/* local interrupt (which channel) */
+#define CD2401_TFTC		0x80	/* tx fifo transfer count (free space) */
 #define CD2401_TEOIR		0x85	/* transmit end of interrupt */
+#define CD2401_TEOIR_NOTRANS	0x08	/* "no transfer" end-of-interrupt */
 #define CD2401_TPILR		0xe0	/* tx priority interrupt level */
+#define CD2401_TIR		0xec	/* tx interrupt register */
+#define CD2401_TIR_TACT		0x40	/* tx service active */
 #define CD2401_TX_IPL		0x02
 #define CD2401_DR		0xf8	/* rx/tx data register */
 
@@ -70,21 +75,62 @@ static volatile u8 *const e17_cd2401_iack __maybe_unused =
 	(volatile u8 *)E17_CD2401_IACK;
 static volatile u8 *const e17_vic = (volatile u8 *)E17_VIC_BASE;
 
+/*
+ * Enter the CD2401 tx interrupt-service context: wait (bounded) for the VIC
+ * to see the tx line asserted, acknowledge through the board IACK window to
+ * read the vector, and confirm the tx service is active for our channel.
+ * Mirrors u-boot's serial_cd2401_ack_tx_irq().  Returns 0 on success.
+ */
+static int e17_cd2401_ack_tx(void)
+{
+	int outer = 4000;
+
+	while (outer--) {
+		int inner = 200000;
+
+		/* VIC LICR6 STATE is active low: wait for it to go low */
+		while ((e17_vic[E17_VIC_LICR6] & E17_VIC_LICR_STATE) && --inner)
+			cpu_relax();
+		if (!inner)
+			return -1;
+
+		(void)e17_cd2401_iack[CD2401_TX_IPL];	/* IACK -> read vector */
+
+		/* tx service must be active */
+		if (!(e17_cd2401[CD2401_TIR] & CD2401_TIR_TACT))
+			continue;
+
+		/* must be channel 0 (LICR interrupting-port field) */
+		if (((e17_cd2401[CD2401_LICR] >> 2) & 3) != 0) {
+			e17_cd2401[CD2401_TEOIR] = CD2401_TEOIR_NOTRANS;
+			continue;
+		}
+		return 0;
+	}
+	return -1;
+}
+
+/*
+ * Transmit one byte the way the firmware does.  The crucial part -- missing
+ * from the earlier naive version that died after ~8 chars -- is the re-arm at
+ * the end: acknowledge the tx interrupt a second time and close it with a
+ * "no transfer" TEOIR so the controller will raise a fresh tx interrupt for
+ * the next byte instead of leaving the fifo stuck full.
+ */
 static void e17_cons_putc(char c)
 {
-	int timeout = 200000;
-
 	e17_cd2401[CD2401_CAR] = 0;		/* select channel 0 */
 	e17_cd2401[CD2401_TPILR] = CD2401_TX_IPL;
 	e17_cd2401[CD2401_IER] = CD2401_IER_TXD;	/* enable tx interrupt */
 
-	/* wait (bounded) for the VIC to see the CD2401 asserting (active low) */
-	while ((e17_vic[E17_VIC_LICR6] & E17_VIC_LICR_STATE) && --timeout)
-		cpu_relax();
+	if (e17_cd2401_ack_tx() == 0) {
+		if (e17_cd2401[CD2401_TFTC])		/* fifo has space */
+			e17_cd2401[CD2401_DR] = c;	/* write the byte */
+		e17_cd2401[CD2401_TEOIR] = 0;		/* transfer done */
 
-	(void)e17_cd2401_iack[CD2401_TX_IPL];	/* IACK -> enter tx service */
-	e17_cd2401[CD2401_DR] = c;		/* write the byte */
-	e17_cd2401[CD2401_TEOIR] = 0;		/* end of tx interrupt */
+		e17_cd2401_ack_tx();			/* re-arm ... */
+		e17_cd2401[CD2401_TEOIR] = CD2401_TEOIR_NOTRANS;
+	}
 	e17_cd2401[CD2401_IER] = 0;		/* disable tx interrupt */
 }
 
