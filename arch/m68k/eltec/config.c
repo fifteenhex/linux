@@ -394,12 +394,14 @@ static void e17_cons_write(struct console *co, const char *s, unsigned int n)
 void e17_early_puts(const char *s)
 {
 	/*
-	 * Framebuffer ONLY.  The CD2401 serial wedges the bus (IACK with no
-	 * DTACK) unpredictably and hard-locks the boot -- that is why output
-	 * stopped after one marker on BOTH the screen and serial.  The screen is
-	 * the reliable channel, so do not touch the serial here.
+	 * Framebuffer FIRST (always reliable), then serial.  The serial's earlier
+	 * variable drops were the copyback-writeback bus lock hitting mid-output,
+	 * not the CD2401 -- now that supervisor memory is write-through the
+	 * datasheet-correct tx should stream reliably (and it has bounded
+	 * timeouts + only IACKs a real request, so it can't wedge the bus).
 	 */
 	e17_fb_puts(s);
+	e17_cd2401_write(s, strlen(s));
 }
 
 /* trace helper: print a value as 8 hex digits (for early bootinfo tracing) */
@@ -579,13 +581,15 @@ void __init config_eltec_e17(void)
 	 * from the POST display milestones instead.  Re-enable once the tx is
 	 * bulletproof.
 	 */
+	e17_cd2401_init();		/* known-good CD2401 tx state */
 	e17_fb_init();			/* screen console */
 	/*
-	 * Serial console DISABLED: the CD2401 wedges the bus and hard-locks the
-	 * boot.  Do not register e17_early_console (and e17_cd2401_init is not
-	 * needed).  Only the framebuffer markers render for now; the fb printk
-	 * console stays off until the clear/scroll is bounded to good VRAM.
+	 * Write-through killed the bus lock, so re-enable the serial printk
+	 * console to test whether the serial now streams reliably.  Keep the
+	 * framebuffer in marker-only mode (its full scroll/clear into VRAM is
+	 * not yet re-verified), so it stays a reliable backup channel.
 	 */
-	/* register_console(&e17_early_console); */
-	/* register_console(&e17_fb_console); */
+	register_console(&e17_early_console);
+	/* register_console(&e17_fb_console); */		/* TODO: after scroll re-verified */
+	(void)e17_fb_console;					/* silence unused */
 }

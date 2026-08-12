@@ -118,12 +118,16 @@ EXPORT_SYMBOL(isa_sex);
  */
 #ifdef CONFIG_ELTEC_E17
 /*
- * POST-display milestone (7-seg, low nibble).  Serial tracing now goes through
- * the datasheet-correct CD2401 console (e17_early_puts), not head.S.
+ * Milestone: 7-seg POST display AND the reliable framebuffer console, so
+ * setup_arch progress is visible on screen ("f1 ".."f7 ").
  */
-#define E17_POST(code) \
-	do { if (MACH_IS_E17) *(volatile u8 *)0xfec30000 = (code); } while (0)
 extern void e17_early_puts(const char *);
+#define E17_POST(code) \
+	do { if (MACH_IS_E17) { \
+		*(volatile u8 *)0xfec30000 = (code); \
+		e17_early_puts((char[]){ 'f', \
+			"0123456789abcdef"[(code) & 0xf], ' ', 0 }); \
+	} } while (0)
 extern void e17_early_puthex(unsigned long);
 #define E17_TRACE(s) do { if (MACH_IS_E17) e17_early_puts(s); } while (0)
 #define E17_HEX(v)   do { if (MACH_IS_E17) e17_early_puthex(v); } while (0)
