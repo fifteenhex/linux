@@ -3218,6 +3218,17 @@ func_start	serial_putc,%d0/%d1/%a0/%a1
 	moveb	%d0,%a1@(0xf8)		| TDR   = char
 	clrb	%a1@(0x85)		| TEOIR = end of tx interrupt
 	clrb	%a1@(0x11)		| IER   = 0
+	/*
+	 * Drain: busy-wait long enough for this byte to physically leave the
+	 * shift register before returning, so back-to-back callers (the crash
+	 * reporter dumps ~100 chars at once) don't overrun the tx and drop --
+	 * the widely-spaced head.S checkpoints didn't need this, a burst does.
+	 * d1 is caller-saved by serial_putc's func_start, so clobbering it here
+	 * is fine.
+	 */
+	movel	#0x18000,%d1
+9:	subql	#1,%d1
+	jne	9b
 	jbra	L(serial_putc_done)
 2:
 #endif /* CONFIG_ELTEC_E17 */
