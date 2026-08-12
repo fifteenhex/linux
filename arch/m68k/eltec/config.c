@@ -83,10 +83,10 @@ static volatile u8 *const e17_vic = (volatile u8 *)E17_VIC_BASE;
  */
 static int e17_cd2401_ack_tx(void)
 {
-	int outer = 4000;
+	int outer = 8;
 
 	while (outer--) {
-		int inner = 200000;
+		int inner = 40000;
 
 		/* VIC LICR6 STATE is active low: wait for it to go low */
 		while ((e17_vic[E17_VIC_LICR6] & E17_VIC_LICR_STATE) && --inner)
