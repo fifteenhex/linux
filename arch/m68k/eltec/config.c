@@ -18,6 +18,7 @@
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/timex.h>
+#include <linux/string.h>
 
 #include <asm/bootinfo.h>
 #include <asm/bootinfo-vme.h>
@@ -111,51 +112,61 @@ static int e17_cd2401_ack_tx(void)
 }
 
 /*
- * Transmit one byte the way the firmware does.  The crucial part -- missing
- * from the earlier naive version that died after ~8 chars -- is the re-arm at
- * the end: acknowledge the tx interrupt a second time and close it with a
- * "no transfer" TEOIR so the controller will raise a fresh tx interrupt for
- * the next byte instead of leaving the fifo stuck full.
+ * Transmit a run of bytes the way the firmware does, in fifo-sized batches.
+ * The important property (vs the earlier one-service-per-byte version that
+ * died on the real chip) is that a whole batch is written into the tx fifo
+ * *before* the closing TEOIR: once the bytes are in the fifo they transmit
+ * regardless of whether the fragile per-service re-arm succeeds.  Newlines
+ * are expanded to CR/LF.  Bytes are dropped (not hung) if we cannot enter
+ * the tx service.
  */
-static void e17_cons_putc(char c)
+static void e17_cd2401_write(const char *s, unsigned int n)
 {
 	e17_cd2401[CD2401_CAR] = 0;		/* select channel 0 */
 	e17_cd2401[CD2401_TPILR] = CD2401_TX_IPL;
-	e17_cd2401[CD2401_IER] = CD2401_IER_TXD;	/* enable tx interrupt */
 
-	if (e17_cd2401_ack_tx() == 0) {
-		if (e17_cd2401[CD2401_TFTC])		/* fifo has space */
-			e17_cd2401[CD2401_DR] = c;	/* write the byte */
-		e17_cd2401[CD2401_TEOIR] = 0;		/* transfer done */
+	while (n) {
+		int space;
 
-		e17_cd2401_ack_tx();			/* re-arm ... */
+		e17_cd2401[CD2401_IER] = CD2401_IER_TXD;	/* enable tx irq */
+		if (e17_cd2401_ack_tx() != 0) {		/* enter tx service */
+			e17_cd2401[CD2401_IER] = 0;
+			return;				/* give up (drop rest) */
+		}
+
+		/* fill the fifo (leave room for a possible CR before an LF) */
+		space = e17_cd2401[CD2401_TFTC];
+		while (space >= 2 && n) {
+			char c = *s++;
+
+			n--;
+			if (c == '\n') {
+				e17_cd2401[CD2401_DR] = '\r';
+				space--;
+			}
+			e17_cd2401[CD2401_DR] = c;
+			space--;
+		}
+
+		e17_cd2401[CD2401_TEOIR] = 0;		/* transfer the batch */
+		e17_cd2401_ack_tx();			/* re-arm (best effort) */
 		e17_cd2401[CD2401_TEOIR] = CD2401_TEOIR_NOTRANS;
+		e17_cd2401[CD2401_IER] = 0;		/* disable tx irq */
 	}
-	e17_cd2401[CD2401_IER] = 0;		/* disable tx interrupt */
 }
 
 static void e17_cons_write(struct console *co, const char *s, unsigned int n)
 {
-	while (n--) {
-		if (*s == '\n')
-			e17_cons_putc('\r');
-		e17_cons_putc(*s++);
-	}
+	e17_cd2401_write(s, n);
 }
 
 /*
  * Low-level reliable serial puts, usable anywhere in early boot (before the
- * console is registered) to trace where the kernel gets to.  Uses the same
- * service-context tx as the console, so it does not drop bytes like the
- * head.S path.
+ * console is registered) to trace where the kernel gets to.
  */
 void e17_early_puts(const char *s)
 {
-	while (*s) {
-		if (*s == '\n')
-			e17_cons_putc('\r');
-		e17_cons_putc(*s++);
-	}
+	e17_cd2401_write(s, strlen(s));
 }
 
 static struct console e17_early_console = {
