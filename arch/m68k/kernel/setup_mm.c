@@ -164,14 +164,11 @@ static void __init m68k_parse_bootinfo(const struct bi_record *record)
 
 	fdt_blob = 0;
 
-	E17_TRACE("[bi:@"); E17_HEX((unsigned long)record); E17_TRACE("]");
-
 	/*
 	 * First attempt to work out if we are a generic DT machine,
 	 * must have an FDT record.
 	 */
 	machine_record = m68k_find_bootinfo_record(record, BI_MACHTYPE);
-	E17_TRACE("[bi:mach="); E17_HEX((unsigned long)machine_record); E17_TRACE("]");
 	if (machine_record->data[0] == MACH_GENERIC) {
 		const struct bi_record *fdt_record;
 
@@ -189,10 +186,7 @@ static void __init m68k_parse_bootinfo(const struct bi_record *record)
 		uint16_t size = be16_to_cpu(record->size);
 
 		/* trace: tag(4)/size(4) of each record as we walk them */
-		E17_TRACE("[bi:t"); E17_HEX(tag); E17_TRACE("s"); E17_HEX(size);
-		E17_TRACE("]");
 		if (!size) {			/* malformed: would loop forever */
-			E17_TRACE("[bi:ZEROSIZE-STOP]");
 			break;
 		}
 
@@ -274,10 +268,7 @@ static void __init m68k_parse_bootinfo(const struct bi_record *record)
 				tag);
 		record = (struct bi_record *)((unsigned long)record + size);
 	}
-
-	E17_TRACE("[bi:loopdone,save]");
 	save_bootinfo(first_record);
-	E17_TRACE("[bi:saved]");
 
 	m68k_realnum_memory = m68k_num_memory;
 #ifdef CONFIG_SINGLE_MEMORY_CHUNK
@@ -291,11 +282,11 @@ static void __init m68k_parse_bootinfo(const struct bi_record *record)
 
 void __init setup_arch(char **cmdline_p)
 {
-	E17_POST(0xf1); E17_TRACE("\n[arch1:entry]");
+	E17_POST(0xf1);
 	/* The bootinfo is located right after the kernel */
 	if (!CPU_IS_COLDFIRE)
 		m68k_parse_bootinfo((const struct bi_record *)_end);
-	E17_POST(0xf2); E17_TRACE("[arch2:bootinfo]");
+	E17_POST(0xf2);
 
 	if (CPU_IS_040)
 		m68k_is040or060 = 4;
@@ -368,7 +359,7 @@ void __init setup_arch(char **cmdline_p)
 	jump_label_init();
 	parse_early_param();
 
-	E17_POST(0xf3); E17_TRACE("[arch3:precfg]");
+	E17_POST(0xf3);
 	switch (m68k_machtype) {
 #ifdef CONFIG_AMIGA
 	case MACH_AMIGA:
@@ -447,13 +438,13 @@ void __init setup_arch(char **cmdline_p)
 		panic("No configuration setup");
 	}
 
-	E17_POST(0xf4); E17_TRACE("[arch4:cfgdone]");
+	E17_POST(0xf4);
 
 	if (IS_ENABLED(CONFIG_BLK_DEV_INITRD) && m68k_ramdisk.size)
 		memblock_reserve(m68k_ramdisk.addr, m68k_ramdisk.size);
 
 	paging_init();
-	E17_POST(0xf5); E17_TRACE("[arch5:paging]");
+	E17_POST(0xf5);
 
 	/*
 	 * Unflatten after paging_init(): copy_device_tree() allocates from
@@ -463,7 +454,7 @@ void __init setup_arch(char **cmdline_p)
 	 */
 	if (fdt_blob)
 		unflatten_device_tree();
-	E17_POST(0xf6); E17_TRACE("[arch6:dt]");
+	E17_POST(0xf6);
 
 	if (IS_ENABLED(CONFIG_BLK_DEV_INITRD) && m68k_ramdisk.size) {
 		initrd_start = (unsigned long)phys_to_virt(m68k_ramdisk.addr);
@@ -504,7 +495,7 @@ void __init setup_arch(char **cmdline_p)
 	}
 #endif
 #endif
-	E17_POST(0xf7); E17_TRACE("[arch7:done]");
+	E17_POST(0xf7);
 }
 
 static int show_cpuinfo(struct seq_file *m, void *v)
