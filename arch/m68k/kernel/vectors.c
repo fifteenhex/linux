@@ -72,6 +72,24 @@ void __init base_trap_init(void)
 	vectors[VEC_BUSERR] = buserr;
 	vectors[VEC_ILLEGAL] = trap;
 	vectors[VEC_SYS] = system_call;
+
+#ifdef CONFIG_ELTEC_E17
+	/*
+	 * DIAGNOSTIC: on the E17, point every remaining (otherwise-NULL) vector
+	 * at the head.S exception reporter, so an early fault freezes with the
+	 * faulting vector on the POST display instead of jumping through a NULL
+	 * entry to address 0 and silently re-running head.S.  Overrides the
+	 * three handlers above too, so bus/address/illegal faults are caught as
+	 * well.  (Breaks syscalls, but we crash long before userspace.)
+	 */
+	if (MACH_IS_E17) {
+		extern void e17_exc_report(void);
+		int i;
+
+		for (i = 2; i < 256; i++)
+			vectors[i] = (e_vector)e17_exc_report;
+	}
+#endif
 }
 
 void __init trap_init (void)

@@ -472,14 +472,12 @@ func_define	console_plot_pixel,3
 func_define	console_scroll
 
 .macro	putc	ch
-#ifdef CONFIG_ELTEC_E17
 	/*
-	 * Also drop the checkpoint on the E17's POST display (Z8536 CIO1
-	 * port C at 0xfec30000, low nibble shown) so early progress is
-	 * visible even before / without a working serial console.
+	 * NB: on the E17 the checkpoint is emitted on serial only.  It used to
+	 * also be dropped on the POST display, but that made the display churn
+	 * through the A..N checkpoints and masked the deliberate milestone /
+	 * exception codes -- so the display is now reserved for those.
 	 */
-	moveb	#\ch,0xfec30000
-#endif
 #if defined(CONSOLE_DEBUG) || defined(SERIAL_DEBUG)
 	pea	\ch
 #endif
@@ -3290,6 +3288,33 @@ func_start	serial_putc,%d0/%d1/%a0/%a1
 
 L(serial_putc_done):
 func_return	serial_putc
+
+#ifdef CONFIG_ELTEC_E17
+/*
+ * ELTEC E17 diagnostic exception reporter.  base_trap_init() points every
+ * vector here so that any early fault (before the real handlers are in place)
+ * is FROZEN instead of vectoring through a NULL entry to address 0 and
+ * re-running head.S.  It reads the exception vector number out of the 68040
+ * exception frame (format/vector word at frame+6, vector offset = number*4)
+ * and blinks it against 'E' on the POST display, then never returns -- so the
+ * display holds the faulting vector: 2=bus error, 3=address error,
+ * 4=illegal, 8=privilege, a=line-A, b=line-F(FPU), etc.
+ */
+ENTRY(e17_exc_report)
+	movew	%sp@(6),%d0		| format/vector word
+	andw	#0x0fff,%d0		| vector offset (= vector number * 4)
+	lsrw	#2,%d0			| d0 = vector number
+1:	moveb	%d0,0xfec30000		| show the vector number
+	movel	#0x300000,%d1
+2:	subql	#1,%d1
+	jne	2b
+	moveb	#0x0e,0xfec30000	| blink 'E' = exception
+	movel	#0x300000,%d1
+3:	subql	#1,%d1
+	jne	3b
+	jra	1b
+
+#endif /* CONFIG_ELTEC_E17 */
 
 /*
  * Output a string.
