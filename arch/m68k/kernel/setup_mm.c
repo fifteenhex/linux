@@ -111,6 +111,24 @@ EXPORT_SYMBOL(isa_sex);
 
 #define MASK_256K 0xfffc0000
 
+/*
+ * ELTEC E17 early boot diagnostics: a POST-display byte, a reliable serial
+ * trace string, and a hex value -- usable throughout early setup (before the
+ * console is registered) to see exactly where the board gets to.
+ */
+#ifdef CONFIG_ELTEC_E17
+#define E17_POST(code) \
+	do { if (MACH_IS_E17) *(volatile u8 *)0xfec30000 = (code); } while (0)
+extern void e17_early_puts(const char *);
+extern void e17_early_puthex(unsigned long);
+#define E17_TRACE(s) do { if (MACH_IS_E17) e17_early_puts(s); } while (0)
+#define E17_HEX(v)   do { if (MACH_IS_E17) e17_early_puthex(v); } while (0)
+#else
+#define E17_POST(code) do { } while (0)
+#define E17_TRACE(s) do { } while (0)
+#define E17_HEX(v)   do { } while (0)
+#endif
+
 static phys_addr_t fdt_blob;
 static void __init m68k_setup_fdt(void)
 {
@@ -146,11 +164,14 @@ static void __init m68k_parse_bootinfo(const struct bi_record *record)
 
 	fdt_blob = 0;
 
+	E17_TRACE("[bi:@"); E17_HEX((unsigned long)record); E17_TRACE("]");
+
 	/*
 	 * First attempt to work out if we are a generic DT machine,
 	 * must have an FDT record.
 	 */
 	machine_record = m68k_find_bootinfo_record(record, BI_MACHTYPE);
+	E17_TRACE("[bi:mach="); E17_HEX((unsigned long)machine_record); E17_TRACE("]");
 	if (machine_record->data[0] == MACH_GENERIC) {
 		const struct bi_record *fdt_record;
 
@@ -166,6 +187,14 @@ static void __init m68k_parse_bootinfo(const struct bi_record *record)
 		int unknown = 0;
 		const void *data = record->data;
 		uint16_t size = be16_to_cpu(record->size);
+
+		/* trace: tag(4)/size(4) of each record as we walk them */
+		E17_TRACE("[bi:t"); E17_HEX(tag); E17_TRACE("s"); E17_HEX(size);
+		E17_TRACE("]");
+		if (!size) {			/* malformed: would loop forever */
+			E17_TRACE("[bi:ZEROSIZE-STOP]");
+			break;
+		}
 
 		switch (tag) {
 		case BI_MACHTYPE:
@@ -246,7 +275,9 @@ static void __init m68k_parse_bootinfo(const struct bi_record *record)
 		record = (struct bi_record *)((unsigned long)record + size);
 	}
 
+	E17_TRACE("[bi:loopdone,save]");
 	save_bootinfo(first_record);
+	E17_TRACE("[bi:saved]");
 
 	m68k_realnum_memory = m68k_num_memory;
 #ifdef CONFIG_SINGLE_MEMORY_CHUNK
@@ -257,22 +288,6 @@ static void __init m68k_parse_bootinfo(const struct bi_record *record)
 	}
 #endif
 }
-
-/*
- * ELTEC E17 boot diagnostics: drop a distinct code on the board's 7-seg
- * POST display (Z8536 CIO1 port C, low nibble shown) at each milestone so
- * the furthest point reached is visible even without a serial console.
- * A plain store -- it can never hang the CPU.
- */
-#ifdef CONFIG_ELTEC_E17
-#define E17_POST(code) \
-	do { if (MACH_IS_E17) *(volatile u8 *)0xfec30000 = (code); } while (0)
-extern void e17_early_puts(const char *);
-#define E17_TRACE(s) do { if (MACH_IS_E17) e17_early_puts(s); } while (0)
-#else
-#define E17_POST(code) do { } while (0)
-#define E17_TRACE(s) do { } while (0)
-#endif
 
 void __init setup_arch(char **cmdline_p)
 {

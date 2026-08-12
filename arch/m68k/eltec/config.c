@@ -169,6 +169,21 @@ void e17_early_puts(const char *s)
 	e17_cd2401_write(s, strlen(s));
 }
 
+/* trace helper: print a value as 8 hex digits (for early bootinfo tracing) */
+void e17_early_puthex(unsigned long v)
+{
+	static const char hex[] = "0123456789abcdef";
+	char buf[9];
+	int i;
+
+	for (i = 7; i >= 0; i--) {
+		buf[i] = hex[v & 0xf];
+		v >>= 4;
+	}
+	buf[8] = 0;
+	e17_cd2401_write(buf, 8);
+}
+
 static struct console e17_early_console = {
 	.name	= "e17cons",
 	.write	= e17_cons_write,
