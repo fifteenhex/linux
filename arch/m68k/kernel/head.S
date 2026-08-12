@@ -3304,11 +3304,11 @@ ENTRY(e17_exc_report)
 	movew	%sp@(6),%d0		| format/vector word
 	andw	#0x0fff,%d0		| vector offset (= vector number * 4)
 	lsrw	#2,%d0			| d0 = vector number
-1:	moveb	%d0,0xfec30000		| show the vector number
-	movel	#0x300000,%d1
+1:	moveb	#0x0e,0xfec30000	| 'E' = exception (held long, dominant)
+	movel	#0xc00000,%d1
 2:	subql	#1,%d1
 	jne	2b
-	moveb	#0x0e,0xfec30000	| blink 'E' = exception
+	moveb	%d0,0xfec30000		| flash the vector number (brief)
 	movel	#0x300000,%d1
 3:	subql	#1,%d1
 	jne	3b

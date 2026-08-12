@@ -455,6 +455,10 @@ void __init setup_arch(char **cmdline_p)
 	if (fdt_blob)
 		unflatten_device_tree();
 	E17_POST(0xf6);
+	E17_POST(0xfa);		/* 'A': immediately after '6' -- if the display is
+				 * STILL '6' here (two back-to-back stores), then
+				 * '6' is not this milestone but the exception
+				 * reporter showing vector 6 */
 
 	if (IS_ENABLED(CONFIG_BLK_DEV_INITRD) && m68k_ramdisk.size) {
 		initrd_start = (unsigned long)phys_to_virt(m68k_ramdisk.addr);
