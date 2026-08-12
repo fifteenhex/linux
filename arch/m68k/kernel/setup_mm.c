@@ -313,6 +313,7 @@ void __init setup_arch(char **cmdline_p)
 		asm volatile ("frestore %0" : : "m" (zero));
 	}
 #endif
+	if (MACH_IS_E17) e17_early_puts("fpu ");
 
 	if (CPU_IS_060) {
 		u32 pcr;
@@ -349,10 +350,13 @@ void __init setup_arch(char **cmdline_p)
 		fdt_blob = (phys_addr_t) &eltec_e17_dtb;
 	}
 
+	if (MACH_IS_E17) e17_early_puts("[fdt? ");
 	if (fdt_blob)
 		m68k_setup_fdt();
+	if (MACH_IS_E17) e17_early_puts("fdtok ");
 
 	setup_initial_init_mm((void *)PAGE_OFFSET, _etext, _edata, _end);
+	if (MACH_IS_E17) e17_early_puts("mm ");
 
 #if defined(CONFIG_BOOTPARAM)
 	strscpy(m68k_command_line, CONFIG_BOOTPARAM_STRING, CL_SIZE);
