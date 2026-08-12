@@ -1125,10 +1125,13 @@ L(not147):
 	mmu_map_tt	#1,#0xe0000000,#0x20000000,#_PAGE_NOCACHE_S
 	/*
 	 * Also transparently map the 16MB block containing the onboard video
-	 * RAM (0x0fc00000, 4MB, 8bpp 800x600) via dtt0/itt0, no-cache, so the
-	 * framebuffer debug console can write pixels directly.
+	 * RAM (0x0fc00000, 4MB, 8bpp 800x600) via dtt0/itt0.  Use WRITE-THROUGH,
+	 * exactly as RMON/u-boot map it (their 0x0-0x7fffffff TTR is CM=00=WT):
+	 * nocache access to the VRAM contends badly with the video scanout and
+	 * locks unpredictably, whereas write-through (as the firmware uses) is
+	 * reliable.
 	 */
-	mmu_map_tt	#0,#0x0f000000,#0x01000000,#_PAGE_NOCACHE_S
+	mmu_map_tt	#0,#0x0f000000,#0x01000000,#_PAGE_CACHE040W
 
 	jbra	L(mmu_init_done)
 
