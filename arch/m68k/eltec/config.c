@@ -341,6 +341,14 @@ void __init config_eltec_e17(void)
 	if (!vme_brdtype)
 		vme_brdtype = VME_TYPE_E17;
 
-	/* bring up the boot console as early as possible */
-	register_console(&e17_early_console);
+	/*
+	 * DIAGNOSTIC: do NOT register the serial console.  The CD2401 tx can
+	 * wedge the bus (IACK-with-nothing-pending), so every printk that
+	 * flushes through it risks hanging the boot.  With the console off,
+	 * printk is buffered and the boot runs silently -- progress is read
+	 * from the POST display milestones instead.  Re-enable once the tx is
+	 * bulletproof.
+	 */
+	if (0)
+		register_console(&e17_early_console);
 }
