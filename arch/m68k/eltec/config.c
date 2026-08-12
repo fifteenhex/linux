@@ -84,7 +84,7 @@ static volatile u8 *const e17_vic = (volatile u8 *)E17_VIC_BASE;
  */
 static int e17_cd2401_ack_tx(void)
 {
-	int outer = 8;
+	int outer = 64;			/* wait long enough for the fifo to drain */
 
 	while (outer--) {
 		int inner = 40000;
@@ -149,9 +149,7 @@ static void e17_cd2401_write(const char *s, unsigned int n)
 		}
 
 		e17_cd2401[CD2401_TEOIR] = 0;		/* transfer the batch */
-		e17_cd2401_ack_tx();			/* re-arm (best effort) */
-		e17_cd2401[CD2401_TEOIR] = CD2401_TEOIR_NOTRANS;
-		e17_cd2401[CD2401_IER] = 0;		/* disable tx irq */
+		e17_cd2401[CD2401_IER] = 0;		/* disable tx irq (no re-arm) */
 	}
 }
 
