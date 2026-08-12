@@ -136,7 +136,7 @@ static int e17_cd2401_enter_tx_service(void)
 	int retry;
 
 	e17_cd2401[CD2401_CAR] = 0;
-	e17_cd2401[CD2401_IER] = CD2401_IER_TXMPTY | CD2401_IER_TXD;
+	e17_cd2401[CD2401_IER] = CD2401_IER_TXD;	/* proven to assert on hw */
 
 	for (retry = 0; retry < E17_CD2401_RETRIES; retry++) {
 		long t = E17_CD2401_TIMEOUT;

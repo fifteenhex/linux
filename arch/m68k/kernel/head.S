@@ -3217,7 +3217,7 @@ func_start	serial_putc,%d0/%d1/%d2/%a0/%a1
 	movel	#0xfec64000,%a1		| CD2401 base
 	movel	#0xfec00000,%a0		| VIC068A base
 	clrb	%a1@(0xee)		| CAR = 0
-	moveb	#0x03,%a1@(0x11)	| IER = TxMpty|TxD
+	moveb	#0x01,%a1@(0x11)	| IER = TxD (proven to assert on hw)
 	moveq	#15,%d2			| foreign-service retry budget
 1:	movel	#0x200000,%d1		| assert-wait timeout (~1-4s, >> 17 char times)
 4:	btst	#3,%a0@(0x3b)		| LICR6 STATE: 0 => CD2401 asserting
@@ -3237,8 +3237,9 @@ func_start	serial_putc,%d0/%d1/%d2/%a0/%a1
 	jra	8f
 6:	moveb	#0x08,%a1@(0x86)	| MEOIR = NOTRANS
 	jra	8f
-7:	tstb	%a1@(0x26)		| LICR: interrupting channel (0 => ours)
-	jeq	3f
+7:	moveb	%a1@(0x26),%d1		| LICR: interrupting channel in bits 3:2
+	andiw	#0x0c,%d1
+	jeq	3f			| ch0 => ours
 	moveb	#0x08,%a1@(0x85)	| TEOIR = NOTRANS (other channel)
 8:	dbra	%d2,1b			| dismissed something: bounded re-poll
 	jra	9f			| budget exhausted: drop
