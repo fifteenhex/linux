@@ -243,8 +243,15 @@ void e17_cd2401_init(void)
 #define E17_FB_CELL		8			/* 8x8 font cell */
 #define E17_FB_COLS		(E17_FB_WIDTH / E17_FB_CELL)	/* 100 */
 #define E17_FB_ROWS		(E17_FB_HEIGHT / E17_FB_CELL)	/* 75 */
-#define E17_FB_FG		0xff
-#define E17_FB_BG		0x00
+/*
+ * PROBE MODE: draw black glyphs (a distinct palette index we set to black)
+ * directly onto RMON's existing white background -- no full-screen clear, so a
+ * bad/absent VRAM address can't be run into and hard-lock the bus (the full
+ * memset was hitting one ~1/4 of the way down).  Readable text => the linear
+ * 8bpp/pitch-800 layout is right; scrambled => the pixel layout differs.
+ */
+#define E17_FB_FG		0x01	/* fg index; palette set to black in init */
+#define E17_FB_BG		0x00	/* (unused in probe: bg left as-is) */
 
 static volatile u8 *const e17_fb = (volatile u8 *)E17_FB_BASE;
 static volatile u8 *const e17_ramdac = (volatile u8 *)E17_RAMDAC_BASE;
@@ -271,13 +278,27 @@ void e17_fb_init(void)
 	if (e17_fb_ready)
 		return;
 
-	e17_fb_setpal(E17_FB_BG, 0x00, 0x00, 0x00);
-	e17_fb_setpal(E17_FB_FG, 0xff, 0xff, 0xff);
+	/* make our fg index black; leave RMON's white background untouched */
+	e17_fb_setpal(E17_FB_FG, 0x00, 0x00, 0x00);
 
-	memset((void *)e17_fb, E17_FB_BG, (size_t)E17_FB_PITCH * E17_FB_HEIGHT);
+	/*
+	 * PROBE: no full-screen memset (it hit unresponsive VRAM ~1/4 down and
+	 * hard-locked).  Instead draw one small solid reference bar (32x8) at the
+	 * top-left with a plain byte loop -- if it shows as a clean bar the linear
+	 * pitch-800 layout is correct; if it's scattered/stretched the layout
+	 * differs.  Well within the region that filled OK before the lock.
+	 */
+	{
+		int y, x;
+		for (y = 0; y < E17_FB_CELL; y++) {
+			volatile u8 *line = e17_fb + (size_t)y * E17_FB_PITCH;
+			for (x = 0; x < 32; x++)
+				line[x] = E17_FB_FG;
+		}
+	}
 
 	e17_fb_col = 0;
-	e17_fb_row = 0;
+	e17_fb_row = 1;			/* start text below the reference bar */
 	e17_fb_ready = true;
 }
 
@@ -335,7 +356,8 @@ void e17_fb_putc(char c)
 		int gx;
 
 		for (gx = 0; gx < E17_FB_CELL; gx++)
-			line[gx] = (bits & (0x80 >> gx)) ? E17_FB_FG : E17_FB_BG;
+			if (bits & (0x80 >> gx))
+				line[gx] = E17_FB_FG;	/* fg only; bg = RMON white */
 	}
 
 	e17_fb_col++;
@@ -555,5 +577,11 @@ void __init config_eltec_e17(void)
 	e17_cd2401_init();		/* known-good tx state before first printk */
 	e17_fb_init();			/* ensure the screen console is up */
 	register_console(&e17_early_console);
-	register_console(&e17_fb_console);	/* all printk also lands on screen */
+	/*
+	 * PROBE: do NOT register the framebuffer as a printk console yet -- that
+	 * floods it and triggers scroll (memmove/memset of the whole screen) into
+	 * the VRAM region that hard-locks.  Only the explicit early e17_fb_puts
+	 * markers render (a few lines, no scroll) so we can safely read the layout.
+	 */
+	/* register_console(&e17_fb_console); */
 }
