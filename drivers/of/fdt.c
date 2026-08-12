@@ -1093,21 +1093,30 @@ int __init early_init_dt_scan_chosen(char *cmdline)
 	const char *p;
 	const void *rng_seed;
 	const void *fdt = initial_boot_params;
+#ifdef CONFIG_ELTEC_E17
+	extern void e17_early_puts(const char *);
+#define E17C(s) e17_early_puts(s)
+#else
+#define E17C(s) do {} while (0)
+#endif
 
+	E17C("c0 ");
 	node = fdt_path_offset(fdt, "/chosen");
 	if (node < 0)
 		node = fdt_path_offset(fdt, "/chosen@0");
 	if (node < 0)
 		/* Handle the cmdline config options even if no /chosen node */
 		goto handle_cmdline;
+	E17C("c1 ");
 
 	chosen_node_offset = node;
 
-	early_init_dt_check_for_initrd(node);
-	early_init_dt_check_for_elfcorehdr(node);
-	early_init_dt_check_for_dmcryptkeys(node);
+	early_init_dt_check_for_initrd(node);		E17C("c2 ");
+	early_init_dt_check_for_elfcorehdr(node);	E17C("c3 ");
+	early_init_dt_check_for_dmcryptkeys(node);	E17C("c4 ");
 
 	rng_seed = of_get_flat_dt_prop(node, "rng-seed", &l);
+	E17C("c5 ");
 	if (rng_seed && l > 0) {
 		add_bootloader_randomness(rng_seed, l);
 
@@ -1117,12 +1126,14 @@ int __init early_init_dt_scan_chosen(char *cmdline)
 		/* update CRC check value */
 		of_fdt_crc32 = crc32_be(~0, initial_boot_params,
 				fdt_totalsize(initial_boot_params));
+		E17C("c6 ");
 	}
 
 	/* Retrieve command line */
 	p = of_get_flat_dt_prop(node, "bootargs", &l);
 	if (p != NULL && l > 0)
 		strscpy(cmdline, p, min(l, COMMAND_LINE_SIZE));
+	E17C("c7 ");
 
 handle_cmdline:
 	/*
@@ -1145,7 +1156,9 @@ handle_cmdline:
 
 	pr_debug("Command line is: %s\n", (char *)cmdline);
 
+	E17C("c8 ");
 	return 0;
+#undef E17C
 }
 
 #ifndef MIN_MEMBLOCK_ADDR
