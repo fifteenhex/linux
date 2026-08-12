@@ -121,18 +121,26 @@ static int e17_cd2401_ack_tx(void)
  * are expanded to CR/LF.  Bytes are dropped (not hung) if we cannot enter
  * the tx service.
  */
+/*
+ * Only IER=TxD (0x01) transmits on this board, and TxD does not reliably
+ * re-post once the fifo has filled -- so we cannot rely on re-entering the tx
+ * service to drain a backlog.  Instead we PACE: write a batch, then busy-wait
+ * long enough for those bytes to physically leave the shift register before
+ * the next batch, so every service starts from an empty fifo where TxD is
+ * guaranteed to assert.  Slow but reliable and never drops.
+ */
+#define E17_CD2401_DRAIN_PER_BYTE	40000	/* ~ one char-time at the line rate */
+
 static void e17_cd2401_write(const char *s, unsigned int n)
 {
 	e17_cd2401[CD2401_CAR] = 0;		/* select channel 0 */
 	e17_cd2401[CD2401_TPILR] = CD2401_TX_IPL;
 
 	while (n) {
-		int space;
+		int space, written = 0;
+		long drain;
 
-		/* TxMpty|TxD: TxMpty is level-like ("transmitter idle") and
-		 * re-posts reliably, so re-entry after a full fifo works -- plain
-		 * TxD does not reliably re-post on the real chip. */
-		e17_cd2401[CD2401_IER] = CD2401_IER_TXMPTY | CD2401_IER_TXD;
+		e17_cd2401[CD2401_IER] = CD2401_IER_TXD;	/* enable tx irq */
 		if (e17_cd2401_ack_tx() != 0) {		/* enter tx service */
 			e17_cd2401[CD2401_IER] = 0;
 			return;				/* give up (drop rest) */
@@ -147,13 +155,21 @@ static void e17_cd2401_write(const char *s, unsigned int n)
 			if (c == '\n') {
 				e17_cd2401[CD2401_DR] = '\r';
 				space--;
+				written++;
 			}
 			e17_cd2401[CD2401_DR] = c;
 			space--;
+			written++;
 		}
 
 		e17_cd2401[CD2401_TEOIR] = 0;		/* transfer the batch */
-		e17_cd2401[CD2401_IER] = 0;		/* disable tx irq (no re-arm) */
+		e17_cd2401[CD2401_IER] = 0;		/* disable tx irq */
+
+		/* let the batch drain before re-entering service for the rest */
+		if (n)
+			for (drain = (long)written * E17_CD2401_DRAIN_PER_BYTE;
+			     drain > 0; drain--)
+				cpu_relax();
 	}
 }
 
