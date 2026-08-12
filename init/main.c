@@ -979,10 +979,8 @@ void start_kernel(void)
 	 * Bring it up and bisect the early start_kernel hang with a marker after
 	 * each call -- the last one shown on screen is where it stops.
 	 */
-	extern void e17_cd2401_init(void);
 	extern void e17_early_puts(const char *);
 	extern void e17_fb_init(void);
-	e17_cd2401_init();		/* serial (now reliable under write-through) */
 	e17_fb_init();			/* framebuffer debug console: reliable */
 	e17_early_puts("\r\n[E17 sk:");
 #define E17M(s) e17_early_puts(s)
