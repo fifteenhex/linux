@@ -85,31 +85,23 @@ static volatile u8 *const e17_vic = (volatile u8 *)E17_VIC_BASE;
  */
 static int e17_cd2401_ack_tx(void)
 {
-	int outer = 64;			/* wait long enough for the fifo to drain */
+	int timeout = 64 * 40000;	/* generous: wait for the fifo to drain */
 
-	while (outer--) {
-		int inner = 40000;
+	/*
+	 * Identical to the head.S serial_putc path, which reliably prints:
+	 * wait (bounded) for the VIC to see the CD2401 line asserted (STATE is
+	 * active low), then IACK to enter service.  Deliberately NO TIR.TACT /
+	 * channel gate -- TACT is not set on a TxD re-post on this chip, so
+	 * checking it made every write after the first drop.  On timeout drop
+	 * the byte WITHOUT an IACK (an unanswered IACK wedges the bus).
+	 */
+	while ((e17_vic[E17_VIC_LICR6] & E17_VIC_LICR_STATE) && --timeout)
+		cpu_relax();
+	if (!timeout)
+		return -1;
 
-		/* VIC LICR6 STATE is active low: wait for it to go low */
-		while ((e17_vic[E17_VIC_LICR6] & E17_VIC_LICR_STATE) && --inner)
-			cpu_relax();
-		if (!inner)
-			return -1;
-
-		(void)e17_cd2401_iack[CD2401_TX_IPL];	/* IACK -> read vector */
-
-		/* tx service must be active */
-		if (!(e17_cd2401[CD2401_TIR] & CD2401_TIR_TACT))
-			continue;
-
-		/* must be channel 0 (LICR interrupting-port field) */
-		if (((e17_cd2401[CD2401_LICR] >> 2) & 3) != 0) {
-			e17_cd2401[CD2401_TEOIR] = CD2401_TEOIR_NOTRANS;
-			continue;
-		}
-		return 0;
-	}
-	return -1;
+	(void)e17_cd2401_iack[CD2401_TX_IPL];	/* IACK -> enter tx service */
+	return 0;
 }
 
 /*
