@@ -3302,7 +3302,13 @@ func_return	serial_putc
  */
 ENTRY(e17_exc_report)
 	movew	#0x2700,%sr		| supervisor, mask all interrupts
-	movel	%sp@(2),%a2		| a2 = faulting PC (serial_putc/putn keep a2)
+	/*
+	 * The faulting PC (frame+2) is the NULL target (0).  The useful value is
+	 * the *caller* -- the return address the jsr pushed, which sits just
+	 * above the 8-byte format-0 exception frame at sp+8.  Print that so we
+	 * can name which NULL function pointer was called.
+	 */
+	movel	%sp@(8),%a2		| a2 = return address / caller
 	movew	%sp@(6),%d0		| format/vector word
 	andw	#0x0fff,%d0		| vector offset (= vector number * 4)
 	lsrw	#2,%d0			| d0 = vector number (0..255)
