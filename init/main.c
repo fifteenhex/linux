@@ -977,20 +977,23 @@ void start_kernel(void)
 	/*
 	 * head.S emits nothing on serial now (its writer was unreliable and a
 	 * bus-hang risk).  Bring up the datasheet-correct CD2401 console here and
-	 * emit a first marker, so this is the earliest reliable serial output.
+	 * bisect the early start_kernel hang with a marker after each call.
 	 */
 	extern void e17_cd2401_init(void);
 	extern void e17_early_puts(const char *);
 	e17_cd2401_init();
-	e17_early_puts("\r\n[E17 start_kernel]\r\n");
+	e17_early_puts("\r\n[E17 sk:");
+#define E17M(s) e17_early_puts(s)
+#else
+#define E17M(s) do {} while (0)
 #endif
 
-	set_task_stack_end_magic(&init_task);
-	smp_setup_processor_id();
-	debug_objects_early_init();
-	init_vmlinux_build_id();
+	set_task_stack_end_magic(&init_task);	E17M("1");
+	smp_setup_processor_id();		E17M("2");
+	debug_objects_early_init();		E17M("3");
+	init_vmlinux_build_id();			E17M("4");
 
-	cgroup_init_early();
+	cgroup_init_early();			E17M("5");
 
 	local_irq_disable();
 	early_boot_irqs_disabled = true;
@@ -999,13 +1002,11 @@ void start_kernel(void)
 	 * Interrupts are still disabled. Do necessary setups, then
 	 * enable them.
 	 */
-	boot_cpu_init();
-	page_address_init();
-	pr_notice("%s", linux_banner);
-#ifdef CONFIG_ELTEC_E17
-	e17_early_puts("[E17 pre-setup_arch]\r\n");
-#endif
-	setup_arch(&command_line);
+	boot_cpu_init();			E17M("6");
+	page_address_init();			E17M("7");
+	pr_notice("%s", linux_banner);		E17M("8]\r\n");
+	setup_arch(&command_line);		E17M("[E17 post-sa]\r\n");
+#undef E17M
 #ifdef CONFIG_ELTEC_E17
 	e17_early_puts("[E17 post-setup_arch]\r\n");
 #endif
