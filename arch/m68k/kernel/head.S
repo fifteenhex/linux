@@ -3314,13 +3314,17 @@ func_return	serial_putc
 ENTRY(e17_exc_report)
 	movew	#0x2700,%sr		| supervisor, mask all interrupts
 	/*
-	 * No once-flag needed: with interrupts masked the final stop can only be
-	 * broken by an exception THIS handler causes.  So the previous looping was
-	 * the handler itself faulting -- its scratch and private stack lived in
-	 * read-only .init.text (CONFIG_STRICT_KERNEL_RWX), so every store/push
-	 * access-faulted.  All scratch now lives in .bss (writable), addressed
-	 * absolutely (it is far past PC-relative range from here).
+	 * Latch a once-flag FIRST.  Masking (above) blocks levels 1-6, but the
+	 * board's watchdog fires a level-7 NMI when the CPU stalls -- and stop
+	 * halts the CPU -- so the NMI CAN re-enter here (via vectors[31], NULL
+	 * this early -> 0 -> illegal).  The flag (in writable .bss now, so the
+	 * store actually sticks despite CONFIG_STRICT_KERNEL_RWX making text RO)
+	 * makes any such re-entry fall straight through to the halt: one report.
 	 */
+	lea	L(e17_rep_flag),%a3	| absolute: scratch is in .bss, far from here
+	tstb	%a3@
+	jne	8f
+	st	%a3@
 	/* vector number (frame+6) -> d2 as an ascii hex digit */
 	movew	%sp@(6),%d0
 	andw	#0x0fff,%d0
@@ -3384,6 +3388,8 @@ ENTRY(e17_exc_report)
 	 */
 	.section .bss
 	.align	4
+L(e17_rep_flag):
+	.space	4			| once-flag (0 = not yet reported)
 L(e17_rep_vals):
 	.space	64			| val[0]=PC, val[1..10]=stack (16 longs slack)
 	.space	512			| private-stack growth area
