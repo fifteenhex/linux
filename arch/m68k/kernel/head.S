@@ -1524,6 +1524,18 @@ L(cache680460):
 
 	is_060(L(cache68060))
 
+	/*
+	 * E17: enable the INSTRUCTION cache only, leave the DATA cache OFF.
+	 * Even write-through data caching (burst line-fills) appears to contend
+	 * with the video/local bus and lock unpredictably on this board; with the
+	 * D-cache off every data access is a plain single bus cycle.  Slow but
+	 * reliable -- a diagnostic to confirm the residual lockups are D-cache.
+	 */
+	is_not_e17(1f)
+	movel	#CC6_ENABLE_I,%d0
+	movec	%d0,%cacr
+	jra	L(cache_done)
+1:
 	movel	#CC6_ENABLE_D+CC6_ENABLE_I,%d0
 	/* MMU stuff works in copyback mode now, so enable the cache */
 	movec	%d0,%cacr
