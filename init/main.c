@@ -975,14 +975,12 @@ void start_kernel(void)
 	char *after_dashes;
 #ifdef CONFIG_ELTEC_E17
 	/*
-	 * head.S emits nothing on serial now (its writer was unreliable and a
-	 * bus-hang risk).  Bring up the datasheet-correct CD2401 console here and
-	 * bisect the early start_kernel hang with a marker after each call.
+	 * Serial (CD2401) hard-locks the bus, so use ONLY the framebuffer.
+	 * Bring it up and bisect the early start_kernel hang with a marker after
+	 * each call -- the last one shown on screen is where it stops.
 	 */
-	extern void e17_cd2401_init(void);
 	extern void e17_early_puts(const char *);
 	extern void e17_fb_init(void);
-	e17_cd2401_init();
 	e17_fb_init();			/* framebuffer debug console: reliable */
 	e17_early_puts("\r\n[E17 sk:");
 #define E17M(s) e17_early_puts(s)

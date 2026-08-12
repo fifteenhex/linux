@@ -393,8 +393,13 @@ static void e17_cons_write(struct console *co, const char *s, unsigned int n)
  */
 void e17_early_puts(const char *s)
 {
-	e17_cd2401_write(s, strlen(s));
-	e17_fb_puts(s);			/* mirror to the screen (reliable channel) */
+	/*
+	 * Framebuffer ONLY.  The CD2401 serial wedges the bus (IACK with no
+	 * DTACK) unpredictably and hard-locks the boot -- that is why output
+	 * stopped after one marker on BOTH the screen and serial.  The screen is
+	 * the reliable channel, so do not touch the serial here.
+	 */
+	e17_fb_puts(s);
 }
 
 /* trace helper: print a value as 8 hex digits (for early bootinfo tracing) */
@@ -574,14 +579,13 @@ void __init config_eltec_e17(void)
 	 * from the POST display milestones instead.  Re-enable once the tx is
 	 * bulletproof.
 	 */
-	e17_cd2401_init();		/* known-good tx state before first printk */
-	e17_fb_init();			/* ensure the screen console is up */
-	register_console(&e17_early_console);
+	e17_fb_init();			/* screen console */
 	/*
-	 * PROBE: do NOT register the framebuffer as a printk console yet -- that
-	 * floods it and triggers scroll (memmove/memset of the whole screen) into
-	 * the VRAM region that hard-locks.  Only the explicit early e17_fb_puts
-	 * markers render (a few lines, no scroll) so we can safely read the layout.
+	 * Serial console DISABLED: the CD2401 wedges the bus and hard-locks the
+	 * boot.  Do not register e17_early_console (and e17_cd2401_init is not
+	 * needed).  Only the framebuffer markers render for now; the fb printk
+	 * console stays off until the clear/scroll is bounded to good VRAM.
 	 */
+	/* register_console(&e17_early_console); */
 	/* register_console(&e17_fb_console); */
 }
