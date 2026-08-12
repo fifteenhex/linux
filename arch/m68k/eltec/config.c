@@ -64,7 +64,15 @@
 #define CD2401_TIR		0xec	/* tx interrupt register */
 #define CD2401_TIR_TACT		0x40	/* tx service active */
 #define CD2401_TX_IPL		0x02
+#define CD2401_RX_IPL		0x01
 #define CD2401_DR		0xf8	/* rx/tx data register */
+#define CD2401_LIV		0x09	/* local interrupt vector */
+#define CD2401_CCR		0x13	/* channel command register */
+#define CD2401_CCR_ENBRX	0x02
+#define CD2401_CCR_ENBXMTR	0x08
+#define CD2401_CMR		0x1b	/* channel mode register */
+#define CD2401_CMR_ASYNC	0x02
+#define CD2401_RPILR		0xe1	/* rx priority interrupt level */
 
 /*
  * The onboard I/O window (0xfec00000) is reached at its physical
@@ -165,6 +173,38 @@ static void e17_cd2401_write(const char *s, unsigned int n)
 		e17_cd2401[CD2401_TEOIR] = CD2401_TEOIR_NOTRANS;
 	}
 	e17_cd2401[CD2401_IER] &= ~CD2401_IER_TXD;	/* disable tx irq */
+}
+
+/*
+ * Bring the CD2401 into a known-good tx state, ported from u-boot's
+ * serial_cd2401_probe().  head.S's simplified per-char writer leaves the
+ * chip's tx service in a state where TACT never re-asserts, so our TACT-gated
+ * ack (above) drops everything until we re-init the channel here: select
+ * async mode, give tx/rx distinct priority levels, and (re)enable the
+ * transmitter via CCR.  Baud/format stay as RMON/u-boot programmed them.
+ */
+static void e17_cd2401_init(void)
+{
+	int i, bound;
+
+	/* quiesce the other two channels (as u-boot does) */
+	for (i = 1; i < 3; i++) {
+		e17_cd2401[CD2401_CAR] = i;
+		e17_cd2401[CD2401_IER] = 0;
+		e17_cd2401[CD2401_LIV] = i << 2;
+	}
+
+	e17_cd2401[CD2401_CAR] = 0;			/* channel 0 */
+	e17_cd2401[CD2401_CMR] = CD2401_CMR_ASYNC;
+	e17_cd2401[CD2401_LIV] = 0;
+	e17_cd2401[CD2401_TPILR] = CD2401_TX_IPL;
+	e17_cd2401[CD2401_RPILR] = CD2401_RX_IPL;
+
+	/* wait (bounded) for any in-progress channel command to finish */
+	for (bound = 100000; bound && e17_cd2401[CD2401_CCR]; bound--)
+		cpu_relax();
+
+	e17_cd2401[CD2401_CCR] = CD2401_CCR_ENBRX | CD2401_CCR_ENBXMTR;
 }
 
 static void e17_cons_write(struct console *co, const char *s, unsigned int n)
@@ -358,5 +398,6 @@ void __init config_eltec_e17(void)
 	 * from the POST display milestones instead.  Re-enable once the tx is
 	 * bulletproof.
 	 */
+	e17_cd2401_init();		/* known-good tx state before first printk */
 	register_console(&e17_early_console);
 }
