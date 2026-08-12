@@ -2906,7 +2906,9 @@ func_start	serial_init,%d0/%d1/%a0/%a1
 	moveb	#2,%a1@(0xe0)		| TPILR = 2
 	moveb	#2,%a1@(0xe1)		| RPILR = 2   } all equal: any pending type
 	moveb	#2,%a1@(0xe3)		| MPILR = 2   } answers an IACK at level 2
-	bset	#7,0xfec0003b		| mask VIC LICR6: polled, never vectored
+	| NB: do NOT mask VIC LICR6 here -- setting the mask bit also stops the
+	| STATE bit tracking the CD2401 line on this VIC, which breaks the poll.
+	| Interrupts are masked at the CPU (IPL) during early boot anyway.
 	jra	L(serial_init_done)
 L(serial_init_not_e17):
 #endif

@@ -115,8 +115,13 @@ static void e17_cd2401_init(void)
 	e17_cd2401[CD2401_RPILR] = E17_CD2401_IPL;
 	e17_cd2401[CD2401_MPILR] = E17_CD2401_IPL;
 
-	/* we poll; the CPU must never vector on LIRQ6 */
-	e17_vic[E17_VIC_LICR6] |= 0x80;
+	/*
+	 * NB: deliberately do NOT set the VIC LICR6 mask bit here.  On this VIC
+	 * masking the line (bit 7) also stops its STATE bit (bit 3) from
+	 * tracking the CD2401 -- which is exactly the signal we poll -- so the
+	 * console would time out on every byte.  Interrupts are masked at the
+	 * CPU during early boot; a proper irqchip owns LIRQ6 masking later.
+	 */
 }
 
 /*
