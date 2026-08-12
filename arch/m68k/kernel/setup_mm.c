@@ -140,13 +140,15 @@ extern void e17_early_puthex(unsigned long);
 static phys_addr_t fdt_blob;
 static void __init m68k_setup_fdt(void)
 {
-	pr_info("m68k generic DT machine support, FDT blob at 0x%08x\n", fdt_blob);
+	E17_TRACE("v2 ");
 	if (!early_init_dt_verify(__va(fdt_blob), fdt_blob)) {
+		E17_TRACE("BAD ");
 		pr_err("FDT blob is bad?!\n");
 		return;
 	}
-
+	E17_TRACE("v3 ");
 	early_init_dt_scan_nodes();
+	E17_TRACE("v4 ");
 }
 
 static const struct bi_record __init *m68k_find_bootinfo_record(const struct bi_record *record, u16 bi_type)
