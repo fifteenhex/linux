@@ -3302,45 +3302,37 @@ func_return	serial_putc
  */
 ENTRY(e17_exc_report)
 	movew	#0x2700,%sr		| supervisor, mask all interrupts
+	movel	%sp@(8),%a2		| a2 = return address / caller (frame is 8 bytes;
+					| PC at sp+2 is the NULL target, the caller is
+					| the jsr return address just above the frame)
 	/*
-	 * The faulting PC (frame+2) is the NULL target (0).  The useful value is
-	 * the *caller* -- the return address the jsr pushed, which sits just
-	 * above the 8-byte format-0 exception frame at sp+8.  Print that so we
-	 * can name which NULL function pointer was called.
+	 * Report ONCE, then STOP the CPU, so a recurring fault can't re-enter
+	 * this handler and overwrite the output.  Guard with a flag and run the
+	 * printing on a private stack (the crashed stack may be unusable).
 	 */
-	movel	%sp@(8),%a2		| a2 = return address / caller
-	movew	%sp@(6),%d0		| format/vector word
-	andw	#0x0fff,%d0		| vector offset (= vector number * 4)
-	lsrw	#2,%d0			| d0 = vector number (0..255)
-	movel	%d0,%d2			| save (serial_putc preserves d0-d2)
-	moveb	#0x0e,0xfec30000	| 'E' on the display too
-	/*
-	 * Print "\nVNN PC=XXXXXXXX\n" on serial (NN = faulting vector, then the
-	 * PC), far easier to read than the display; then halt.
-	 */
-	/*
-	 * Print just the faulting PC as 8 hex digits (putn emits " XXXXXXXX"),
-	 * no prefix -- the CD2401 only reliably sends ~11 chars, and the PC is
-	 * what matters (vector is already known from the display 'E').
-	 */
-	movel	%a2,%sp@-
+	lea	%pc@(L(e17_rep_flag)),%a3
+	tstb	%a3@
+	jne	8f			| already reported -> just halt
+	st	%a3@
+	lea	%pc@(L(e17_rep_stack)),%sp	| private scratch stack
+	moveb	#0x0e,0xfec30000	| 'E' on the display
+	movel	%a2,%sp@-		| print the caller as 8 hex (putn: " XXXXXXXX")
 	jbsr	L(putn)
 	addql	#4,%sp
 	pea	10			| '\n'
 	jbsr	L(serial_putc)
 	addql	#4,%sp
-9:	jra	9b			| halt (display holds 'E')
+8:	stop	#0x2700			| HALT: interrupts masked, CPU stopped
+	jra	8b			| (re-halt if ever woken)
 
-L(e17_hexd):				| print low nibble of d0 as a hex char
-	andl	#0xf,%d0
-	addl	#'0',%d0
-	cmpl	#'9',%d0
-	jle	1f
-	addl	#7,%d0			| 'A'..'F'
-1:	movel	%d0,%sp@-
-	jbsr	L(serial_putc)
-	addql	#4,%sp
-	rts
+	/* diagnostic scratch (early __INIT text is writable); never executed */
+	.align	2
+L(e17_rep_flag):
+	.byte	0
+	.align	2
+	.space	512
+L(e17_rep_stack):
+	.long	0,0,0,0
 
 #endif /* CONFIG_ELTEC_E17 */
 
