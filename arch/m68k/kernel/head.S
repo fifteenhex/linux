@@ -3304,23 +3304,27 @@ ENTRY(e17_exc_report)
 	movew	%sp@(6),%d0		| format/vector word
 	andw	#0x0fff,%d0		| vector offset (= vector number * 4)
 	lsrw	#2,%d0			| d0 = vector number (0..255)
+	movel	%d0,%d2
+	lsrl	#4,%d2			| d2 = high nibble of the vector
 	/*
-	 * Cycle the display: 'E' (long) -> vector high nibble -> vector low
-	 * nibble, so the full vector reads out as two hex digits after the 'E'.
-	 * e.g. E,0,6 = vector 0x06 (CHK); E,4,6 = vector 0x46; E,0,2 = bus err.
+	 * Read the vector out as two hex digits, each HELD LONG, with a brief
+	 * 'E' flash as a separator so they are easy to read even at unknown
+	 * clock:  (E) <hi held> (E) <lo held> ...  e.g. E,0,6 = vector 0x06.
 	 */
-1:	moveb	#0x0e,0xfec30000	| 'E' = exception
-	movel	#0x700000,%d1
+1:	moveb	#0x0e,0xfec30000	| brief 'E' separator
+	movel	#0x600000,%d1
 2:	subql	#1,%d1
 	jne	2b
-	movel	%d0,%d2
-	lsrl	#4,%d2			| high nibble of the vector
-	moveb	%d2,0xfec30000
-	movel	#0x700000,%d1
+	moveb	%d2,0xfec30000		| HIGH nibble, held long
+	movel	#0x4000000,%d1
 3:	subql	#1,%d1
 	jne	3b
-	moveb	%d0,0xfec30000		| low nibble of the vector
-	movel	#0x700000,%d1
+	moveb	#0x0e,0xfec30000	| brief 'E' separator
+	movel	#0x600000,%d1
+5:	subql	#1,%d1
+	jne	5b
+	moveb	%d0,0xfec30000		| LOW nibble, held long
+	movel	#0x4000000,%d1
 4:	subql	#1,%d1
 	jne	4b
 	jra	1b
