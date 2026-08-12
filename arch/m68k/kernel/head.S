@@ -3303,15 +3303,26 @@ func_return	serial_putc
 ENTRY(e17_exc_report)
 	movew	%sp@(6),%d0		| format/vector word
 	andw	#0x0fff,%d0		| vector offset (= vector number * 4)
-	lsrw	#2,%d0			| d0 = vector number
-1:	moveb	#0x0e,0xfec30000	| 'E' = exception (held long, dominant)
-	movel	#0xc00000,%d1
+	lsrw	#2,%d0			| d0 = vector number (0..255)
+	/*
+	 * Cycle the display: 'E' (long) -> vector high nibble -> vector low
+	 * nibble, so the full vector reads out as two hex digits after the 'E'.
+	 * e.g. E,0,6 = vector 0x06 (CHK); E,4,6 = vector 0x46; E,0,2 = bus err.
+	 */
+1:	moveb	#0x0e,0xfec30000	| 'E' = exception
+	movel	#0x700000,%d1
 2:	subql	#1,%d1
 	jne	2b
-	moveb	%d0,0xfec30000		| flash the vector number (brief)
-	movel	#0x300000,%d1
+	movel	%d0,%d2
+	lsrl	#4,%d2			| high nibble of the vector
+	moveb	%d2,0xfec30000
+	movel	#0x700000,%d1
 3:	subql	#1,%d1
 	jne	3b
+	moveb	%d0,0xfec30000		| low nibble of the vector
+	movel	#0x700000,%d1
+4:	subql	#1,%d1
+	jne	4b
 	jra	1b
 
 #endif /* CONFIG_ELTEC_E17 */
