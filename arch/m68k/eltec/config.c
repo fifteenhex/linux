@@ -19,6 +19,7 @@
 #include <linux/io.h>
 #include <linux/timex.h>
 #include <linux/string.h>
+#include <linux/font.h>
 
 #include <asm/bootinfo.h>
 #include <asm/bootinfo-vme.h>
@@ -206,6 +207,159 @@ void e17_cd2401_init(void)
 	e17_cd2401[CD2401_CCR] = CD2401_CCR_ENBRX | CD2401_CCR_ENBXMTR;
 }
 
+/*
+ * Framebuffer text debug console.
+ *
+ * The CD2401 serial tx is fragile on this board, so the onboard video is used
+ * as a second, dead-reliable output channel: it is just memory writes.  RMON
+ * programs the onboard gfx for 800x600x8 (indexed) whenever video is fitted,
+ * so the mode and CRTC timing are already set up -- we only load two palette
+ * entries and paint pixels.
+ *
+ *   - VRAM at 0x0fc00000, 8bpp, pitch = width = 800 bytes/line.  Pixel (x,y)
+ *     lives at E17_FB_BASE + y*800 + x.  This region is reachable directly:
+ *     head.S installs a transparent, cache-inhibited TTR over 0x0f000000..
+ *     0x10000000, so no ioremap is needed.
+ *   - RAMDAC at 0xfec40000 (in the onboard I/O window, already mapped
+ *     cache-inhibited via dtt1).  It is VGA-style: byte register +0 is the
+ *     palette *write address*, +1 the palette *data* port (three bytes R,G,B
+ *     per entry with auto-increment), +2 an ID that reads 0x3a.  These offsets
+ *     and the byte-wide access match the qemu e17_vid model's decode exactly
+ *     (addr & 7: case 0 sets the palette address, case 1 loads R/G/B).
+ *
+ * Text uses pixel value 0xff (palette entry 0xff = white) on a 0x00 (entry 0 =
+ * black) background, rendered from the kernel's built-in VGA 8x8 font.
+ */
+#define E17_FB_BASE		0x0fc00000UL
+#define E17_FB_WIDTH		800
+#define E17_FB_HEIGHT		600
+#define E17_FB_PITCH		E17_FB_WIDTH		/* 8bpp: 1 byte/pixel */
+
+#define E17_RAMDAC_BASE		0xfec40000UL
+#define E17_RAMDAC_PALADDR	0	/* palette write-address port */
+#define E17_RAMDAC_PALDATA	1	/* palette data port (R,G,B autoinc) */
+#define E17_RAMDAC_ID		2	/* ID register (reads 0x3a) */
+
+#define E17_FB_CELL		8			/* 8x8 font cell */
+#define E17_FB_COLS		(E17_FB_WIDTH / E17_FB_CELL)	/* 100 */
+#define E17_FB_ROWS		(E17_FB_HEIGHT / E17_FB_CELL)	/* 75 */
+#define E17_FB_FG		0xff
+#define E17_FB_BG		0x00
+
+static volatile u8 *const e17_fb = (volatile u8 *)E17_FB_BASE;
+static volatile u8 *const e17_ramdac = (volatile u8 *)E17_RAMDAC_BASE;
+
+static int e17_fb_col;
+static int e17_fb_row;
+static bool e17_fb_ready;
+
+/* Load one palette entry (VGA-style: address then three data bytes). */
+static void e17_fb_setpal(u8 idx, u8 r, u8 g, u8 b)
+{
+	e17_ramdac[E17_RAMDAC_PALADDR] = idx;
+	e17_ramdac[E17_RAMDAC_PALDATA] = r;
+	e17_ramdac[E17_RAMDAC_PALDATA] = g;
+	e17_ramdac[E17_RAMDAC_PALDATA] = b;
+}
+
+/*
+ * Prepare the framebuffer console: entry 0 = black, entry 0xff = white, clear
+ * the whole screen and home the cursor.  Idempotent -- safe to call once early.
+ */
+void e17_fb_init(void)
+{
+	if (e17_fb_ready)
+		return;
+
+	e17_fb_setpal(E17_FB_BG, 0x00, 0x00, 0x00);
+	e17_fb_setpal(E17_FB_FG, 0xff, 0xff, 0xff);
+
+	memset((void *)e17_fb, E17_FB_BG, (size_t)E17_FB_PITCH * E17_FB_HEIGHT);
+
+	e17_fb_col = 0;
+	e17_fb_row = 0;
+	e17_fb_ready = true;
+}
+
+/* Scroll the whole screen up by one text row and clear the freed bottom row. */
+static void e17_fb_scroll(void)
+{
+	const size_t row_bytes = (size_t)E17_FB_PITCH * E17_FB_CELL;
+
+	memmove((void *)e17_fb, (const void *)(e17_fb + row_bytes),
+		row_bytes * (E17_FB_ROWS - 1));
+	memset((void *)(e17_fb + row_bytes * (E17_FB_ROWS - 1)), E17_FB_BG,
+	       row_bytes);
+}
+
+/* Advance to the start of the next text line, scrolling if at the bottom. */
+static void e17_fb_newline(void)
+{
+	e17_fb_col = 0;
+	if (++e17_fb_row >= E17_FB_ROWS) {
+		e17_fb_scroll();
+		e17_fb_row = E17_FB_ROWS - 1;
+	}
+}
+
+/* Render one character at the current cell and advance the cursor. */
+void e17_fb_putc(char c)
+{
+	const unsigned char *glyph;
+	int gy;
+	int px, py;
+
+	if (!e17_fb_ready)
+		return;
+
+	if (c == '\n') {
+		e17_fb_newline();
+		return;
+	}
+	if (c == '\r') {
+		e17_fb_col = 0;
+		return;
+	}
+
+	if (e17_fb_col >= E17_FB_COLS)
+		e17_fb_newline();
+
+	/* VGA 8x8 font: 8 bytes/glyph, one byte per row, bit7 = leftmost pixel */
+	glyph = font_data_buf(font_vga_8x8.data) + ((unsigned char)c) * E17_FB_CELL;
+	px = e17_fb_col * E17_FB_CELL;
+	py = e17_fb_row * E17_FB_CELL;
+
+	for (gy = 0; gy < E17_FB_CELL; gy++) {
+		volatile u8 *line = e17_fb + (size_t)(py + gy) * E17_FB_PITCH + px;
+		u8 bits = glyph[gy];
+		int gx;
+
+		for (gx = 0; gx < E17_FB_CELL; gx++)
+			line[gx] = (bits & (0x80 >> gx)) ? E17_FB_FG : E17_FB_BG;
+	}
+
+	e17_fb_col++;
+}
+
+void e17_fb_puts(const char *s)
+{
+	while (*s)
+		e17_fb_putc(*s++);
+}
+
+static void e17_fb_cons_write(struct console *co, const char *s, unsigned int n)
+{
+	while (n--)
+		e17_fb_putc(*s++);
+}
+
+static struct console e17_fb_console = {
+	.name	= "e17fb",
+	.write	= e17_fb_cons_write,
+	.flags	= CON_PRINTBUFFER | CON_BOOT,
+	.index	= -1,
+};
+
 static void e17_cons_write(struct console *co, const char *s, unsigned int n)
 {
 	e17_cd2401_write(s, n);
@@ -218,6 +372,7 @@ static void e17_cons_write(struct console *co, const char *s, unsigned int n)
 void e17_early_puts(const char *s)
 {
 	e17_cd2401_write(s, strlen(s));
+	e17_fb_puts(s);			/* mirror to the screen (reliable channel) */
 }
 
 /* trace helper: print a value as 8 hex digits (for early bootinfo tracing) */
@@ -398,5 +553,7 @@ void __init config_eltec_e17(void)
 	 * bulletproof.
 	 */
 	e17_cd2401_init();		/* known-good tx state before first printk */
+	e17_fb_init();			/* ensure the screen console is up */
 	register_console(&e17_early_console);
+	register_console(&e17_fb_console);	/* all printk also lands on screen */
 }

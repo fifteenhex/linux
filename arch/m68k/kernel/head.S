@@ -1107,11 +1107,17 @@ L(not147):
 
 	/*
 	 * ELTEC E17: RAM is already mapped above.  Transparently map the
-	 * top 0.5GB (supervisor, no-cache) so the onboard I/O window at
-	 * 0xfec00000 (and the ROM/SRAM) is reachable, as on the other
-	 * VME boards.
+	 * top 0.5GB (supervisor, no-cache) via dtt1/itt1 so the onboard I/O
+	 * window at 0xfec00000 (and the ROM/SRAM) is reachable, as on the
+	 * other VME boards.
 	 */
 	mmu_map_tt	#1,#0xe0000000,#0x20000000,#_PAGE_NOCACHE_S
+	/*
+	 * Also transparently map the 16MB block containing the onboard video
+	 * RAM (0x0fc00000, 4MB, 8bpp 800x600) via dtt0/itt0, no-cache, so the
+	 * framebuffer debug console can write pixels directly.
+	 */
+	mmu_map_tt	#0,#0x0f000000,#0x01000000,#_PAGE_NOCACHE_S
 
 	jbra	L(mmu_init_done)
 
