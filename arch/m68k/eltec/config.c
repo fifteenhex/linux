@@ -171,8 +171,16 @@ static void e17_cd2401_write(const char *s, unsigned int n)
 		e17_cd2401[CD2401_TEOIR] = 0;		/* launch the batch */
 		e17_cd2401_ack_tx();			/* re-enter service */
 		e17_cd2401[CD2401_TEOIR] = CD2401_TEOIR_NOTRANS;
+		/*
+		 * Disable the tx irq at the END of EVERY batch and re-enable at the
+		 * top of the next, exactly as u-boot's per-char write_tx does.  On
+		 * real hardware this disable/enable cycle is what re-arms the tx
+		 * service; keeping IER.TXD asserted across batches (as before) left
+		 * the 2nd batch's ack_tx unable to re-assert -> output stalled after
+		 * the first ~fifo-full ("[E17-Cconsole" then dead).
+		 */
+		e17_cd2401[CD2401_IER] &= ~CD2401_IER_TXD;
 	}
-	e17_cd2401[CD2401_IER] &= ~CD2401_IER_TXD;	/* disable tx irq */
 }
 
 /*
