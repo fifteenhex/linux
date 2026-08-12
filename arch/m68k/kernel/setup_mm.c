@@ -267,17 +267,20 @@ static void __init m68k_parse_bootinfo(const struct bi_record *record)
 #ifdef CONFIG_ELTEC_E17
 #define E17_POST(code) \
 	do { if (MACH_IS_E17) *(volatile u8 *)0xfec30000 = (code); } while (0)
+extern void e17_early_puts(const char *);
+#define E17_TRACE(s) do { if (MACH_IS_E17) e17_early_puts(s); } while (0)
 #else
 #define E17_POST(code) do { } while (0)
+#define E17_TRACE(s) do { } while (0)
 #endif
 
 void __init setup_arch(char **cmdline_p)
 {
-	E17_POST(0xf1);			/* '1': setup_arch entry */
+	E17_POST(0xf1); E17_TRACE("\n[arch1:entry]");
 	/* The bootinfo is located right after the kernel */
 	if (!CPU_IS_COLDFIRE)
 		m68k_parse_bootinfo((const struct bi_record *)_end);
-	E17_POST(0xf2);			/* '2': bootinfo parsed */
+	E17_POST(0xf2); E17_TRACE("[arch2:bootinfo]");
 
 	if (CPU_IS_040)
 		m68k_is040or060 = 4;
@@ -350,7 +353,7 @@ void __init setup_arch(char **cmdline_p)
 	jump_label_init();
 	parse_early_param();
 
-	E17_POST(0xf3);			/* '3': about to run config_eltec_e17() */
+	E17_POST(0xf3); E17_TRACE("[arch3:precfg]");
 	switch (m68k_machtype) {
 #ifdef CONFIG_AMIGA
 	case MACH_AMIGA:
@@ -429,13 +432,13 @@ void __init setup_arch(char **cmdline_p)
 		panic("No configuration setup");
 	}
 
-	E17_POST(0xf4);			/* '4': board config done, console up */
+	E17_POST(0xf4); E17_TRACE("[arch4:cfgdone]");
 
 	if (IS_ENABLED(CONFIG_BLK_DEV_INITRD) && m68k_ramdisk.size)
 		memblock_reserve(m68k_ramdisk.addr, m68k_ramdisk.size);
 
 	paging_init();
-	E17_POST(0xf5);			/* '5': paging_init() returned */
+	E17_POST(0xf5); E17_TRACE("[arch5:paging]");
 
 	/*
 	 * Unflatten after paging_init(): copy_device_tree() allocates from
@@ -445,7 +448,7 @@ void __init setup_arch(char **cmdline_p)
 	 */
 	if (fdt_blob)
 		unflatten_device_tree();
-	E17_POST(0xf6);			/* '6': device tree unflattened */
+	E17_POST(0xf6); E17_TRACE("[arch6:dt]");
 
 	if (IS_ENABLED(CONFIG_BLK_DEV_INITRD) && m68k_ramdisk.size) {
 		initrd_start = (unsigned long)phys_to_virt(m68k_ramdisk.addr);
@@ -486,7 +489,7 @@ void __init setup_arch(char **cmdline_p)
 	}
 #endif
 #endif
-	E17_POST(0xf7);			/* '7': setup_arch() complete */
+	E17_POST(0xf7); E17_TRACE("[arch7:done]");
 }
 
 static int show_cpuinfo(struct seq_file *m, void *v)

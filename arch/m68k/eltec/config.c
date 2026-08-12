@@ -143,6 +143,21 @@ static void e17_cons_write(struct console *co, const char *s, unsigned int n)
 	}
 }
 
+/*
+ * Low-level reliable serial puts, usable anywhere in early boot (before the
+ * console is registered) to trace where the kernel gets to.  Uses the same
+ * service-context tx as the console, so it does not drop bytes like the
+ * head.S path.
+ */
+void e17_early_puts(const char *s)
+{
+	while (*s) {
+		if (*s == '\n')
+			e17_cons_putc('\r');
+		e17_cons_putc(*s++);
+	}
+}
+
 static struct console e17_early_console = {
 	.name	= "e17cons",
 	.write	= e17_cons_write,
