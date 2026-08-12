@@ -3315,19 +3315,19 @@ ENTRY(e17_exc_report)
 	 * clock:  (E) <hi held> (E) <lo held> ...  e.g. E,0,6 = vector 0x06.
 	 */
 1:	moveb	#0x0e,0xfec30000	| brief 'E' separator
-	movel	#0x600000,%d1
+	movel	#0x300000,%d1
 2:	subql	#1,%d1
 	jne	2b
 	moveb	%d2,0xfec30000		| HIGH nibble, held long
-	movel	#0x4000000,%d1
+	movel	#0x0a00000,%d1
 3:	subql	#1,%d1
 	jne	3b
 	moveb	#0x0e,0xfec30000	| brief 'E' separator
-	movel	#0x600000,%d1
+	movel	#0x300000,%d1
 5:	subql	#1,%d1
 	jne	5b
 	moveb	%d0,0xfec30000		| LOW nibble, held long
-	movel	#0x4000000,%d1
+	movel	#0x0a00000,%d1
 4:	subql	#1,%d1
 	jne	4b
 	jra	1b
