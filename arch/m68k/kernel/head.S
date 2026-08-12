@@ -3369,9 +3369,19 @@ ENTRY(e17_exc_report)
 	addql	#4,%sp
 	moveq	#0,%d2			| value index (d2 survives putn)
 4:	lea	L(e17_rep_vals),%a2
-	movel	%a2@(0,%d2:l:4),%sp@-	| " XXXXXXXX"
+	movel	%a2@(0,%d2:l:4),%sp@-	| " XXXXXXXX" (9 chars, under the fifo limit)
 	jbsr	L(putn)
 	addql	#4,%sp
+	/*
+	 * Pace ONLY the reporter (not the boot's serial_putc): each 9-char value
+	 * fits the CD2401's ~12-char burst window, but the whole ~100-char dump
+	 * did not -- so drain between values here.  d3 is free after putn.  This
+	 * one-shot delay doesn't slow the boot, so it can't shift any watchdog
+	 * deadline the way a per-byte serial_putc drain did.
+	 */
+	movel	#0x40000,%d3
+5:	subql	#1,%d3
+	jne	5b
 	addql	#1,%d2
 	cmpl	#11,%d2
 	jcs	4b
