@@ -3301,6 +3301,9 @@ func_return	serial_putc
  * 4=illegal, 8=privilege, a=line-A, b=line-F(FPU), etc.
  */
 ENTRY(e17_exc_report)
+	movew	#0x2700,%sr		| supervisor, mask all interrupts, so a
+					| periodic irq can't re-enter this handler
+					| and keep resetting the display to 'E'
 	movew	%sp@(6),%d0		| format/vector word
 	andw	#0x0fff,%d0		| vector offset (= vector number * 4)
 	lsrw	#2,%d0			| d0 = vector number (0..255)
