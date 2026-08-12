@@ -1563,6 +1563,17 @@ L(cache_done):
 	putc	'N'		/* N = about to call start_kernel() */
 #ifdef CONFIG_ELTEC_E17
 	moveb	#0xff,0xfec30000	/* display 'F' = about to call start_kernel */
+	/*
+	 * DIAGNOSTIC: fill the unused low page (0..0x1000, below _stext) with
+	 * illegal-instruction opcodes, so a jump through a NULL/bad function
+	 * pointer traps IMMEDIATELY at address 0 (vector 4, clean stack) instead
+	 * of executing the zero-padding up into _stext and re-running head.S.
+	 */
+	movel	#0,%a0
+	movel	#0x400,%d0		| 0x1000 bytes / 4
+1:	movel	#0x4afc4afc,%a0@+	| 0x4afc = ILLEGAL opcode (twice)
+	subql	#1,%d0
+	jne	1b
 #endif
 
 	jbsr	start_kernel
@@ -3322,7 +3333,7 @@ ENTRY(e17_exc_report)
 	 * (0x1000..0x6bf000) -- the return address of whoever jumped to NULL.
 	 */
 	lea	%sp@(8),%a1		| scan pointer (original stack)
-	movel	#0x100,%d1		| scan up to 256 longwords
+	movel	#0x40,%d1		| scan up to 64 longwords (clean stack now)
 	suba	%a2,%a2			| a2 = 0 (result, "none found")
 2:	movel	%a1@,%d3
 	cmpl	#0x00001000,%d3
