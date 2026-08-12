@@ -84,16 +84,17 @@ void __init base_trap_init(void)
 	 */
 	if (MACH_IS_E17) {
 		extern void e17_exc_report(void);
-		int i;
 
 		/*
-		 * Only the CPU exception/trap vectors (2..VEC_USER-1) -- NOT the
-		 * device interrupt vectors (VEC_USER..255), which must reach the
-		 * real interrupt dispatch or a legitimate irq is mistaken for a
-		 * crash.
+		 * ONLY the genuine-fatal-fault vectors -- address error and illegal
+		 * instruction.  Crucially NOT VEC_BUSERR (2): on the 040 that is the
+		 * MMU access-fault (page fault) vector and must reach access_error040,
+		 * or normal demand paging / copy_from_user faults are mistaken for
+		 * crashes and the boot corrupts.  Likewise leave the trap/FP/syscall
+		 * vectors and the device interrupt vectors to their real handlers.
 		 */
-		for (i = 2; i < VEC_USER; i++)
-			vectors[i] = (e_vector)e17_exc_report;
+		vectors[VEC_ADDRERR] = (e_vector)e17_exc_report;
+		vectors[VEC_ILLEGAL] = (e_vector)e17_exc_report;
 	}
 #endif
 }
