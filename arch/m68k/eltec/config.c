@@ -48,15 +48,7 @@
  */
 #define E17_CD2401_BASE		0xfec64000
 #define E17_CD2401_IACK		0xfec66000	/* interrupt-acknowledge window */
-/*
- * VIC068A: the chip's *primary* decode is at 0xfec01000; it is only
- * secondarily mirrored at 0xfec00000.  u-boot uses the 0xfec00000 mirror
- * and it works there, but the kernel wedges on any access to that mirror
- * (the mirror decode seems to depend on a chip-select state u-boot leaves
- * set and the kernel does not).  Use the primary window, which is always
- * decoded.
- */
-#define E17_VIC_BASE		0xfec01000
+#define E17_VIC_BASE		0xfec00000
 #define E17_VIC_LICR6		0x3b		/* CD2401 local interrupt */
 #define E17_VIC_LICR_STATE	0x08		/* raw pin level (active low) */
 #define CD2401_CAR		0xee	/* channel access (select) register */
@@ -80,19 +72,20 @@ static volatile u8 *const e17_vic = (volatile u8 *)E17_VIC_BASE;
 
 static void e17_cons_putc(char c)
 {
-	/*
-	 * DIAGNOSTIC console.  The interrupt-service-context CD2401 tx
-	 * handshake wedges early boot on real hardware (the IACK read appears
-	 * to fault), so for now the console only does a bare TDR write, which
-	 * cannot hang the CPU: QEMU honours it (so the emulated boot still
-	 * shows real console text) and the real chip simply ignores it.  Board
-	 * progress on real hardware is reported instead by the distinct POST
-	 * codes E17_POST() drops on the 7-seg display along the boot path.  A
-	 * proper tx path is restored once the service-context handshake is
-	 * understood.
-	 */
+	int timeout = 200000;
+
 	e17_cd2401[CD2401_CAR] = 0;		/* select channel 0 */
-	e17_cd2401[CD2401_DR] = c;		/* bare write: QEMU tx, HW no-op */
+	e17_cd2401[CD2401_TPILR] = CD2401_TX_IPL;
+	e17_cd2401[CD2401_IER] = CD2401_IER_TXD;	/* enable tx interrupt */
+
+	/* wait (bounded) for the VIC to see the CD2401 asserting (active low) */
+	while ((e17_vic[E17_VIC_LICR6] & E17_VIC_LICR_STATE) && --timeout)
+		cpu_relax();
+
+	(void)e17_cd2401_iack[CD2401_TX_IPL];	/* IACK -> enter tx service */
+	e17_cd2401[CD2401_DR] = c;		/* write the byte */
+	e17_cd2401[CD2401_TEOIR] = 0;		/* end of tx interrupt */
+	e17_cd2401[CD2401_IER] = 0;		/* disable tx interrupt */
 }
 
 static void e17_cons_write(struct console *co, const char *s, unsigned int n)
@@ -187,19 +180,6 @@ static irqreturn_t e17_timer_int(int irq, void *dev_id)
 
 static void __init eltec_e17_sched_init(void)
 {
-	E17_POST(0xf9);			/* '9': timer/sched_init entry */
-
-	/*
-	 * DIAGNOSTIC: probe VIC reads here, *before* request_irq() enables the
-	 * user interrupt.  The wedge address (0xfec10003) worked earlier in
-	 * this function, so if these VIC reads succeed now, the VIC is fine and
-	 * request_irq (a pending interrupt firing) is the real culprit.
-	 */
-	(void)*(volatile u8 *)0xfec01003;	/* VIC reg 0 (own base) */
-	E17_POST(0xfa);			/* 'A': VIC reg0 read OK (pre-irq) */
-	(void)*(volatile u8 *)0xfec0103b;	/* VIC LICR6 */
-	E17_POST(0xfc);			/* 'c': VIC LICR6 read OK (pre-irq) */
-
 	/*
 	 * Reset the CIO, then bring it out of reset.  A control-port read
 	 * syncs the internal pointer/data flip-flop; pointing at the MICR
@@ -227,25 +207,12 @@ static void __init eltec_e17_sched_init(void)
 			NULL))
 		pr_err("E17: unable to register timer interrupt\n");
 
-	/*
-	 * DIAGNOSTIC: the VIC reads fine above (pre-irq), yet any I/O access
-	 * after request_irq() wedges -- the signature of a stale interrupt
-	 * storming once IRQ_USER is enabled.  Mask interrupts and see if that
-	 * unblocks the timer-arming pokes.
-	 */
-	local_irq_disable();
-	E17_POST(0x05);			/* '5': timer irq registered, irqs masked
-					 * (distinct value: confirms we reach here
-					 *  and the 'b' isn't head.S putc 'K'=0x4b) */
-
 	/* route VIC local IRQ 1 (CIO timers) to CPU IPL 6, unmasked */
 	e17_vic[E17_VIC_LICR1] = E17_VIC_LICR_LEVEL(6);
-	E17_POST(0xfe);			/* 'E': VIC LICR1 write returned */
 
 	/* enable CT3 interrupt and start it counting */
 	e17_cio_wr(Z8536_CT3CS, Z8536_CMD_SET_IE);
 	e17_cio_wr(Z8536_CT3CS, Z8536_CS_TCB);
-	E17_POST(0xfc);			/* 'c': timer armed */
 }
 
 static void __init eltec_e17_init_IRQ(void)
