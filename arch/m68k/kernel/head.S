@@ -1563,6 +1563,7 @@ L(cache_done):
 	putc	'N'		/* N = about to call start_kernel() */
 #ifdef CONFIG_ELTEC_E17
 	moveb	#0xff,0xfec30000	/* display 'F' = about to call start_kernel */
+	tstb	0xfec50000		/* pet watchdog: refresh before the slow C phase */
 	/*
 	 * DIAGNOSTIC: fill the unused low page (0..0x1000, below _stext) with
 	 * illegal-instruction opcodes, so a jump through a NULL/bad function
@@ -3189,6 +3190,7 @@ func_start	serial_putc,%d0/%d1/%a0/%a1
 
 #ifdef CONFIG_ELTEC_E17
 	is_not_e17(2f)
+	tstb	0xfec50000		| pet watchdog on every char (covers head.S)
 	/*
 	 * CD2401 at 0xfec64000, channel 0 = the console.  The real chip only
 	 * transmits from its interrupt-service context (a plain TDR write is
@@ -3313,6 +3315,7 @@ func_return	serial_putc
  */
 ENTRY(e17_exc_report)
 	movew	#0x2700,%sr		| supervisor, mask all interrupts
+	tstb	0xfec50000		| pet watchdog so its NMI can't cut our dump short
 	/*
 	 * Latch a once-flag FIRST.  Masking (above) blocks levels 1-6, but the
 	 * board's watchdog fires a level-7 NMI when the CPU stalls -- and stop
@@ -3379,6 +3382,7 @@ ENTRY(e17_exc_report)
 	 * one-shot delay doesn't slow the boot, so it can't shift any watchdog
 	 * deadline the way a per-byte serial_putc drain did.
 	 */
+	tstb	0xfec50000		| pet watchdog between values too
 	movel	#0x40000,%d3
 5:	subql	#1,%d3
 	jne	5b

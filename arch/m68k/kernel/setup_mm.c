@@ -117,8 +117,21 @@ EXPORT_SYMBOL(isa_sex);
  * console is registered) to see exactly where the board gets to.
  */
 #ifdef CONFIG_ELTEC_E17
+/*
+ * The E17 has a hardware watchdog (at 0xfec50000) that RMON keeps alive by
+ * READING that byte from its timer tick; a read is the "pet".  RMON stops
+ * petting once it hands off, so until our own timer tick takes over petting we
+ * must do it ourselves -- otherwise the watchdog expires mid-boot and fires a
+ * level-7 NMI (non-maskable) that vectors through a still-NULL vectors[31] to
+ * address 0 (the "vector 4 / PC=0" crash).  Pet at every milestone.
+ */
+#define E17_WDPET() \
+	do { if (MACH_IS_E17) (void)*(volatile u8 *)0xfec50000; } while (0)
 #define E17_POST(code) \
-	do { if (MACH_IS_E17) *(volatile u8 *)0xfec30000 = (code); } while (0)
+	do { if (MACH_IS_E17) { \
+		*(volatile u8 *)0xfec30000 = (code); \
+		(void)*(volatile u8 *)0xfec50000; \
+	} } while (0)
 extern void e17_early_puts(const char *);
 extern void e17_early_puthex(unsigned long);
 #define E17_TRACE(s) do { if (MACH_IS_E17) e17_early_puts(s); } while (0)

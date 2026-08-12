@@ -37,7 +37,19 @@
  * store -- it can never hang the CPU.  Codes 0xf1..0xf7 are used in
  * setup_arch(); this file continues the sequence into IRQ/timer bring-up.
  */
-#define E17_POST(code)	(*(volatile u8 *)0xfec30000 = (code))
+#define E17_WATCHDOG	0xfec50000
+#define E17_POST(code)	do { \
+		*(volatile u8 *)0xfec30000 = (code); \
+		(void)*(volatile u8 *)E17_WATCHDOG;	/* pet watchdog too */ \
+	} while (0)
+
+/*
+ * Pet the onboard watchdog (at 0xfec50000): a READ refreshes its deadline,
+ * exactly as RMON does from its own tick handler.  RMON stops petting at
+ * hand-off, so we must pet from our timer tick (and through early boot) or the
+ * watchdog fires a level-7 NMI that vectors through a NULL vector to address 0.
+ */
+#define E17_WDPET()	((void)*(volatile u8 *)E17_WATCHDOG)
 
 /*
  * Cirrus CD2401 serial controller at 0xfec64000, channel 0 = the RMON
@@ -289,6 +301,7 @@ static void e17_cio_wr(u8 reg, u8 val)
 
 static irqreturn_t e17_timer_int(int irq, void *dev_id)
 {
+	E17_WDPET();			/* pet the watchdog every tick, as RMON does */
 	E17_POST(0xfd);			/* 'd': first/every timer interrupt */
 	/* acknowledge: clear CT3's interrupt-pending (it auto-reloads) */
 	e17_cio_wr(Z8536_CT3CS, Z8536_CMD_CLR_IPUS);
