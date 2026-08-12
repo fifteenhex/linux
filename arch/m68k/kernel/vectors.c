@@ -86,7 +86,13 @@ void __init base_trap_init(void)
 		extern void e17_exc_report(void);
 		int i;
 
-		for (i = 2; i < 256; i++)
+		/*
+		 * Only the CPU exception/trap vectors (2..VEC_USER-1) -- NOT the
+		 * device interrupt vectors (VEC_USER..255), which must reach the
+		 * real interrupt dispatch or a legitimate irq is mistaken for a
+		 * crash.
+		 */
+		for (i = 2; i < VEC_USER; i++)
 			vectors[i] = (e_vector)e17_exc_report;
 	}
 #endif

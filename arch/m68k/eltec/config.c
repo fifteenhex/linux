@@ -267,7 +267,16 @@ static void eltec_e17_get_model(char *model)
 #define E17_CIO_PCLK		2500000
 #define E17_TICK_TC		(E17_CIO_PCLK / HZ)
 
-#define E17_IRQ_TIMER		IRQ_USER	/* CTVEC = VEC_USER */
+/*
+ * The Z8536 delivers the CT3 interrupt with its source status folded into the
+ * vector: with CTVEC = VEC_USER the counter/timer 3 interrupt actually arrives
+ * on vector VEC_USER+2 (observed on real hardware: the timer fires at 0x42,
+ * not 0x40).  The generic user-vector setup maps that to IRQ_USER+2, so that
+ * is the IRQ the handler must claim -- claiming IRQ_USER leaves CT3 unserviced
+ * and it storms.
+ */
+#define E17_CT3_VIS_OFFSET	2
+#define E17_IRQ_TIMER		(IRQ_USER + E17_CT3_VIS_OFFSET)
 
 static volatile u8 *const e17_cio2 = (volatile u8 *)E17_CIO2_BASE;
 
