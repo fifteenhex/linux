@@ -55,23 +55,15 @@
 #define CD2401_CAR		0xee	/* channel access (select) register */
 #define CD2401_IER		0x11	/* interrupt enable register */
 #define CD2401_IER_TXD		0x01
-#define CD2401_IER_TXMPTY	0x02	/* transmitter fully idle */
-#define CD2401_LICR		0x26	/* (in service) interrupting channel << 2 */
-#define CD2401_TFTC		0x80	/* (in tx service) writable byte count */
-#define CD2401_REOIR		0x84	/* rx end-of-interrupt */
-#define CD2401_TEOIR		0x85	/* tx end-of-interrupt */
-#define CD2401_MEOIR		0x86	/* modem end-of-interrupt */
-#define CD2401_EOIR_NOTRANS	0x08	/* "no data transferred" end-of-interrupt */
-#define CD2401_RISRH		0x88	/* rx interrupt status (reading clears specials) */
-#define CD2401_RISRL		0x89
+#define CD2401_LICR		0x26	/* local interrupt (which channel) */
+#define CD2401_TFTC		0x80	/* tx fifo transfer count (free space) */
+#define CD2401_TEOIR		0x85	/* transmit end of interrupt */
+#define CD2401_TEOIR_NOTRANS	0x08	/* "no transfer" end-of-interrupt */
 #define CD2401_TPILR		0xe0	/* tx priority interrupt level */
-#define CD2401_RPILR		0xe1	/* rx priority interrupt level */
-#define CD2401_MPILR		0xe3	/* modem priority interrupt level */
+#define CD2401_TIR		0xec	/* tx interrupt register */
+#define CD2401_TIR_TACT		0x40	/* tx service active */
+#define CD2401_TX_IPL		0x02
 #define CD2401_DR		0xf8	/* rx/tx data register */
-
-#define E17_CD2401_IPL		2	/* one level for all three PILRs (RMON-style) */
-#define E17_CD2401_TIMEOUT	0x200000 /* ~1-4s of uncached VIC reads; >> 17 char times */
-#define E17_CD2401_RETRIES	16	/* foreign-service dismissals per batch */
 
 /*
  * The onboard I/O window (0xfec00000) is reached at its physical
@@ -85,136 +77,81 @@ static volatile u8 *const e17_cd2401_iack __maybe_unused =
 static volatile u8 *const e17_vic = (volatile u8 *)E17_VIC_BASE;
 
 /*
- * CD2401 transmit -- see /workspace/files/CD2401-TX-DESIGN.md.
- *
- * The chip only moves data in interrupt-service context (a bare TDR write is
- * ignored), entered by reading the board IACK window.  The one way to wedge
- * the CPU is to issue an IACK whose level matches no internally-posted
- * interrupt: that bus cycle never gets a DTACK and stalls until the watchdog.
- * u-boot walks into this because it splits the priority levels and leaves rx
- * enabled, so typing during tx collides ("locks up if you send too fast").
- *
- * We follow RMON's scheme instead: program all three PILRs to the SAME level,
- * so an IACK issued while the (shared) VIC line is asserted is always answered
- * by *some* pending interrupt; the ack byte's low two bits say which type
- * arrived, and we dismiss anything that isn't our channel-0 tx service with a
- * NOTRANS end-of-interrupt.  One IACK, one TEOIR, no re-arm.
+ * Enter the CD2401 tx interrupt-service context: wait (bounded) for the VIC
+ * to see the tx line asserted, acknowledge through the board IACK window to
+ * read the vector, and confirm the tx service is active for our channel.
+ * Mirrors u-boot's serial_cd2401_ack_tx_irq().  Returns 0 on success.
  */
-
-/* One-time interrupt plumbing; channel format/baud are inherited from the firmware. */
-static void e17_cd2401_init(void)
+static int e17_cd2401_ack_tx(void)
 {
-	int ch;
+	int outer = 8;
 
-	for (ch = 3; ch >= 0; ch--) {		/* silence ALL channels (u-boot misses ch3) */
-		e17_cd2401[CD2401_CAR] = ch;
-		e17_cd2401[CD2401_IER] = 0;
+	while (outer--) {
+		int inner = 40000;
+
+		/* VIC LICR6 STATE is active low: wait for it to go low */
+		while ((e17_vic[E17_VIC_LICR6] & E17_VIC_LICR_STATE) && --inner)
+			cpu_relax();
+		if (!inner)
+			return -1;
+
+		(void)e17_cd2401_iack[CD2401_TX_IPL];	/* IACK -> read vector */
+
+		/* tx service must be active */
+		if (!(e17_cd2401[CD2401_TIR] & CD2401_TIR_TACT))
+			continue;
+
+		/* must be channel 0 (LICR interrupting-port field) */
+		if (((e17_cd2401[CD2401_LICR] >> 2) & 3) != 0) {
+			e17_cd2401[CD2401_TEOIR] = CD2401_TEOIR_NOTRANS;
+			continue;
+		}
+		return 0;
 	}
-	/* equal PILRs: an IACK at this level is answered by any pending type */
-	e17_cd2401[CD2401_TPILR] = E17_CD2401_IPL;
-	e17_cd2401[CD2401_RPILR] = E17_CD2401_IPL;
-	e17_cd2401[CD2401_MPILR] = E17_CD2401_IPL;
-
-	/*
-	 * NB: deliberately do NOT set the VIC LICR6 mask bit here.  On this VIC
-	 * masking the line (bit 7) also stops its STATE bit (bit 3) from
-	 * tracking the CD2401 -- which is exactly the signal we poll -- so the
-	 * console would time out on every byte.  Interrupts are masked at the
-	 * CPU during early boot; a proper irqchip owns LIRQ6 masking later.
-	 */
+	return -1;
 }
 
 /*
- * Enter a channel-0 transmit service.  Returns 1 on success (caller writes the
- * bytes, then TEOIR=0 and IER=0), 0 on timeout/failure (IER already cleared,
- * caller drops the data).  Never IACKs unless the shared line is asserted;
- * foreign services (rx/modem/other channel) are dismissed with a NOTRANS EOI
- * and the poll retried, which also scavenges anything stale left by RMON/u-boot.
+ * Transmit a run of bytes the way the firmware does, in fifo-sized batches.
+ * The important property (vs the earlier one-service-per-byte version that
+ * died on the real chip) is that a whole batch is written into the tx fifo
+ * *before* the closing TEOIR: once the bytes are in the fifo they transmit
+ * regardless of whether the fragile per-service re-arm succeeds.  Newlines
+ * are expanded to CR/LF.  Bytes are dropped (not hung) if we cannot enter
+ * the tx service.
  */
-static int e17_cd2401_enter_tx_service(void)
-{
-	int retry;
-
-	e17_cd2401[CD2401_CAR] = 0;
-	e17_cd2401[CD2401_IER] = CD2401_IER_TXD;	/* proven to assert on hw */
-
-	for (retry = 0; retry < E17_CD2401_RETRIES; retry++) {
-		long t = E17_CD2401_TIMEOUT;
-		u8 ack;
-
-		while ((e17_vic[E17_VIC_LICR6] & E17_VIC_LICR_STATE) && --t)
-			cpu_relax();		/* STATE is active low */
-		if (!t)
-			break;			/* stalled/absent uart: drop */
-
-		ack = e17_cd2401_iack[E17_CD2401_IPL];	/* the one IACK */
-		switch (ack & 3) {
-		case 2:					/* transmit */
-			if (!(e17_cd2401[CD2401_LICR] & 0x0c))
-				return 1;		/* ch0 tx service entered */
-			e17_cd2401[CD2401_TEOIR] = CD2401_EOIR_NOTRANS;
-			break;			/* another channel: dismiss */
-		case 3:					/* rx data: discard */
-		case 0:					/* rx exception: RISR read clears it */
-			(void)e17_cd2401[CD2401_RISRH];
-			(void)e17_cd2401[CD2401_RISRL];
-			e17_cd2401[CD2401_REOIR] = CD2401_EOIR_NOTRANS;
-			break;
-		case 1:					/* modem */
-			e17_cd2401[CD2401_MEOIR] = CD2401_EOIR_NOTRANS;
-			break;
-		}
-	}
-	e17_cd2401[CD2401_IER] = 0;
-	return 0;
-}
-
-/* transmit raw bytes; batches of up to TFTC (<=16) per service */
-static void e17_cd2401_tx(const char *s, unsigned int n)
-{
-	while (n) {
-		unsigned int cnt;
-
-		if (!e17_cd2401_enter_tx_service())
-			return;				/* drop the rest, never hang */
-
-		cnt = e17_cd2401[CD2401_TFTC];
-		if (cnt > 16)
-			cnt = 16;
-		if (!cnt) {				/* shouldn't happen; be paranoid */
-			e17_cd2401[CD2401_TEOIR] = CD2401_EOIR_NOTRANS;
-			e17_cd2401[CD2401_IER] = 0;
-			continue;
-		}
-		if (cnt > n)
-			cnt = n;
-		n -= cnt;
-		while (cnt--)
-			e17_cd2401[CD2401_DR] = *s++;
-		e17_cd2401[CD2401_TEOIR] = 0;		/* data transferred */
-		e17_cd2401[CD2401_IER] = 0;		/* no re-arm, no 2nd ack */
-	}
-}
-
 static void e17_cd2401_write(const char *s, unsigned int n)
 {
-	static bool inited;
+	e17_cd2401[CD2401_CAR] = 0;		/* select channel 0 */
+	e17_cd2401[CD2401_TPILR] = CD2401_TX_IPL;
 
-	if (!inited) {
-		e17_cd2401_init();
-		inited = true;
-	}
 	while (n) {
-		unsigned int i = 0;
+		int space;
 
-		while (i < n && s[i] != '\n')
-			i++;
-		e17_cd2401_tx(s, i);
-		s += i; n -= i;
-		if (n) {				/* s[0] == '\n' */
-			e17_cd2401_tx("\r\n", 2);
-			s++; n--;
+		e17_cd2401[CD2401_IER] = CD2401_IER_TXD;	/* enable tx irq */
+		if (e17_cd2401_ack_tx() != 0) {		/* enter tx service */
+			e17_cd2401[CD2401_IER] = 0;
+			return;				/* give up (drop rest) */
 		}
+
+		/* fill the fifo (leave room for a possible CR before an LF) */
+		space = e17_cd2401[CD2401_TFTC];
+		while (space >= 2 && n) {
+			char c = *s++;
+
+			n--;
+			if (c == '\n') {
+				e17_cd2401[CD2401_DR] = '\r';
+				space--;
+			}
+			e17_cd2401[CD2401_DR] = c;
+			space--;
+		}
+
+		e17_cd2401[CD2401_TEOIR] = 0;		/* transfer the batch */
+		e17_cd2401_ack_tx();			/* re-arm (best effort) */
+		e17_cd2401[CD2401_TEOIR] = CD2401_TEOIR_NOTRANS;
+		e17_cd2401[CD2401_IER] = 0;		/* disable tx irq */
 	}
 }
 
