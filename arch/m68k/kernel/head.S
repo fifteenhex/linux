@@ -750,9 +750,20 @@ L(test_notvirt):
 	jra	L(save_cachetype)
 #endif /* CONFIG_060_WRITETHROUGH */
 1:
-	movew	#_PAGE_CACHE040,%d0
+	movel	#_PAGE_CACHE040W,%d1		| page-table cachemode = write-through
 
-	movel	#_PAGE_CACHE040W,%d1
+	/*
+	 * ELTEC E17: use WRITE-THROUGH for supervisor memory too, not copyback.
+	 * On this board a copyback dirty-line eviction (a 16-byte burst writeback)
+	 * hard-locks the bus at unpredictable times -- write-through never
+	 * produces dirty lines, so there is no writeback burst.  RMON avoids this
+	 * by running caches-off.
+	 */
+	is_e17(L(e17_sup_wt))
+	movew	#_PAGE_CACHE040,%d0		| others: copyback
+	jra	L(save_cachetype)
+L(e17_sup_wt):
+	movew	#_PAGE_CACHE040W,%d0		| E17: write-through
 
 L(save_cachetype):
 	/* Save cache mode for supervisor mode and page tables
