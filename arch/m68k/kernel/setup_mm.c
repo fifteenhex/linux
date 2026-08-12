@@ -118,18 +118,11 @@ EXPORT_SYMBOL(isa_sex);
  */
 #ifdef CONFIG_ELTEC_E17
 /*
- * e17_dbg_putc (head.S) is the ONLY reliable output on real hardware: the C
- * console (register_console) is silent and the POST display appears not to
- * update either.  So each milestone also emits its low nibble as a serial
- * char, extending the head.S A..N checkpoint trail through setup_arch: the
- * last char seen pinpoints where the boot dies.
+ * POST-display milestone (7-seg, low nibble).  Serial tracing now goes through
+ * the datasheet-correct CD2401 console (e17_early_puts), not head.S.
  */
-extern void e17_dbg_putc(int);
 #define E17_POST(code) \
-	do { if (MACH_IS_E17) { \
-		*(volatile u8 *)0xfec30000 = (code); \
-		e17_dbg_putc("0123456789abcdef"[(code) & 0xf]); \
-	} } while (0)
+	do { if (MACH_IS_E17) *(volatile u8 *)0xfec30000 = (code); } while (0)
 extern void e17_early_puts(const char *);
 extern void e17_early_puthex(unsigned long);
 #define E17_TRACE(s) do { if (MACH_IS_E17) e17_early_puts(s); } while (0)

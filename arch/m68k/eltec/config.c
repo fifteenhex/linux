@@ -96,37 +96,28 @@ static volatile u8 *const e17_vic = (volatile u8 *)E17_VIC_BASE;
  * 0.  The generous retry is the crucial difference from the old one-shot
  * version, which dropped everything after the first fifo-full.  Returns 0 ok.
  */
-#define E17_CD2401_ACK_LOOPS	0x10000
+#define E17_CD2401_ACK_LOOPS	0x100000	/* generous: covers fifo drain at low baud */
 
-static int e17_cd2401_ack_irq(u8 ipl)
-{
-	unsigned int i;
-
-	for (i = E17_CD2401_ACK_LOOPS; i; i--) {
-		/* STATE is active low: bit clear => CD2401 asserting */
-		if (!(e17_vic[E17_VIC_LICR6] & E17_VIC_LICR_STATE)) {
-			(void)e17_cd2401_iack[ipl];	/* IACK -> enter service */
-			return 0;
-		}
-		cpu_relax();
-	}
-	return -1;
-}
-
+/*
+ * Enter the tx service: wait (bounded) for the CD2401 to request service --
+ * the VIC's LICR6 STATE bit is the raw interrupt line, active LOW -- then do
+ * the interrupt-acknowledge cycle at the tx priority level, which enters tx
+ * service context (datasheet 5.3.2 / 5.616).  No TACT-check-then-retry: if
+ * TACT lagged the IACK we'd 'continue' and re-poll STATE, but the IACK already
+ * consumed the request so STATE is gone and we'd time out -- which is exactly
+ * how the 2nd service stalled.  We only ever enable TxD (never RxD) so the sole
+ * request source is our channel-0 transmitter.  Returns 0 on success.
+ */
 static int e17_cd2401_ack_tx(void)
 {
 	unsigned int i;
 
 	for (i = E17_CD2401_ACK_LOOPS; i; i--) {
-		if (e17_cd2401_ack_irq(CD2401_TX_IPL))
-			return -1;
-		if (!(e17_cd2401[CD2401_TIR] & CD2401_TIR_TACT))
-			continue;		/* service not active yet -- retry */
-		if (((e17_cd2401[CD2401_LICR] >> 2) & 3) != 0) {
-			e17_cd2401[CD2401_TEOIR] = CD2401_TEOIR_NOTRANS;
-			continue;		/* not channel 0 -- dismiss, retry */
+		if (!(e17_vic[E17_VIC_LICR6] & E17_VIC_LICR_STATE)) {
+			(void)e17_cd2401_iack[CD2401_TX_IPL];	/* IACK -> service */
+			return 0;
 		}
-		return 0;
+		cpu_relax();
 	}
 	return -1;
 }

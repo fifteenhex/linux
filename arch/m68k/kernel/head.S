@@ -3193,26 +3193,15 @@ func_start	serial_putc,%d0/%d1/%a0/%a1
 	 * IACK window (base + 0x2000, at the tx priority level) to enter tx
 	 * service, write the byte and end the service with TEOIR.
 	 */
-	movel	#0xfec64000,%a1		| CD2401 register base
-	movel	#0xfec00000,%a0		| VIC068A base
-	clrb	%a1@(0xee)		| CAR   = channel 0
-	moveb	#0x02,%a1@(0xe0)	| TPILR = tx priority level 2
-	moveb	#0x01,%a1@(0x11)	| IER   = tx-data interrupt enable
-	movel	#0x80000,%d1		| poll timeout (never hang)
-1:	btst	#3,%a0@(0x3b)		| VIC LICR6 STATE: 0 => CD2401 asserting
-	jeq	3f
-	subql	#1,%d1
-	jne	1b
-	| Timed out: no tx interrupt is pending (the fifo is full and this
-	| simplified per-byte handshake doesn't re-arm).  Drop the byte -- do
-	| NOT issue an IACK here: acknowledging a non-pending interrupt gets no
-	| DTACK from the CD2401 and wedges the bus (this was the ~8-char hang).
-	clrb	%a1@(0x11)		| IER = 0
-	jbra	L(serial_putc_done)
-3:	tstb	%a1@(0x2002)		| IACK at level 2 -> enter tx service
-	moveb	%d0,%a1@(0xf8)		| TDR   = char
-	clrb	%a1@(0x85)		| TEOIR = end of tx interrupt
-	clrb	%a1@(0x11)		| IER   = 0
+	/*
+	 * DISABLED: this simplified per-byte CD2401 writer is unreliable (drops
+	 * after ~8-12 chars) AND a hang risk -- if a stale (e.g. rx) interrupt is
+	 * pending its STATE poll matches and it IACKs at the tx level, gets no
+	 * DTACK, and wedges the bus.  head.S therefore emits NOTHING on serial;
+	 * the datasheet-correct C console (arch/m68k/eltec/config.c) is the sole,
+	 * reliable serial channel from start_kernel onward.  (The deliberate POST
+	 * display writes elsewhere in head.S are unaffected.)
+	 */
 	jbra	L(serial_putc_done)
 2:
 #endif /* CONFIG_ELTEC_E17 */

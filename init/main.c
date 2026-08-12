@@ -974,20 +974,15 @@ void start_kernel(void)
 	char *command_line;
 	char *after_dashes;
 #ifdef CONFIG_ELTEC_E17
-	/* reliable single-char boot checkpoints (see setup_mm.c); self-guarded */
-	extern void e17_dbg_putc(int);
+	/*
+	 * head.S emits nothing on serial now (its writer was unreliable and a
+	 * bus-hang risk).  Bring up the datasheet-correct CD2401 console here and
+	 * emit a first marker, so this is the earliest reliable serial output.
+	 */
 	extern void e17_cd2401_init(void);
 	extern void e17_early_puts(const char *);
-	e17_dbg_putc('O');		/* O = start_kernel entry */
-	/*
-	 * DIAGNOSTIC: does the batched u-boot-style C tx work at all on real hw?
-	 * Re-init the chip and print a long string, bypassing register_console.
-	 * If the whole string appears, the C console works and the boot is dying
-	 * later (before register_console); if it caps/vanishes, the C tx itself
-	 * is the problem.
-	 */
 	e17_cd2401_init();
-	e17_early_puts("\r\n[E17-Cconsole 0123456789 abcdefghijklmnopqrstuvwxyz END]\r\n");
+	e17_early_puts("\r\n[E17 start_kernel]\r\n");
 #endif
 
 	set_task_stack_end_magic(&init_task);
@@ -1008,11 +1003,11 @@ void start_kernel(void)
 	page_address_init();
 	pr_notice("%s", linux_banner);
 #ifdef CONFIG_ELTEC_E17
-	e17_dbg_putc('P');		/* P = about to call setup_arch */
+	e17_early_puts("[E17 pre-setup_arch]\r\n");
 #endif
 	setup_arch(&command_line);
 #ifdef CONFIG_ELTEC_E17
-	e17_dbg_putc('W');		/* W = setup_arch returned */
+	e17_early_puts("[E17 post-setup_arch]\r\n");
 #endif
 	mm_core_init_early();
 	/* Static keys and static calls are needed by LSMs */
