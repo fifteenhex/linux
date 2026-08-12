@@ -55,6 +55,7 @@
 #define CD2401_CAR		0xee	/* channel access (select) register */
 #define CD2401_IER		0x11	/* interrupt enable register */
 #define CD2401_IER_TXD		0x01
+#define CD2401_IER_TXMPTY	0x02	/* transmitter fully idle (re-posts reliably) */
 #define CD2401_LICR		0x26	/* local interrupt (which channel) */
 #define CD2401_TFTC		0x80	/* tx fifo transfer count (free space) */
 #define CD2401_TEOIR		0x85	/* transmit end of interrupt */
@@ -128,7 +129,10 @@ static void e17_cd2401_write(const char *s, unsigned int n)
 	while (n) {
 		int space;
 
-		e17_cd2401[CD2401_IER] = CD2401_IER_TXD;	/* enable tx irq */
+		/* TxMpty|TxD: TxMpty is level-like ("transmitter idle") and
+		 * re-posts reliably, so re-entry after a full fifo works -- plain
+		 * TxD does not reliably re-post on the real chip. */
+		e17_cd2401[CD2401_IER] = CD2401_IER_TXMPTY | CD2401_IER_TXD;
 		if (e17_cd2401_ack_tx() != 0) {		/* enter tx service */
 			e17_cd2401[CD2401_IER] = 0;
 			return;				/* give up (drop rest) */
