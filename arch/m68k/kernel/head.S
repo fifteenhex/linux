@@ -3314,15 +3314,14 @@ func_return	serial_putc
 ENTRY(e17_exc_report)
 	movew	#0x2700,%sr		| supervisor, mask all interrupts
 	/*
-	 * Latch the "already reported" flag FIRST, before any read that could
-	 * fault (an address error re-enters this very handler): a re-entry then
-	 * short-circuits straight to the halt instead of looping forever.
+	 * Latch the once-flag FIRST (before any potentially-faulting read): a
+	 * re-entry then short-circuits to the halt instead of looping.
 	 */
 	lea	%pc@(L(e17_rep_flag)),%a3
 	tstb	%a3@
 	jne	8f
 	st	%a3@
-	/* vector number -> d2 as an ascii hex digit (fixed at frame+6) */
+	/* vector number (frame+6) -> d2 as an ascii hex digit */
 	movew	%sp@(6),%d0
 	andw	#0x0fff,%d0
 	lsrw	#2,%d0
@@ -3333,42 +3332,45 @@ ENTRY(e17_exc_report)
 	addl	#7,%d0
 1:	movel	%d0,%d2
 	/*
-	 * v0 = sp@8 (frame return slot), v1 = a6@4 (frame-pointer chain).  Both
-	 * reads bounds-checked (even, in RAM) so a wild sp/a6 can't fault.  No
-	 * stack scan -- that walked off into unmapped memory and re-faulted.
+	 * Gather, into scratch, a window of the crashed context so the caller
+	 * chain can be read by eye:
+	 *   val[0]      = faulting PC (frame+2)
+	 *   val[1..10]  = 10 longwords of the crashed stack above the 8-byte
+	 *                 frame (frame+8, +12, ...), each bounds-checked (even,
+	 *                 in RAM) so a wild sp can't fault us -- 0 if unreadable.
 	 */
 	lea	%pc@(L(e17_rep_vals)),%a1
-	clrl	%a1@
-	clrl	%a1@(4)
-	movel	%sp,%d3			| v0 = sp@8, if sp sane
-	btst	#0,%d3
-	jne	2f
-	cmpl	#0x1000,%d3
-	jcs	2f
-	cmpl	#0x02000000,%d3
-	jcc	2f
-	movel	%sp@(8),%a1@
-2:	movel	%a6,%d3			| v1 = a6@4, if a6 sane
-	btst	#0,%d3
-	jne	3f
-	cmpl	#0x1000,%d3
+	movel	%sp@(2),%a1@		| val[0] = faulting PC
+	lea	%sp@(8),%a0		| crashed stack above the frame
+	moveq	#10,%d1			| count
+	moveq	#1,%d3			| scratch longword index
+2:	clrl	%a1@(0,%d3:l:4)		| default 0
+	movel	%a0,%d4
+	btst	#0,%d4
+	jne	3f			| odd -> skip
+	cmpl	#0x1000,%d4
 	jcs	3f
-	cmpl	#0x02000000,%d3
-	jcc	3f
-	movel	%a6@(4),%a1@(4)
-3:	lea	%pc@(L(e17_rep_stack)),%sp	| private stack for printing
+	cmpl	#0x02000000,%d4
+	jcc	3f			| out of RAM -> skip
+	movel	%a0@,%a1@(0,%d3:l:4)	| store stack longword
+3:	addql	#4,%a0
+	addql	#1,%d3
+	subql	#1,%d1
+	jne	2b
+	/* switch to the private stack and print vector + 11 values */
+	lea	%pc@(L(e17_rep_stack)),%sp
 	moveb	#0x0e,0xfec30000	| 'E' on the display
 	movel	%d2,%sp@-		| vector digit
 	jbsr	L(serial_putc)
 	addql	#4,%sp
-	lea	%pc@(L(e17_rep_vals)),%a2	| v0 = sp@8
-	movel	%a2@,%sp@-
+	moveq	#0,%d2			| value index (d2 survives putn)
+4:	lea	%pc@(L(e17_rep_vals)),%a2
+	movel	%a2@(0,%d2:l:4),%sp@-	| " XXXXXXXX"
 	jbsr	L(putn)
 	addql	#4,%sp
-	lea	%pc@(L(e17_rep_vals)),%a2	| v1 = a6@4
-	movel	%a2@(4),%sp@-
-	jbsr	L(putn)
-	addql	#4,%sp
+	addql	#1,%d2
+	cmpl	#11,%d2
+	jcs	4b
 	pea	10			| '\n'
 	jbsr	L(serial_putc)
 	addql	#4,%sp
@@ -3381,8 +3383,8 @@ L(e17_rep_flag):
 	.byte	0
 	.align	2
 L(e17_rep_vals):
-	.long	0,0,0			| v0=sp@8, v1=a6@4, v2=scan
-	.space	512
+	.long	0,0,0,0,0,0,0,0,0,0,0,0	| val[0]=PC, val[1..10]=stack, +slack
+	.space	256
 L(e17_rep_stack):
 	.long	0,0,0,0
 
