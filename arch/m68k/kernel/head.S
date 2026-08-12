@@ -3314,13 +3314,13 @@ func_return	serial_putc
 ENTRY(e17_exc_report)
 	movew	#0x2700,%sr		| supervisor, mask all interrupts
 	/*
-	 * Latch the once-flag FIRST (before any potentially-faulting read): a
-	 * re-entry then short-circuits to the halt instead of looping.
+	 * No once-flag needed: with interrupts masked the final stop can only be
+	 * broken by an exception THIS handler causes.  So the previous looping was
+	 * the handler itself faulting -- its scratch and private stack lived in
+	 * read-only .init.text (CONFIG_STRICT_KERNEL_RWX), so every store/push
+	 * access-faulted.  All scratch now lives in .bss (writable), addressed
+	 * absolutely (it is far past PC-relative range from here).
 	 */
-	lea	%pc@(L(e17_rep_flag)),%a3
-	tstb	%a3@
-	jne	8f
-	st	%a3@
 	/* vector number (frame+6) -> d2 as an ascii hex digit */
 	movew	%sp@(6),%d0
 	andw	#0x0fff,%d0
@@ -3339,7 +3339,7 @@ ENTRY(e17_exc_report)
 	 *                 frame (frame+8, +12, ...), each bounds-checked (even,
 	 *                 in RAM) so a wild sp can't fault us -- 0 if unreadable.
 	 */
-	lea	%pc@(L(e17_rep_vals)),%a1
+	lea	L(e17_rep_vals),%a1
 	movel	%sp@(2),%a1@		| val[0] = faulting PC
 	lea	%sp@(8),%a0		| crashed stack above the frame
 	moveq	#10,%d1			| count
@@ -3358,13 +3358,13 @@ ENTRY(e17_exc_report)
 	subql	#1,%d1
 	jne	2b
 	/* switch to the private stack and print vector + 11 values */
-	lea	%pc@(L(e17_rep_stack)),%sp
+	lea	L(e17_rep_stack),%sp
 	moveb	#0x0e,0xfec30000	| 'E' on the display
 	movel	%d2,%sp@-		| vector digit
 	jbsr	L(serial_putc)
 	addql	#4,%sp
 	moveq	#0,%d2			| value index (d2 survives putn)
-4:	lea	%pc@(L(e17_rep_vals)),%a2
+4:	lea	L(e17_rep_vals),%a2
 	movel	%a2@(0,%d2:l:4),%sp@-	| " XXXXXXXX"
 	jbsr	L(putn)
 	addql	#4,%sp
@@ -3377,16 +3377,19 @@ ENTRY(e17_exc_report)
 8:	stop	#0x2700			| HALT
 	jra	8b
 
-	/* diagnostic scratch (early __INIT text is writable); never executed */
-	.align	2
-L(e17_rep_flag):
-	.byte	0
-	.align	2
+	/*
+	 * Diagnostic scratch -- MUST be writable, so put it in .bss (kernel text
+	 * is read-only under CONFIG_STRICT_KERNEL_RWX).  The private stack grows
+	 * DOWN from L(e17_rep_stack) into the reserved area above e17_rep_vals.
+	 */
+	.section .bss
+	.align	4
 L(e17_rep_vals):
-	.long	0,0,0,0,0,0,0,0,0,0,0,0	| val[0]=PC, val[1..10]=stack, +slack
-	.space	256
+	.space	64			| val[0]=PC, val[1..10]=stack (16 longs slack)
+	.space	512			| private-stack growth area
 L(e17_rep_stack):
-	.long	0,0,0,0
+	.space	4
+	.previous
 
 #endif /* CONFIG_ELTEC_E17 */
 
