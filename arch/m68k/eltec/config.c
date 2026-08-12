@@ -130,56 +130,42 @@ static int e17_cd2401_ack_tx(void)
 }
 
 /*
- * Transmit a run of bytes exactly as u-boot's serial_cd2401_write_tx() does:
- * enter tx service, fill up to TFTC fifo slots, TEOIR=0 to launch the batch,
- * re-enter service, TEOIR=NOTRANS to close it.  Loop for the whole string.
- * Newlines expand to CR/LF.  Never drop-and-pace; the ack retry above is what
- * makes it reliable.
+ * Send ONE byte through a complete tx-service cycle, exactly as u-boot's
+ * serial_cd2401_putc()->write_tx(len=1) does: enable tx irq, enter service,
+ * write the single byte, TEOIR=0 to launch, re-enter service, TEOIR=NOTRANS to
+ * close, disable tx irq.  Writing only one byte keeps the 16-byte FIFO from
+ * ever filling, so the space-available interrupt (VIC STATE) always re-asserts
+ * for the next byte -- filling the whole FIFO per batch left it unable to
+ * re-arm on real hardware (output stalled after the first '[E17-Cconsole').
+ * Returns 0 on success, -1 if the service could not be entered.
  */
+static int e17_cd2401_putc(unsigned char c)
+{
+	e17_cd2401[CD2401_CAR] = 0;			/* select channel 0 */
+	e17_cd2401[CD2401_IER] |= CD2401_IER_TXD;	/* enable tx irq */
+	if (e17_cd2401_ack_tx() != 0) {
+		e17_cd2401[CD2401_IER] &= ~CD2401_IER_TXD;
+		return -1;
+	}
+	e17_cd2401[CD2401_DR] = c;			/* one byte into the fifo */
+	e17_cd2401[CD2401_TEOIR] = 0;			/* launch */
+	e17_cd2401_ack_tx();				/* re-enter service */
+	e17_cd2401[CD2401_TEOIR] = CD2401_TEOIR_NOTRANS;/* close */
+	e17_cd2401[CD2401_IER] &= ~CD2401_IER_TXD;	/* disable tx irq */
+	return 0;
+}
+
 static void e17_cd2401_write(const char *s, unsigned int n)
 {
-	e17_cd2401[CD2401_CAR] = 0;		/* select channel 0 */
 	e17_cd2401[CD2401_TPILR] = CD2401_TX_IPL;
 
-	while (n) {
-		unsigned int cnt, w;
+	while (n--) {
+		unsigned char c = *s++;
 
-		e17_cd2401[CD2401_IER] |= CD2401_IER_TXD;	/* enable tx irq */
-		if (e17_cd2401_ack_tx() != 0) {
-			e17_cd2401[CD2401_IER] &= ~CD2401_IER_TXD;
+		if (c == '\n')
+			e17_cd2401_putc('\r');
+		if (e17_cd2401_putc(c) != 0)
 			return;				/* give up (drop rest) */
-		}
-
-		cnt = e17_cd2401[CD2401_TFTC];		/* free fifo slots */
-		for (w = 0; w < cnt && n; ) {
-			char c = *s;
-
-			if (c == '\n') {
-				if (w + 2 > cnt)
-					break;		/* need 2 slots for CR/LF */
-				e17_cd2401[CD2401_DR] = '\r';
-				e17_cd2401[CD2401_DR] = '\n';
-				w += 2;
-			} else {
-				e17_cd2401[CD2401_DR] = c;
-				w++;
-			}
-			s++;
-			n--;
-		}
-
-		e17_cd2401[CD2401_TEOIR] = 0;		/* launch the batch */
-		e17_cd2401_ack_tx();			/* re-enter service */
-		e17_cd2401[CD2401_TEOIR] = CD2401_TEOIR_NOTRANS;
-		/*
-		 * Disable the tx irq at the END of EVERY batch and re-enable at the
-		 * top of the next, exactly as u-boot's per-char write_tx does.  On
-		 * real hardware this disable/enable cycle is what re-arms the tx
-		 * service; keeping IER.TXD asserted across batches (as before) left
-		 * the 2nd batch's ack_tx unable to re-assert -> output stalled after
-		 * the first ~fifo-full ("[E17-Cconsole" then dead).
-		 */
-		e17_cd2401[CD2401_IER] &= ~CD2401_IER_TXD;
 	}
 }
 
