@@ -53,9 +53,10 @@
 #define E17_VIC_LICR6		0x3b		/* CD2401 local interrupt */
 #define E17_VIC_LICR_STATE	0x08		/* raw pin level (active low) */
 #define CD2401_CAR		0xee	/* channel access (select) register */
-#define CD2401_TISR		0x8a	/* transmit interrupt status */
-#define CD2401_TISR_TXEMPTY	0x02	/* tx shift register empty */
+#define CD2401_IER		0x11	/* interrupt enable register */
+#define CD2401_IER_TXD		0x01
 #define CD2401_TEOIR		0x85	/* transmit end of interrupt */
+#define CD2401_TPILR		0xe0	/* tx priority interrupt level */
 #define CD2401_TX_IPL		0x02
 #define CD2401_DR		0xf8	/* rx/tx data register */
 
@@ -71,21 +72,32 @@ static volatile u8 *const e17_cd2401_iack __maybe_unused =
 static volatile u8 *const e17_vic = (volatile u8 *)E17_VIC_BASE;
 
 /*
- * Transmit one byte, the simple reliable way u-boot's debug uart does it:
- * wait for the transmit shift register to be empty (TISR TXEMPTY), write the
- * byte to the data register and end the (polled) transfer with TEOIR.  No
- * interrupt-service handshake, no fifo batching -- one byte at a time, but it
- * never drops or wedges.  Bounded so a dead uart can't hang the CPU.
+ * Transmit one byte via the CD2401 interrupt-service context (the only way
+ * the real chip actually transmits -- a bare TDR write is ignored).  Enable
+ * the tx interrupt, wait (bounded, generous enough to let the fifo drain at
+ * the line rate) for the VIC to see the line asserted, acknowledge through
+ * the board IACK window to enter service, write the byte and end with TEOIR.
+ * If the line never asserts we drop the byte -- crucially we do NOT issue the
+ * IACK in that case: acking a non-pending interrupt gets no DTACK and wedges
+ * the bus.
  */
 static void e17_cd2401_putc(char c)
 {
-	int timeout = 200000;
+	int timeout = 4000000;
 
 	e17_cd2401[CD2401_CAR] = 0;		/* select channel 0 */
-	while (!(e17_cd2401[CD2401_TISR] & CD2401_TISR_TXEMPTY) && --timeout)
+	e17_cd2401[CD2401_TPILR] = CD2401_TX_IPL;
+	e17_cd2401[CD2401_IER] = CD2401_IER_TXD;	/* enable tx interrupt */
+
+	while ((e17_vic[E17_VIC_LICR6] & E17_VIC_LICR_STATE) && --timeout)
 		cpu_relax();
-	e17_cd2401[CD2401_DR] = c;		/* write the byte */
-	e17_cd2401[CD2401_TEOIR] = 0;		/* end of (polled) transfer */
+
+	if (timeout) {				/* line asserted: tx int pending */
+		(void)e17_cd2401_iack[CD2401_TX_IPL];	/* IACK -> enter service */
+		e17_cd2401[CD2401_DR] = c;	/* write the byte */
+		e17_cd2401[CD2401_TEOIR] = 0;	/* end of tx interrupt */
+	}
+	e17_cd2401[CD2401_IER] = 0;		/* disable tx interrupt */
 }
 
 static void e17_cd2401_write(const char *s, unsigned int n)

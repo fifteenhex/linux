@@ -3181,22 +3181,31 @@ func_start	serial_putc,%d0/%d1/%a0/%a1
 #ifdef CONFIG_ELTEC_E17
 	is_not_e17(2f)
 	/*
-	 * CD2401 at 0xfec64000, channel 0 = the console.  Transmit the simple,
-	 * reliable way (as u-boot's debug uart does): select the channel, wait
-	 * (bounded) for the transmit shift register to be empty (TISR TXEMPTY),
-	 * write the byte and end the polled transfer with TEOIR.  No interrupt-
-	 * service handshake -- that per-byte scheme dropped/wedged on the real
-	 * chip after the fifo filled.
+	 * CD2401 at 0xfec64000, channel 0 = the console.  The real chip only
+	 * transmits from its interrupt-service context (a bare TDR write is
+	 * ignored), so: select the channel, enable the tx interrupt, wait
+	 * (bounded, generously) for the VIC to see the line asserted (LICR6
+	 * STATE, active low), acknowledge through the board IACK window
+	 * (base + 0x2000, at the tx priority level) to enter service, write the
+	 * byte and end with TEOIR.  On timeout drop the byte without an IACK
+	 * (acking a non-pending interrupt gets no DTACK and wedges the bus).
 	 */
 	movel	#0xfec64000,%a1		| CD2401 register base
+	movel	#0xfec00000,%a0		| VIC068A base
 	clrb	%a1@(0xee)		| CAR   = channel 0
-	movel	#0x80000,%d1		| poll timeout (never hang)
-1:	btst	#1,%a1@(0x8a)		| TISR TXEMPTY?
-	jne	3f
+	moveb	#0x02,%a1@(0xe0)	| TPILR = tx priority level 2
+	moveb	#0x01,%a1@(0x11)	| IER   = tx-data interrupt enable
+	movel	#0x400000,%d1		| poll timeout (generous; never hang)
+1:	btst	#3,%a0@(0x3b)		| VIC LICR6 STATE: 0 => CD2401 asserting
+	jeq	3f
 	subql	#1,%d1
 	jne	1b
-3:	moveb	%d0,%a1@(0xf8)		| TDR   = char
-	clrb	%a1@(0x85)		| TEOIR = end of (polled) transfer
+	clrb	%a1@(0x11)		| timed out: drop byte, IER = 0
+	jbra	L(serial_putc_done)
+3:	tstb	%a1@(0x2002)		| IACK at level 2 -> enter tx service
+	moveb	%d0,%a1@(0xf8)		| TDR   = char
+	clrb	%a1@(0x85)		| TEOIR = end of tx interrupt
+	clrb	%a1@(0x11)		| IER   = 0
 	jbra	L(serial_putc_done)
 2:
 #endif /* CONFIG_ELTEC_E17 */
