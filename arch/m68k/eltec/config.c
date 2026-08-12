@@ -165,11 +165,15 @@ static void e17_cd2401_write(const char *s, unsigned int n)
 		e17_cd2401[CD2401_TEOIR] = 0;		/* transfer the batch */
 		e17_cd2401[CD2401_IER] = 0;		/* disable tx irq */
 
-		/* let the batch drain before re-entering service for the rest */
-		if (n)
-			for (drain = (long)written * E17_CD2401_DRAIN_PER_BYTE;
-			     drain > 0; drain--)
-				cpu_relax();
+		/*
+		 * Drain after EVERY batch (including the last) so this call
+		 * returns with an empty fifo -- otherwise the next, separate
+		 * write starts against a still-full fifo and drops (this was the
+		 * "[arch1:entry][" cutoff).
+		 */
+		for (drain = (long)written * E17_CD2401_DRAIN_PER_BYTE;
+		     drain > 0; drain--)
+			cpu_relax();
 	}
 }
 
