@@ -3336,16 +3336,22 @@ ENTRY(e17_exc_report)
 	movel	#0x40,%d1		| scan up to 64 longwords (clean stack now)
 	suba	%a2,%a2			| a2 = 0 (result, "none found")
 2:	movel	%a1@,%d3
+	/* .text: [0x1000, 0x3fb000) */
 	cmpl	#0x00001000,%d3
-	jcs	3f			| < 0x1000 -> skip
-	cmpl	#0x006bf000,%d3
-	jcc	3f			| > kernel end -> skip
-	movel	%d3,%a2			| found a plausible return address
-	jra	4f
+	jcs	3f			| < 0x1000 -> not code
+	cmpl	#0x003fb000,%d3
+	jcs	4f			| in .text -> found
+	/* .init.text: [0x598000, 0x5b7000) */
+	cmpl	#0x00598000,%d3
+	jcs	3f			| 0x3fb000..0x598000 -> data, not code
+	cmpl	#0x005b7000,%d3
+	jcc	3f			| >= 0x5b7000 -> not code
+4:	movel	%d3,%a2			| a plausible return address (in text)
+	jra	5f
 3:	addql	#4,%a1
 	subql	#1,%d1
 	jne	2b
-4:
+5:
 	/*
 	 * Report ONCE, then STOP -- a flag stops a recurring fault re-entering
 	 * and overwriting; print on a private stack (crashed stack may be bad).
