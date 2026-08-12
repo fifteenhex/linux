@@ -275,37 +275,26 @@ void e17_fb_init(void)
 	e17_fb_setpal(E17_FB_FG, 0xff, 0xff, 0xff);	/* index 0xff = white */
 
 	/*
-	 * Clear the whole framebuffer to black.  This full-screen fill hard-locked
-	 * before -- but that was a copyback dirty-line writeback burst evicting
-	 * mid-fill; with write-through supervisor memory there are no writeback
-	 * bursts, so it completes.
+	 * NO full-screen clear.  A sustained ~480KB write loop contends with the
+	 * video scanout and hard-locks the bus; short bursts (like RMON's text
+	 * drawing) are fine.  So each glyph clears only its own 8x8 cell as it is
+	 * drawn (white on black), leaving the rest of RMON's screen as-is.  Text
+	 * appears as black cells with white glyphs -- readable, and safe.
 	 */
-	memset((void *)e17_fb, E17_FB_BG, (size_t)E17_FB_PITCH * E17_FB_HEIGHT);
-
 	e17_fb_col = 0;
 	e17_fb_row = 0;
 	e17_fb_ready = true;
 }
 
 /* Scroll the whole screen up by one text row and clear the freed bottom row. */
-static void e17_fb_scroll(void)
-{
-	const size_t row_bytes = (size_t)E17_FB_PITCH * E17_FB_CELL;
-
-	memmove((void *)e17_fb, (const void *)(e17_fb + row_bytes),
-		row_bytes * (E17_FB_ROWS - 1));
-	memset((void *)(e17_fb + row_bytes * (E17_FB_ROWS - 1)), E17_FB_BG,
-	       row_bytes);
-}
 
 /* Advance to the start of the next text line, scrolling if at the bottom. */
 static void e17_fb_newline(void)
 {
 	e17_fb_col = 0;
-	if (++e17_fb_row >= E17_FB_ROWS) {
-		e17_fb_scroll();
-		e17_fb_row = E17_FB_ROWS - 1;
-	}
+	if (++e17_fb_row >= E17_FB_ROWS)
+		e17_fb_row = 0;		/* wrap to top; a real scroll (big VRAM
+					 * memmove) contends with scanout and locks */
 }
 
 /* Render one character at the current cell and advance the cursor. */
