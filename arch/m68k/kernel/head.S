@@ -3301,36 +3301,43 @@ func_return	serial_putc
  * 4=illegal, 8=privilege, a=line-A, b=line-F(FPU), etc.
  */
 ENTRY(e17_exc_report)
-	movew	#0x2700,%sr		| supervisor, mask all interrupts, so a
-					| periodic irq can't re-enter this handler
-					| and keep resetting the display to 'E'
+	movew	#0x2700,%sr		| supervisor, mask all interrupts
 	movew	%sp@(6),%d0		| format/vector word
 	andw	#0x0fff,%d0		| vector offset (= vector number * 4)
 	lsrw	#2,%d0			| d0 = vector number (0..255)
-	movel	%d0,%d2
-	lsrl	#4,%d2			| d2 = high nibble of the vector
+	movel	%d0,%d2			| save (serial_putc preserves d0-d2)
+	moveb	#0x0e,0xfec30000	| 'E' on the display too
 	/*
-	 * Read the vector out as two hex digits, each HELD LONG, with a brief
-	 * 'E' flash as a separator so they are easy to read even at unknown
-	 * clock:  (E) <hi held> (E) <lo held> ...  e.g. E,0,6 = vector 0x06.
+	 * Print "\nVNN\n" on serial (NN = faulting vector in hex), which is far
+	 * easier to read than blinking the display.  serial_putc has a timeout
+	 * so a wedged uart can't hang us; then halt.
 	 */
-1:	moveb	#0x0e,0xfec30000	| brief 'E' separator
-	movel	#0x300000,%d1
-2:	subql	#1,%d1
-	jne	2b
-	moveb	%d2,0xfec30000		| HIGH nibble, held long
-	movel	#0x0a00000,%d1
-3:	subql	#1,%d1
-	jne	3b
-	moveb	#0x0e,0xfec30000	| brief 'E' separator
-	movel	#0x300000,%d1
-5:	subql	#1,%d1
-	jne	5b
-	moveb	%d0,0xfec30000		| LOW nibble, held long
-	movel	#0x0a00000,%d1
-4:	subql	#1,%d1
-	jne	4b
-	jra	1b
+	pea	10			| '\n'
+	jbsr	L(serial_putc)
+	addql	#4,%sp
+	pea	86			| 'V'
+	jbsr	L(serial_putc)
+	addql	#4,%sp
+	movel	%d2,%d0
+	lsrl	#4,%d0			| high nibble
+	bsr	L(e17_hexd)
+	movel	%d2,%d0			| low nibble
+	bsr	L(e17_hexd)
+	pea	10			| '\n'
+	jbsr	L(serial_putc)
+	addql	#4,%sp
+9:	jra	9b			| halt (display holds 'E')
+
+L(e17_hexd):				| print low nibble of d0 as a hex char
+	andl	#0xf,%d0
+	addl	#'0',%d0
+	cmpl	#'9',%d0
+	jle	1f
+	addl	#7,%d0			| 'A'..'F'
+1:	movel	%d0,%sp@-
+	jbsr	L(serial_putc)
+	addql	#4,%sp
+	rts
 
 #endif /* CONFIG_ELTEC_E17 */
 
