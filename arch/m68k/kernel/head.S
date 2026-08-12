@@ -1564,16 +1564,11 @@ L(cache_done):
 #ifdef CONFIG_ELTEC_E17
 	moveb	#0xff,0xfec30000	/* display 'F' = about to call start_kernel */
 	/*
-	 * DIAGNOSTIC: fill the unused low page (0..0x1000, below _stext) with
-	 * illegal-instruction opcodes, so a jump through a NULL/bad function
-	 * pointer traps IMMEDIATELY at address 0 (vector 4, clean stack) instead
-	 * of executing the zero-padding up into _stext and re-running head.S.
+	 * NB: the diagnostic low-page fill (writing ILLEGAL opcodes to virtual
+	 * 0..0x1000) has been REMOVED -- it was scaffolding for the old exception
+	 * reporter and wrote to address 0, which may fault/hang on real hardware
+	 * (it only ever worked because QEMU maps 0 as plain RAM).
 	 */
-	movel	#0,%a0
-	movel	#0x400,%d0		| 0x1000 bytes / 4
-1:	movel	#0x4afc4afc,%a0@+	| 0x4afc = ILLEGAL opcode (twice)
-	subql	#1,%d0
-	jne	1b
 #endif
 
 	jbsr	start_kernel
