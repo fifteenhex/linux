@@ -3302,15 +3302,15 @@ func_return	serial_putc
  */
 ENTRY(e17_exc_report)
 	movew	#0x2700,%sr		| supervisor, mask all interrupts
+	movel	%sp@(2),%a2		| a2 = faulting PC (serial_putc/putn keep a2)
 	movew	%sp@(6),%d0		| format/vector word
 	andw	#0x0fff,%d0		| vector offset (= vector number * 4)
 	lsrw	#2,%d0			| d0 = vector number (0..255)
 	movel	%d0,%d2			| save (serial_putc preserves d0-d2)
 	moveb	#0x0e,0xfec30000	| 'E' on the display too
 	/*
-	 * Print "\nVNN\n" on serial (NN = faulting vector in hex), which is far
-	 * easier to read than blinking the display.  serial_putc has a timeout
-	 * so a wedged uart can't hang us; then halt.
+	 * Print "\nVNN PC=XXXXXXXX\n" on serial (NN = faulting vector, then the
+	 * PC), far easier to read than the display; then halt.
 	 */
 	pea	10			| '\n'
 	jbsr	L(serial_putc)
@@ -3319,10 +3319,16 @@ ENTRY(e17_exc_report)
 	jbsr	L(serial_putc)
 	addql	#4,%sp
 	movel	%d2,%d0
-	lsrl	#4,%d0			| high nibble
+	lsrl	#4,%d0			| high nibble of vector
 	bsr	L(e17_hexd)
-	movel	%d2,%d0			| low nibble
+	movel	%d2,%d0			| low nibble of vector
 	bsr	L(e17_hexd)
+	pea	80			| 'P'
+	jbsr	L(serial_putc)
+	addql	#4,%sp
+	movel	%a2,%sp@-		| the faulting PC (putn prints " XXXXXXXX")
+	jbsr	L(putn)
+	addql	#4,%sp
 	pea	10			| '\n'
 	jbsr	L(serial_putc)
 	addql	#4,%sp
