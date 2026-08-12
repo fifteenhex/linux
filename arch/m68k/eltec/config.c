@@ -73,6 +73,8 @@
 #define CD2401_CMR		0x1b	/* channel mode register */
 #define CD2401_CMR_ASYNC	0x02
 #define CD2401_RPILR		0xe1	/* rx priority interrupt level */
+#define CD2401_COR4		0x15	/* FIFO threshold (shared rx/tx, max 12) */
+#define CD2401_FIFO_THRESH	0x08	/* tx re-requests when free space > this */
 
 /*
  * The onboard I/O window (0xfec00000) is reached at its physical
@@ -130,43 +132,54 @@ static int e17_cd2401_ack_tx(void)
 }
 
 /*
- * Send ONE byte through a complete tx-service cycle, exactly as u-boot's
- * serial_cd2401_putc()->write_tx(len=1) does: enable tx irq, enter service,
- * write the single byte, TEOIR=0 to launch, re-enter service, TEOIR=NOTRANS to
- * close, disable tx irq.  Writing only one byte keeps the 16-byte FIFO from
- * ever filling, so the space-available interrupt (VIC STATE) always re-asserts
- * for the next byte -- filling the whole FIFO per batch left it unable to
- * re-arm on real hardware (output stalled after the first '[E17-Cconsole').
- * Returns 0 on success, -1 if the service could not be entered.
+ * Transmit a buffer the way the CD2401 datasheet (227-04631, section 5.3.2 +
+ * COR4) actually specifies for polled streaming:
+ *   - enable TxD in IER ONCE and leave it enabled for the whole buffer;
+ *   - each time the chip requests service (VIC STATE asserts), enter service
+ *     via the IACK, read TFTC (free fifo slots), write exactly that many bytes
+ *     (never more -- that overruns), and end with a SINGLE TEOIR;
+ *   - the hardware re-requests automatically when the FIFO drains below the
+ *     COR4 watermark -- so do NOT toggle IER and do NOT do a second
+ *     ack/TEOIR "close" per pass (both dropped the pending request and stalled
+ *     output after the first fifo-load on real hardware).
+ * TEOIR = 0 when we wrote data, 0x08 (Notrans) if a service fired with nothing
+ * left to send.  Newlines expand to CR/LF.
  */
-static int e17_cd2401_putc(unsigned char c)
-{
-	e17_cd2401[CD2401_CAR] = 0;			/* select channel 0 */
-	e17_cd2401[CD2401_IER] |= CD2401_IER_TXD;	/* enable tx irq */
-	if (e17_cd2401_ack_tx() != 0) {
-		e17_cd2401[CD2401_IER] &= ~CD2401_IER_TXD;
-		return -1;
-	}
-	e17_cd2401[CD2401_DR] = c;			/* one byte into the fifo */
-	e17_cd2401[CD2401_TEOIR] = 0;			/* launch */
-	e17_cd2401_ack_tx();				/* re-enter service */
-	e17_cd2401[CD2401_TEOIR] = CD2401_TEOIR_NOTRANS;/* close */
-	e17_cd2401[CD2401_IER] &= ~CD2401_IER_TXD;	/* disable tx irq */
-	return 0;
-}
-
 static void e17_cd2401_write(const char *s, unsigned int n)
 {
+	e17_cd2401[CD2401_CAR] = 0;			/* select channel 0 */
 	e17_cd2401[CD2401_TPILR] = CD2401_TX_IPL;
+	e17_cd2401[CD2401_IER] |= CD2401_IER_TXD;	/* enable tx irq -- once */
 
-	while (n--) {
-		unsigned char c = *s++;
+	while (n) {
+		unsigned int free, w;
 
-		if (c == '\n')
-			e17_cd2401_putc('\r');
-		if (e17_cd2401_putc(c) != 0)
-			return;				/* give up (drop rest) */
+		if (e17_cd2401_ack_tx() != 0)
+			break;				/* couldn't enter service */
+
+		free = e17_cd2401[CD2401_TFTC] & 0x1f;	/* free fifo slots */
+		for (w = 0; w < free && n; ) {
+			char c = *s;
+
+			if (c == '\n') {
+				if (w + 2 > free)
+					break;		/* need 2 slots for CR/LF */
+				e17_cd2401[CD2401_DR] = '\r';
+				e17_cd2401[CD2401_DR] = '\n';
+				w += 2;
+			} else {
+				e17_cd2401[CD2401_DR] = c;
+				w++;
+			}
+			s++;
+			n--;
+		}
+
+		/* single close: data written -> 0, nothing written -> Notrans */
+		e17_cd2401[CD2401_TEOIR] = w ? 0 : CD2401_TEOIR_NOTRANS;
 	}
+
+	e17_cd2401[CD2401_IER] &= ~CD2401_IER_TXD;	/* done: disable tx irq */
 }
 
 /*
@@ -193,6 +206,7 @@ void e17_cd2401_init(void)
 	e17_cd2401[CD2401_LIV] = 0;
 	e17_cd2401[CD2401_TPILR] = CD2401_TX_IPL;
 	e17_cd2401[CD2401_RPILR] = CD2401_RX_IPL;
+	e17_cd2401[CD2401_COR4] = CD2401_FIFO_THRESH;	/* tx re-request watermark */
 
 	/* wait (bounded) for any in-progress channel command to finish */
 	for (bound = 100000; bound && e17_cd2401[CD2401_CCR]; bound--)
