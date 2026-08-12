@@ -1539,6 +1539,20 @@ L(cache_done):
 	lea	init_task,%curptr
 	lea	init_thread_union+THREAD_SIZE,%sp
 
+#ifdef CONFIG_ELTEC_E17
+	/*
+	 * DIAGNOSTIC: the board wedges on the first push onto this init-task
+	 * stack (putc 'K's push is the first stack write).  Probe a direct
+	 * write to the top of the init stack: '1' = stack set, about to write;
+	 * if it stays on '1' the init-stack RAM (~0x51b000) is unmapped/dead in
+	 * the kernel's early page map; '2' = the stack is writable and the
+	 * wedge is elsewhere.
+	 */
+	moveb	#0x01,0xfec30000
+	clrl	%sp@(-4)
+	moveb	#0x02,0xfec30000
+#endif
+
 	putc	'K'
 
 	subl	%a6,%a6		/* clear a6 for gdb */
