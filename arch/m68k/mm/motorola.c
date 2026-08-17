@@ -103,6 +103,17 @@ static struct list_head ptable_list[3] = {
 	LIST_HEAD_INIT(ptable_list[2]),
 };
 
+/*
+ * m68k sub-allocates several page tables from one page (8 PGD/PMD or 16 PTE
+ * tables per page), tracked by the global ptable_list[] + per-page markbits.
+ * This has no SPLIT_PTE_PTLOCKS and the callers only hold their own per-mm
+ * lock, so on SMP two CPUs allocating/freeing tables in DIFFERENT mms race on
+ * the shared list+bitmap -- handing the SAME table to two mms (memory
+ * corruption) or corrupting the list (lockups).  Serialise the whole
+ * sub-allocator with one lock.  (On UP this compiles to almost nothing.)
+ */
+static DEFINE_SPINLOCK(ptable_lock);
+
 #define PD_PTABLE(ptdesc) ((ptable_desc *)&(virt_to_ptdesc((void *)(ptdesc))->pt_list))
 #define PD_PTDESC(ptable) (list_entry(ptable, struct ptdesc, pt_list))
 #define PD_MARKBITS(dp) (*(unsigned int *)&PD_PTDESC(dp)->pt_index)
@@ -141,9 +152,9 @@ void __init init_pointer_table(void *table, int type)
 
 void *get_pointer_table(struct mm_struct *mm, int type)
 {
-	ptable_desc *dp = ptable_list[type].next;
-	unsigned int mask = list_empty(&ptable_list[type]) ? 0 : PD_MARKBITS(dp);
-	unsigned int tmp, off;
+	ptable_desc *dp;
+	unsigned int mask, tmp, off;
+	unsigned long flags;
 
 	/*
 	 * For a pointer table for a user process address space, a
@@ -151,10 +162,22 @@ void *get_pointer_table(struct mm_struct *mm, int type)
 	 * ptdesc can hold 8 pointer tables.  The ptdesc is remapped in
 	 * virtual address space to be noncacheable.
 	 */
+	spin_lock_irqsave(&ptable_lock, flags);
+	dp = ptable_list[type].next;
+	mask = list_empty(&ptable_list[type]) ? 0 : PD_MARKBITS(dp);
+
 	if (mask == 0) {
 		struct ptdesc *ptdesc;
 		ptable_desc *new;
 		void *pt_addr;
+
+		/*
+		 * No free slot: allocate a new backing page.  pagetable_alloc()
+		 * uses GFP_KERNEL and may sleep, so the lock MUST be dropped here.
+		 * Another CPU may add/populate tables meanwhile; that is harmless --
+		 * we simply add our fresh page (with one slot taken) to the front.
+		 */
+		spin_unlock_irqrestore(&ptable_lock, flags);
 
 		ptdesc = pagetable_alloc(GFP_KERNEL | __GFP_ZERO, 0);
 		if (!ptdesc)
@@ -165,8 +188,8 @@ void *get_pointer_table(struct mm_struct *mm, int type)
 		switch (type) {
 		case TABLE_PTE:
 			/*
-			 * m68k doesn't have SPLIT_PTE_PTLOCKS for not having
-			 * SMP.
+			 * m68k doesn't have SPLIT_PTE_PTLOCKS; the whole
+			 * sub-allocator is serialised by ptable_lock instead.
 			 */
 			pagetable_pte_ctor(mm, ptdesc);
 			break;
@@ -180,9 +203,11 @@ void *get_pointer_table(struct mm_struct *mm, int type)
 
 		mmu_page_ctor(pt_addr);
 
+		spin_lock_irqsave(&ptable_lock, flags);
 		new = PD_PTABLE(pt_addr);
-		PD_MARKBITS(new) = ptable_mask(type) - 1;
-		list_add_tail(new, dp);
+		PD_MARKBITS(new) = ptable_mask(type) - 1;	/* slot 0 taken */
+		list_add(new, &ptable_list[type]);		/* has free slots */
+		spin_unlock_irqrestore(&ptable_lock, flags);
 
 		return (pmd_t *)pt_addr;
 	}
@@ -194,6 +219,7 @@ void *get_pointer_table(struct mm_struct *mm, int type)
 		/* move to end of list */
 		list_move_tail(dp, &ptable_list[type]);
 	}
+	spin_unlock_irqrestore(&ptable_lock, flags);
 	return ptdesc_address(PD_PTDESC(dp)) + off;
 }
 
@@ -203,8 +229,12 @@ int free_pointer_table(void *table, int type)
 	unsigned long ptable = (unsigned long)table;
 	unsigned long pt_addr = ptable & PAGE_MASK;
 	unsigned int mask = 1U << ((ptable - pt_addr)/ptable_size(type));
+	unsigned long flags;
+	int ret = 0;
 
 	dp = PD_PTABLE(pt_addr);
+
+	spin_lock_irqsave(&ptable_lock, flags);
 	if (PD_MARKBITS (dp) & mask)
 		panic ("table already free!");
 
@@ -213,6 +243,7 @@ int free_pointer_table(void *table, int type)
 	if (PD_MARKBITS(dp) == ptable_mask(type)) {
 		/* all tables in ptdesc are free, free ptdesc */
 		list_del(dp);
+		spin_unlock_irqrestore(&ptable_lock, flags);
 		mmu_page_dtor((void *)pt_addr);
 		pagetable_dtor_free(virt_to_ptdesc((void *)pt_addr));
 		return 1;
@@ -223,7 +254,8 @@ int free_pointer_table(void *table, int type)
 		 */
 		list_move(dp, &ptable_list[type]);
 	}
-	return 0;
+	spin_unlock_irqrestore(&ptable_lock, flags);
+	return ret;
 }
 
 /* size of memory already mapped in head.S */
@@ -467,11 +499,23 @@ void __init paging_init(void)
 	/* Fix the cache mode in the page descriptors for the 680[46]0.  */
 	if (CPU_IS_040_OR_060) {
 		int i;
+		/*
+		 * On the E17 SMP tier (write-through + snooping) user memory must be
+		 * WRITE-THROUGH, not copyback: the '040 has no coherent copyback across
+		 * CPUs, so a process migrating between the two CPUs would read a stale
+		 * cached copy of its own stack (seen as spurious stack-protector
+		 * aborts).  With write-through + bus snooping (SNCR, via
+		 * e17_smp_enable_snoop()) the caches stay coherent.  _PAGE_CACHE040W is
+		 * 0, so this just omits the copyback bit.  Other builds keep copyback
+		 * for performance (supervisor memory is handled in head.S).
+		 */
+		int cmode = IS_ENABLED(CONFIG_E17_SMP_DCACHE) ?
+			    _PAGE_CACHE040W : _PAGE_CACHE040;
 #ifndef mm_cachebits
-		mm_cachebits = _PAGE_CACHE040;
+		mm_cachebits = cmode;
 #endif
 		for (i = 0; i < 16; i++)
-			pgprot_val(protection_map[i]) |= _PAGE_CACHE040;
+			pgprot_val(protection_map[i]) |= cmode;
 	}
 
 	min_addr = m68k_memory[0].addr;
