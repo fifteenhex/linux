@@ -37,6 +37,9 @@
 #include <asm/traps.h>
 #include <asm/machdep.h>
 #include <asm/setup.h>
+#ifdef CONFIG_SMP
+#include <asm/smp_e17.h>
+#endif
 
 #include "process.h"
 
@@ -45,6 +48,44 @@ asmlinkage void ret_from_kernel_thread(void);
 
 void arch_cpu_idle(void)
 {
+#ifdef CONFIG_SMP
+	/*
+	 * E17 SMP bring-up: the inter-processor doorbell is not yet delivered as
+	 * a hardware interrupt (VIC irqchip TODO; the emulator raises no doorbell
+	 * IRQ at all), and the secondary CPU has no timer tick of its own under
+	 * QEMU.  A plain "stop" would therefore halt the AP forever with pending
+	 * cross-calls unserviced.  Poll the doorbell instead of halting so
+	 * reschedule / smp_call_function IPIs make progress.  Interrupts are
+	 * disabled on entry (idle contract); drain in that context, then enable
+	 * so the boot CPU still takes its timer tick.
+	 */
+	if (MACH_IS_E17) {
+		unsigned int d = 8192;
+
+		/*
+		 * DEBUG: AP idle heartbeat -- rolls the 7-seg every idle iteration on
+		 * the secondary CPU.  Success indicator: if the VIC-clock tick lets the
+		 * AP finish cpuhp and reach idle, the 7-seg ROLLS FOREVER; if the AP is
+		 * still wedged in a cpuhp state it FREEZES.  Only the AP writes it.
+		 */
+		if (raw_smp_processor_id() != 0) {
+			static u8 hb;
+
+			*(volatile u8 *)0xfec30000 = hb++ & 0x0f;
+		}
+		e17_ipi_poll();
+		raw_local_irq_enable();
+		/*
+		 * Throttle the poll with a REGISTER-ONLY spin (no memory/bus access)
+		 * so the AP does not saturate the shared local bus between polls.  A
+		 * tight poll loop that touches DRAM/I/O every iteration starves CPU0's
+		 * VRAM/console writes and the video scanout (hard bus lock).  IPI
+		 * latency stays in the low microseconds, which is fine for Tier-0.
+		 */
+		asm volatile("1: subql #1,%0 ; jne 1b" : "+d"(d) : : "cc");
+		return;
+	}
+#endif
 #if defined(MACH_ATARI_ONLY)
 	/* block out HSYNC on the atari (falcon) */
 	__asm__("stop #0x2200" : : : "cc");

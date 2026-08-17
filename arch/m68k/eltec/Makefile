@@ -3,3 +3,4 @@
 # Makefile for the ELTEC Eurocom E17 board.
 #
 obj-y := config.o
+obj-$(CONFIG_SMP)	+= smp_e17.o
