@@ -26,6 +26,8 @@
 #include <linux/module.h>
 #include <linux/nvram.h>
 #include <linux/initrd.h>
+#include <linux/libfdt.h>
+#include <linux/of_fdt.h>
 #include <linux/random.h>
 
 #include <asm/bootinfo.h>
@@ -111,16 +113,52 @@ EXPORT_SYMBOL(isa_sex);
 
 #define MASK_256K 0xfffc0000
 
+/*
+ * ELTEC E17 early boot diagnostics: a POST-display byte, a reliable serial
+ * trace string, and a hex value -- usable throughout early setup (before the
+ * console is registered) to see exactly where the board gets to.
+ */
+#ifdef CONFIG_ELTEC_E17
+/*
+ * Milestone: 7-seg POST display AND the reliable framebuffer console, so
+ * setup_arch progress is visible on screen ("f1 ".."f7 ").
+ */
+extern void e17_early_puts(const char *);
+/*
+ * The 7-seg latch at $FEC30000: the UPPER nibble is a per-bit, ACTIVE-LOW
+ * write-enable for the LOWER nibble -- a lower bit is updated only where its
+ * upper enable bit is 0 (EUROCOM-17 manual).  So to display digit N we must
+ * write it with an all-zero upper nibble (enable all four data bits); writing
+ * e.g. 0xf1 (upper 0xF) enables nothing and leaves the display unchanged.
+ * Callers still pass 0xfN for readability; mask the upper nibble here.
+ */
+#define E17_POST(code) \
+	do { if (MACH_IS_E17) { \
+		*(volatile u8 *)0xfec30000 = (code) & 0x0f; \
+		e17_early_puts((char[]){ 'f', \
+			"0123456789abcdef"[(code) & 0xf], ' ', 0 }); \
+	} } while (0)
+extern void e17_early_puthex(unsigned long);
+#define E17_TRACE(s) do { if (MACH_IS_E17) e17_early_puts(s); } while (0)
+#define E17_HEX(v)   do { if (MACH_IS_E17) e17_early_puthex(v); } while (0)
+#else
+#define E17_POST(code) do { } while (0)
+#define E17_TRACE(s) do { } while (0)
+#define E17_HEX(v)   do { } while (0)
+#endif
+
 static phys_addr_t fdt_blob;
 static void __init m68k_setup_fdt(void)
 {
-	pr_info("m68k generic DT machine support, FDT blob at 0x%08x\n", fdt_blob);
+	E17_TRACE("v2 ");
 	if (!early_init_dt_verify(__va(fdt_blob), fdt_blob)) {
+		E17_TRACE("BAD ");
 		pr_err("FDT blob is bad?!\n");
 		return;
 	}
-
+	E17_TRACE("v3 ");
 	early_init_dt_scan_nodes();
+	E17_TRACE("v4 ");
 }
 
 static const struct bi_record __init *m68k_find_bootinfo_record(const struct bi_record *record, u16 bi_type)
@@ -166,6 +204,11 @@ static void __init m68k_parse_bootinfo(const struct bi_record *record)
 		int unknown = 0;
 		const void *data = record->data;
 		uint16_t size = be16_to_cpu(record->size);
+
+		/* trace: tag(4)/size(4) of each record as we walk them */
+		if (!size) {			/* malformed: would loop forever */
+			break;
+		}
 
 		switch (tag) {
 		case BI_MACHTYPE:
@@ -245,7 +288,6 @@ static void __init m68k_parse_bootinfo(const struct bi_record *record)
 				tag);
 		record = (struct bi_record *)((unsigned long)record + size);
 	}
-
 	save_bootinfo(first_record);
 
 	m68k_realnum_memory = m68k_num_memory;
@@ -260,9 +302,13 @@ static void __init m68k_parse_bootinfo(const struct bi_record *record)
 
 void __init setup_arch(char **cmdline_p)
 {
+	bool fdt_external = false;
+
+	E17_POST(0xf1);
 	/* The bootinfo is located right after the kernel */
 	if (!CPU_IS_COLDFIRE)
 		m68k_parse_bootinfo((const struct bi_record *)_end);
+	E17_POST(0xf2);
 
 	if (CPU_IS_040)
 		m68k_is040or060 = 4;
@@ -281,6 +327,7 @@ void __init setup_arch(char **cmdline_p)
 		asm volatile ("frestore %0" : : "m" (zero));
 	}
 #endif
+	if (MACH_IS_E17) e17_early_puts("fpu ");
 
 	if (CPU_IS_060) {
 		u32 pcr;
@@ -303,17 +350,37 @@ void __init setup_arch(char **cmdline_p)
 		pr_info("FDT blob was not provided, will use embedded one if available\n");
 		if (MACH_IS_MVME147)
 			fdt_blob = (phys_addr_t) mvme147_dtb;
-		if (MACH_IS_E17) {
-			extern void *eltec_e17_dtb;
-			/* the symbol marks the DTB bytes; take its address */
-			fdt_blob = (phys_addr_t) &eltec_e17_dtb;
-		}
 	}
 
+	/*
+	 * Prefer a device tree supplied by the bootloader via BI_FDT: u-boot
+	 * loads the board .dtb into RAM, injects the externally-loaded
+	 * initramfs location into its /chosen node (linux,initrd-start/-end)
+	 * and points BI_FDT at it.  Only fall back to the DTB embedded in the
+	 * kernel image when the bootloader did not pass one, so a plain
+	 * bootinfo boot (no BI_FDT) still works.
+	 *
+	 * A bootloader-supplied blob lives in RAM outside the kernel image and
+	 * must be reserved before paging_init() (see below); the embedded blob
+	 * is already covered by the kernel image reservation.
+	 */
+	if (MACH_IS_E17 && fdt_blob)
+		fdt_external = true;
+
+	if (MACH_IS_E17 && !fdt_blob) {
+		extern void *eltec_e17_dtb;
+
+		pr_info("E17: no bootloader FDT, using embedded DTB\n");
+		fdt_blob = (phys_addr_t) &eltec_e17_dtb;
+	}
+
+	if (MACH_IS_E17) e17_early_puts("[fdt? ");
 	if (fdt_blob)
 		m68k_setup_fdt();
+	if (MACH_IS_E17) e17_early_puts("fdtok ");
 
 	setup_initial_init_mm((void *)PAGE_OFFSET, _etext, _edata, _end);
+	if (MACH_IS_E17) e17_early_puts("mm ");
 
 #if defined(CONFIG_BOOTPARAM)
 	strscpy(m68k_command_line, CONFIG_BOOTPARAM_STRING, CL_SIZE);
@@ -328,6 +395,7 @@ void __init setup_arch(char **cmdline_p)
 	jump_label_init();
 	parse_early_param();
 
+	E17_POST(0xf3);
 	switch (m68k_machtype) {
 #ifdef CONFIG_AMIGA
 	case MACH_AMIGA:
@@ -406,10 +474,31 @@ void __init setup_arch(char **cmdline_p)
 		panic("No configuration setup");
 	}
 
-	if (IS_ENABLED(CONFIG_BLK_DEV_INITRD) && m68k_ramdisk.size)
-		memblock_reserve(m68k_ramdisk.addr, m68k_ramdisk.size);
+	E17_POST(0xf4);
+
+	/*
+	 * Reserve the initramfs so paging_init()/early allocations don't
+	 * clobber it.  It may arrive either via BI_RAMDISK (m68k_ramdisk) or
+	 * via the device tree /chosen node (phys_initrd_*, filled in while
+	 * scanning the FDT above).
+	 */
+	if (IS_ENABLED(CONFIG_BLK_DEV_INITRD)) {
+		if (m68k_ramdisk.size)
+			memblock_reserve(m68k_ramdisk.addr, m68k_ramdisk.size);
+		else if (phys_initrd_size)
+			memblock_reserve(phys_initrd_start, phys_initrd_size);
+	}
+
+	/*
+	 * A bootloader-supplied FDT lives in RAM outside the kernel image;
+	 * reserve it before memblock is populated and before it is copied by
+	 * unflatten_device_tree().
+	 */
+	if (fdt_external && fdt_blob)
+		memblock_reserve(fdt_blob, fdt_totalsize(__va(fdt_blob)));
 
 	paging_init();
+	E17_POST(0xf5);
 
 	/*
 	 * Unflatten after paging_init(): copy_device_tree() allocates from
@@ -419,11 +508,31 @@ void __init setup_arch(char **cmdline_p)
 	 */
 	if (fdt_blob)
 		unflatten_device_tree();
+	E17_POST(0xf6);
+	E17_POST(0xfa);		/* 'A': immediately after '6' -- if the display is
+				 * STILL '6' here (two back-to-back stores), then
+				 * '6' is not this milestone but the exception
+				 * reporter showing vector 6 */
 
-	if (IS_ENABLED(CONFIG_BLK_DEV_INITRD) && m68k_ramdisk.size) {
-		initrd_start = (unsigned long)phys_to_virt(m68k_ramdisk.addr);
-		initrd_end = initrd_start + m68k_ramdisk.size;
-		pr_info("initrd: %08lx - %08lx\n", initrd_start, initrd_end);
+#ifdef CONFIG_SMP
+	/* Enumerate CPUs (DT cpu@N nodes, with board fallback) now that the
+	 * device tree is unflattened and memblock is up. */
+	smp_init_cpus();
+#endif
+
+	if (IS_ENABLED(CONFIG_BLK_DEV_INITRD)) {
+		/*
+		 * The device tree /chosen node (if present) already set
+		 * initrd_start/initrd_end while the FDT was scanned; prefer it
+		 * so the kernel finds the ramdisk from the DT.  Otherwise fall
+		 * back to the BI_RAMDISK bootinfo record.
+		 */
+		if (!initrd_start && m68k_ramdisk.size) {
+			initrd_start = (unsigned long)phys_to_virt(m68k_ramdisk.addr);
+			initrd_end = initrd_start + m68k_ramdisk.size;
+		}
+		if (initrd_start)
+			pr_info("initrd: %08lx - %08lx\n", initrd_start, initrd_end);
 	}
 
 #ifdef CONFIG_NATFEAT
@@ -459,12 +568,18 @@ void __init setup_arch(char **cmdline_p)
 	}
 #endif
 #endif
+	E17_POST(0xf7);
 }
 
 static int show_cpuinfo(struct seq_file *m, void *v)
 {
+	unsigned long cpuid = (unsigned long)v - 1;
 	const char *cpu, *mmu, *fpu;
 	unsigned long clockfreq, clockfactor;
+
+	/* c_start/c_next walk every possible CPU id; skip the offline ones. */
+	if (!cpu_online(cpuid))
+		return 0;
 
 #define LOOP_CYCLES_68020	(8)
 #define LOOP_CYCLES_68030	(8)
@@ -530,13 +645,14 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 
 	clockfreq = loops_per_jiffy * HZ * clockfactor;
 
-	seq_printf(m, "CPU:\t\t%s\n"
+	seq_printf(m, "processor\t: %lu\n"
+		   "CPU:\t\t%s\n"
 		   "MMU:\t\t%s\n"
 		   "FPU:\t\t%s\n"
 		   "Clocking:\t%lu.%1luMHz\n"
 		   "BogoMips:\t%lu.%02lu\n"
 		   "Calibration:\t%lu loops\n",
-		   cpu, mmu, fpu,
+		   cpuid, cpu, mmu, fpu,
 		   clockfreq/1000000,(clockfreq/100000)%10,
 		   loops_per_jiffy/(500000/HZ),(loops_per_jiffy/(5000/HZ))%100,
 		   loops_per_jiffy);
@@ -545,12 +661,14 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 
 static void *c_start(struct seq_file *m, loff_t *pos)
 {
-	return *pos < 1 ? (void *)1 : NULL;
+	/* Walk every possible CPU id; show_cpuinfo() skips the offline ones.
+	 * Encode the id as (pos + 1) so CPU 0 is not mistaken for end-of-list. */
+	return *pos < nr_cpu_ids ? (void *)(unsigned long)(*pos + 1) : NULL;
 }
 static void *c_next(struct seq_file *m, void *v, loff_t *pos)
 {
 	++*pos;
-	return NULL;
+	return c_start(m, pos);
 }
 static void c_stop(struct seq_file *m, void *v)
 {
