@@ -16,3 +16,4 @@ obj-$(CONFIG_SUN3LANCE) += sun3lance.o
 obj-$(CONFIG_SUNLANCE) += sunlance.o
 obj-$(CONFIG_AMD_XGBE) += xgbe/
 obj-$(CONFIG_PDS_CORE) += pds_core/
+obj-$(CONFIG_E17_LANCE) += e17-lance.o

@@ -6,8 +6,8 @@
 config NET_VENDOR_AMD
 	bool "AMD devices"
 	default y
-	depends on DIO || MACH_DECSTATION || MVME147 || ATARI || SUN3 || \
-		   SUN3X || SBUS || PCI || ZORRO || (ISA && ISA_DMA_API) || \
+	depends on DIO || MACH_DECSTATION || MVME147 || ELTEC_E17 || ATARI || \
+		   SUN3 || SUN3X || SBUS || PCI || ZORRO || (ISA && ISA_DMA_API) || \
 		   ISA || EISA || PCMCIA || ARM64
 	help
 	  If you have a network (Ethernet) chipset belonging to this class,
@@ -19,6 +19,18 @@ config NET_VENDOR_AMD
 	  for your specific chipset/driver in the following questions.
 
 if NET_VENDOR_AMD
+
+config E17_LANCE
+	tristate "ELTEC Eurocom E17 on-board Ethernet (Am79C900 ILACC)"
+	depends on ELTEC_E17 || (M68K && COMPILE_TEST)
+	depends on OF
+	select CRC32
+	help
+	  On-board Ethernet driver for the ELTEC Eurocom E17 (EUROCOM-17-5xx)
+	  VMEbus 68040/68060 SBC.  The E17 carries an AMD Am79C900 ILACC
+	  (32-bit LANCE) at 0xfec68000, wired through the VIC068A local IRQ 7.
+	  Stand-alone driver (the ILACC's 32-bit init block/descriptors are not
+	  supported by the generic 7990.c core).
 
 config A2065
 	tristate "A2065 support"
