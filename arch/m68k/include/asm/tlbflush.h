@@ -61,8 +61,11 @@ static inline void __flush_tlb_one(unsigned long addr)
 
 /*
  * flush all atc entries (both kernel and user-space entries).
+ *
+ * Under SMP these local_* variants are the per-CPU primitives; the public
+ * flush_tlb_* names become cross-CPU shootdowns (arch/m68k/kernel/smp.c).
  */
-static inline void flush_tlb_all(void)
+static inline void local_flush_tlb_all(void)
 {
 	if (CPU_IS_COLDFIRE) {
 		mmu_write(MMUOR, MMUOR_CNL);
@@ -75,29 +78,46 @@ static inline void flush_tlb_all(void)
 	}
 }
 
-static inline void flush_tlb_mm(struct mm_struct *mm)
+static inline void local_flush_tlb_mm(struct mm_struct *mm)
 {
 	if (mm == current->active_mm)
 		__flush_tlb();
 }
 
-static inline void flush_tlb_page(struct vm_area_struct *vma, unsigned long addr)
+static inline void local_flush_tlb_page(struct vm_area_struct *vma,
+					unsigned long addr)
 {
 	if (vma->vm_mm == current->active_mm)
 		__flush_tlb_one(addr);
 }
 
-static inline void flush_tlb_range(struct vm_area_struct *vma,
-				   unsigned long start, unsigned long end)
+static inline void local_flush_tlb_range(struct vm_area_struct *vma,
+					 unsigned long start, unsigned long end)
 {
 	if (vma->vm_mm == current->active_mm)
 		__flush_tlb();
 }
 
-static inline void flush_tlb_kernel_range(unsigned long start, unsigned long end)
+static inline void local_flush_tlb_kernel_range(unsigned long start,
+						unsigned long end)
 {
-	flush_tlb_all();
+	local_flush_tlb_all();
 }
+
+#ifdef CONFIG_SMP
+extern void flush_tlb_all(void);
+extern void flush_tlb_mm(struct mm_struct *mm);
+extern void flush_tlb_page(struct vm_area_struct *vma, unsigned long addr);
+extern void flush_tlb_range(struct vm_area_struct *vma,
+			    unsigned long start, unsigned long end);
+extern void flush_tlb_kernel_range(unsigned long start, unsigned long end);
+#else
+#define flush_tlb_all		local_flush_tlb_all
+#define flush_tlb_mm		local_flush_tlb_mm
+#define flush_tlb_page		local_flush_tlb_page
+#define flush_tlb_range		local_flush_tlb_range
+#define flush_tlb_kernel_range	local_flush_tlb_kernel_range
+#endif
 
 #else
 

@@ -29,11 +29,34 @@
 #define	ASM_DI	"di"
 #endif
 
+#ifdef CONFIG_SMP
+/*
+ * SMP: a bare "<op>l reg,mem" is a normal (un-LOCKed) read-modify-write on the
+ * 680x0 -- atomic against interrupts on one CPU, but NOT atomic across CPUs.
+ * Use a casl retry loop so the void ops are truly atomic on the E17's two CPUs.
+ * (CONFIG_SMP selects RMW_INSNS, so casl is always available here.)
+ */
+#define ATOMIC_OP(op, c_op, asm_op)					\
+static inline void arch_atomic_##op(int i, atomic_t *v)			\
+{									\
+	int t, tmp;							\
+									\
+	__asm__ __volatile__(						\
+			"1:	movel %2,%1\n"				\
+			"	" #asm_op "l %3,%1\n"			\
+			"	casl %2,%1,%0\n"			\
+			"	jne 1b"					\
+			: "+m" (*v), "=&d" (t), "=&d" (tmp)		\
+			: "di" (i), "2" (arch_atomic_read(v)));		\
+}
+#else
 #define ATOMIC_OP(op, c_op, asm_op)					\
 static inline void arch_atomic_##op(int i, atomic_t *v)			\
 {									\
 	__asm__ __volatile__(#asm_op "l %1,%0" : "+m" (*v) : ASM_DI (i));\
 }									\
+
+#endif
 
 #ifdef CONFIG_RMW_INSNS
 
@@ -129,6 +152,13 @@ ATOMIC_OPS(xor, ^=, eor)
 #undef ATOMIC_OP_RETURN
 #undef ATOMIC_OP
 
+/*
+ * On SMP the single-instruction forms below (addql/subql reg,mem + seq/slt) are
+ * NOT atomic across CPUs (no bus LOCK).  Leave them out under CONFIG_SMP so the
+ * generic atomic fallbacks synthesize inc/dec/inc_and_test/dec_and_test from the
+ * casl-based *_return ops above (which ARE cross-CPU atomic).
+ */
+#ifndef CONFIG_SMP
 static inline void arch_atomic_inc(atomic_t *v)
 {
 	__asm__ __volatile__("addql #1,%0" : "+m" (*v));
@@ -149,6 +179,26 @@ static inline int arch_atomic_dec_and_test(atomic_t *v)
 }
 #define arch_atomic_dec_and_test arch_atomic_dec_and_test
 
+static inline int arch_atomic_inc_and_test(atomic_t *v)
+{
+	char c;
+	__asm__ __volatile__("addql #1,%1; seq %0" : "=d" (c), "+m" (*v));
+	return c != 0;
+}
+#define arch_atomic_inc_and_test arch_atomic_inc_and_test
+#endif /* !CONFIG_SMP */
+
+/*
+ * dec-and-test-<0 is m68k-private (no generic fallback), used by the MMU context
+ * allocator.  Build it from the casl-based sub_return on SMP; keep the fast
+ * single-instruction form on UP.
+ */
+#ifdef CONFIG_SMP
+static inline int arch_atomic_dec_and_test_lt(atomic_t *v)
+{
+	return arch_atomic_sub_return(1, v) < 0;
+}
+#else
 static inline int arch_atomic_dec_and_test_lt(atomic_t *v)
 {
 	char c;
@@ -158,14 +208,7 @@ static inline int arch_atomic_dec_and_test_lt(atomic_t *v)
 		: "m" (*v));
 	return c != 0;
 }
-
-static inline int arch_atomic_inc_and_test(atomic_t *v)
-{
-	char c;
-	__asm__ __volatile__("addql #1,%1; seq %0" : "=d" (c), "+m" (*v));
-	return c != 0;
-}
-#define arch_atomic_inc_and_test arch_atomic_inc_and_test
+#endif
 
 #ifndef CONFIG_RMW_INSNS
 
@@ -198,6 +241,11 @@ static inline int arch_atomic_xchg(atomic_t *v, int new)
 
 #endif /* !CONFIG_RMW_INSNS */
 
+/*
+ * Not cross-CPU atomic (bare RMW + condition code): omit on SMP and let the
+ * generic fallbacks derive them from the casl-based *_return ops.
+ */
+#ifndef CONFIG_SMP
 static inline int arch_atomic_sub_and_test(int i, atomic_t *v)
 {
 	char c;
@@ -217,5 +265,6 @@ static inline int arch_atomic_add_negative(int i, atomic_t *v)
 	return c != 0;
 }
 #define arch_atomic_add_negative arch_atomic_add_negative
+#endif /* !CONFIG_SMP */
 
 #endif /* __ARCH_M68K_ATOMIC __ */
