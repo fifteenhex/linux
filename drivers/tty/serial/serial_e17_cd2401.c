@@ -49,10 +49,13 @@
 #define CD2401_CMR_ASYNC	0x02
 #define CD2401_RFOC		0x30	/* receive FIFO output count */
 #define CD2401_REOIR		0x84	/* receive end of interrupt */
+#define CD2401_TEOIR		0x85	/* transmit end of interrupt */
 #define CD2401_RISRH		0x88	/* receive interrupt status, high */
 #define CD2401_RISRL		0x89	/* receive interrupt status, low */
 #define CD2401_TISR		0x8a	/* transmit interrupt status */
 #define CD2401_TISR_TXEMPTY	0x02
+#define CD2401_TFTC		0x80	/* tx FIFO transfer count (free space) */
+#define CD2401_TEOIR_NOTRANS	0x08	/* TEOIR: no data transferred this service */
 #define CD2401_TPILR		0xe0	/* tx priority interrupt level */
 #define CD2401_RPILR		0xe1	/* rx priority interrupt level */
 #define CD2401_CAR		0xee	/* channel access (select) */
@@ -62,10 +65,20 @@
 #define CD2401_RX_IPL		1
 #define CD2401_TX_IPL		2
 
+/*
+ * RX/exception are delivered self-vectored on the VIC LIRQ6 daisy chain: the
+ * CPU's level-5 IACK enters the chip's receive service context directly.  The
+ * chip answers that IACK when a PILR matches the IACK's A[6:0] = 0x7b; RMON uses
+ * 0xfb (the compare is 7-bit, 0xfb & 0x7f == 0x7b), so use the same.  TX keeps
+ * its own private polled window IACK at CD2401_TX_IPL, so it is left distinct.
+ */
+#define CD2401_RX_PILR		0xfb
+
 /* VIC068A local interrupt 6 = the CD2401 line */
 #define E17_VIC_BASE		0xfec00000
 #define E17_VIC_LICR6		0x3b
 #define E17_VIC_LICR_MASK	0x80
+#define E17_VIC_LICR_STATE	0x08	/* raw CD2401 pin level (active low) */
 #define E17_VIC_CD2401_LEVEL	6	/* m68k IPL the VIC raises for it */
 
 #define E17_CD2401_MAX_PORTS	1
@@ -76,6 +89,7 @@ struct e17_cd2401_port {
 	void __iomem *iack;	/* interrupt-acknowledge window */
 	void __iomem *vic;	/* VIC068A register window */
 	u8 livr;		/* interrupt vector base (type bits clear) */
+	int rxexc_irq;		/* rx-exception vector (own IRQ, shares handler) */
 };
 
 static struct e17_cd2401_port *e17_cd2401_ports[E17_CD2401_MAX_PORTS];
@@ -90,41 +104,93 @@ static inline void cd_write(struct uart_port *port, unsigned int reg, u8 val)
 	writeb(val, port->membase + reg);
 }
 
-static void e17_cd2401_putchar(struct uart_port *port, unsigned char ch)
+/*
+ * Transmit one byte.  The CD2401 only sends from its interrupt-service
+ * context, so enable the tx interrupt, wait for the VIC to see the line
+ * asserted (LICR6 STATE, active low), acknowledge through the IACK
+ * window to enter tx service, write the byte and end with TEOIR.  The
+ * receive interrupt-enable bit is preserved so input keeps working.
+ */
+static void e17_cd2401_tx_one(struct e17_cd2401_port *up, u8 ch)
 {
-	cd_write(port, CD2401_CAR, 0);		/* console = channel 0 */
-	while (!(cd_read(port, CD2401_TISR) & CD2401_TISR_TXEMPTY))
+	struct uart_port *port = &up->port;
+	int timeout = 200000;
+	u8 ier, licr;
+
+	/*
+	 * Polled TX shares the CD2401's single interrupt line -- and thus VIC
+	 * LICR6 -- with the interrupt-driven RX path.  Enabling the tx interrupt to
+	 * enter tx-service context makes the chip assert that line; if the VIC
+	 * forwards it to the CPU we take a vectored interrupt whose group the
+	 * software IACK below has already consumed, so the CPU's IACK returns the
+	 * base (group 0) vector -> "unexpected interrupt from <livr>".  Mask the
+	 * CD2401 at the VIC for the duration of the handshake so ONLY our software
+	 * IACK services it.  The STATE pin level we poll is a raw input, readable
+	 * regardless of the mask, and the IACK window is a direct chip cycle, so tx
+	 * still works.  Restoring LICR6 re-enables RX delivery (deferred at most for
+	 * this one-character window).
+	 */
+	licr = readb(up->vic + E17_VIC_LICR6);
+	writeb(licr | E17_VIC_LICR_MASK, up->vic + E17_VIC_LICR6);
+
+	cd_write(port, CD2401_CAR, 0);		/* channel 0 */
+	cd_write(port, CD2401_TPILR, CD2401_TX_IPL);
+	ier = cd_read(port, CD2401_IER);
+	cd_write(port, CD2401_IER, ier | CD2401_IER_TXD);
+
+	while ((readb(up->vic + E17_VIC_LICR6) & E17_VIC_LICR_STATE) && --timeout)
 		cpu_relax();
+
+	readb(up->iack + CD2401_TX_IPL);	/* IACK -> enter tx service */
 	cd_write(port, CD2401_DR, ch);
+	cd_write(port, CD2401_TEOIR, 0);
+	cd_write(port, CD2401_IER, ier);	/* restore (tx irq off) */
+
+	writeb(licr, up->vic + E17_VIC_LICR6);	/* restore VIC routing (STATE is RO) */
 }
 
+static void e17_cd2401_putchar(struct uart_port *port, unsigned char ch)
+{
+	struct e17_cd2401_port *up =
+		container_of(port, struct e17_cd2401_port, port);
+
+	e17_cd2401_tx_one(up, ch);
+}
+
+/*
+ * Polled transmit of the pending FIFO.  The CD2401 moves tx data only inside an
+ * interrupt-service context, which e17_cd2401_tx_one() enters with a software
+ * IACK (the VIC line is masked there so the CPU never vectors on it).  True
+ * CPU-vectored tx interrupts are unsafe on this board: the transmit and receive
+ * services share one VIC line, and a CPU IACK whose level matches no posted
+ * interrupt gets no DTACK and hangs the bus -- so tx stays polled while rx is
+ * interrupt-driven.  See CD2401-TX-DESIGN.md.
+ */
 static void e17_cd2401_tx_chars(struct uart_port *port)
 {
+	struct e17_cd2401_port *up =
+		container_of(port, struct e17_cd2401_port, port);
 	u8 ch;
 
-	cd_write(port, CD2401_CAR, 0);
-	uart_port_tx(port, ch,
-		     cd_read(port, CD2401_TISR) & CD2401_TISR_TXEMPTY,
-		     cd_write(port, CD2401_DR, ch));
+	uart_port_tx(port, ch, true, e17_cd2401_tx_one(up, ch));
 }
 
 static void e17_cd2401_rx_chars(struct uart_port *port)
 {
-	struct e17_cd2401_port *up =
-		container_of(port, struct e17_cd2401_port, port);
 	unsigned int cnt, i;
 
-	/* enter receive service context: the ack byte selects the channel */
-	readb(up->iack + CD2401_RX_IPL);
-
 	/*
-	 * Read (and clear) the receive status.  An overrun is reported as a
-	 * receive exception that latches until RISR is read; clearing it
-	 * keeps a fast paste from stalling the receiver.
+	 * Self-vectored on the LIRQ6 daisy chain at level 5: the CPU's level-5
+	 * IACK already fetched the vector AND entered the chip's receive service
+	 * context, so we must NOT poke the board IACK window here -- doing so
+	 * would be a second acknowledge (and reading it with nothing posted at
+	 * that level gets no DTACK and hangs the bus).  Both rx-data (0x53) and
+	 * rx-exception (0x50) arrive here on their own IRQs; either way read (and
+	 * clear) the receive status first -- an overrun latches a receive
+	 * exception until RISR is read, else the chip re-interrupts forever.
 	 */
 	cd_read(port, CD2401_RISRH);
 	cd_read(port, CD2401_RISRL);
-
 	cnt = cd_read(port, CD2401_RFOC);
 	for (i = 0; i < cnt; i++) {
 		u8 ch = cd_read(port, CD2401_DR);
@@ -174,13 +240,6 @@ static void e17_cd2401_start_tx(struct uart_port *port)
 	e17_cd2401_tx_chars(port);
 }
 
-static void e17_cd2401_vic_mask(struct e17_cd2401_port *up, bool mask)
-{
-	u8 v = mask ? E17_VIC_LICR_MASK : E17_VIC_CD2401_LEVEL;
-
-	writeb(v, up->vic + E17_VIC_LICR6);
-}
-
 static void e17_cd2401_stop_rx(struct uart_port *port)
 {
 	struct e17_cd2401_port *up =
@@ -188,7 +247,14 @@ static void e17_cd2401_stop_rx(struct uart_port *port)
 
 	cd_write(port, CD2401_CAR, 0);
 	cd_write(port, CD2401_IER, cd_read(port, CD2401_IER) & ~CD2401_IER_RXD);
-	e17_cd2401_vic_mask(up, true);
+	/*
+	 * Disable both rx sources; the VIC refcounts LICR6 and masks it once the
+	 * last source is disabled.  IRQ_DISABLE_UNLAZY makes this synchronous.
+	 * _nosync because we hold the uart port lock here.
+	 */
+	disable_irq_nosync(port->irq);
+	if (up->rxexc_irq > 0)
+		disable_irq_nosync(up->rxexc_irq);
 }
 
 static int e17_cd2401_startup(struct uart_port *port)
@@ -198,36 +264,57 @@ static int e17_cd2401_startup(struct uart_port *port)
 	unsigned long flags;
 	int ret;
 
-	ret = request_irq(port->irq, e17_cd2401_interrupt, 0, "ttyS", port);
+	/*
+	 * rx-data and rx-exception are separate self-vectored sources on LIRQ6,
+	 * each with its own IRQ but the same service handler.  Request both masked
+	 * (NO_AUTOEN); the VIC refcounts the shared LICR6, so enable/disable of
+	 * either is safe.
+	 */
+	ret = request_irq(port->irq, e17_cd2401_interrupt, IRQF_NO_AUTOEN,
+			  "ttyS", port);
 	if (ret)
 		return ret;
+	if (up->rxexc_irq > 0) {
+		ret = request_irq(up->rxexc_irq, e17_cd2401_interrupt,
+				  IRQF_NO_AUTOEN, "ttyS-rxexc", port);
+		if (ret) {
+			free_irq(port->irq, port);
+			return ret;
+		}
+	}
 
 	uart_port_lock_irqsave(port, &flags);
 
 	cd_write(port, CD2401_CAR, 0);		/* console channel */
 	cd_write(port, CD2401_CMR, CD2401_CMR_ASYNC);
 	cd_write(port, CD2401_LIVR, up->livr);
-	cd_write(port, CD2401_RPILR, CD2401_RX_IPL);
-	cd_write(port, CD2401_TPILR, CD2401_TX_IPL);
+	cd_write(port, CD2401_RPILR, CD2401_RX_PILR);	/* answers level-5 IACK */
+	cd_write(port, CD2401_TPILR, CD2401_TX_IPL);	/* private polled-tx window */
 	cd_write(port, CD2401_CCR, CD2401_CCR_ENBRX | CD2401_CCR_ENBXMTR);
 	cd_write(port, CD2401_IER, CD2401_IER_RXD);
 
-	/* route local IRQ 6 to the CPU at E17_VIC_CD2401_LEVEL, unmasked */
-	e17_cd2401_vic_mask(up, false);
-
 	uart_port_unlock_irqrestore(port, flags);
+
+	/* Route LIRQ6 to the CPU (VIC unmasks LICR6, refcounted across sources). */
+	enable_irq(port->irq);
+	if (up->rxexc_irq > 0)
+		enable_irq(up->rxexc_irq);
 
 	return 0;
 }
 
 static void e17_cd2401_shutdown(struct uart_port *port)
 {
+	struct e17_cd2401_port *up =
+		container_of(port, struct e17_cd2401_port, port);
 	unsigned long flags;
 
 	uart_port_lock_irqsave(port, &flags);
 	e17_cd2401_stop_rx(port);
 	uart_port_unlock_irqrestore(port, flags);
 
+	if (up->rxexc_irq > 0)
+		free_irq(up->rxexc_irq, port);
 	free_irq(port->irq, port);
 }
 
@@ -359,6 +446,7 @@ static int e17_cd2401_probe(struct platform_device *pdev)
 	struct e17_cd2401_port *up;
 	struct uart_port *port;
 	struct resource *res;
+	u32 livr_base;
 	int irq, ret;
 
 	up = devm_kzalloc(&pdev->dev, sizeof(*up), GFP_KERNEL);
@@ -379,18 +467,22 @@ static int e17_cd2401_probe(struct platform_device *pdev)
 	if (!up->vic)
 		return -ENOMEM;
 
+	/* Interrupt index 0 = rx-data, 1 = rx-exception (interrupt-names). */
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0)
 		return irq;
 	port->irq = irq;
+	up->rxexc_irq = platform_get_irq_optional(pdev, 1);
 
 	/*
-	 * The chip supplies the vector; the VIC/CPU deliver it as an m68k
-	 * vectored interrupt.  Recover the vector this IRQ corresponds to
-	 * and program it into LIVR (with the type bits cleared - the chip
-	 * fills in 11 = receive-data when it raises the line).
+	 * The chip self-vectors: LIVR holds the base and the CD2401 fills the
+	 * low two bits with the interrupt type (1=modem, 2=tx, 3=rx).  The IRQ
+	 * is now a VIC-domain virq (unrelated to the vector), so take the base
+	 * from the DT (RMON uses 0x50, clear of the VIC's LIVBR groups).
 	 */
-	up->livr = (irq - IRQ_USER + VEC_USER) & ~0x3;
+	if (of_property_read_u32(pdev->dev.of_node, "livr-base", &livr_base))
+		livr_base = 0x50;
+	up->livr = livr_base & ~0x3;
 
 	port->dev = &pdev->dev;
 	port->type = PORT_UNKNOWN;
