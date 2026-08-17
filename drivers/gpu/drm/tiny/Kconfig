@@ -215,3 +215,22 @@ config TINYDRM_SHARP_MEMORY
 	  * 4.40" Sharp Memory LCD (LS044Q7DH01)
 
 	  If M is selected the module will be called sharp_memory.
+
+config DRM_E17
+	tristate "DRM support for the ELTEC Eurocom E17 onboard video"
+	depends on DRM && OF
+	depends on M68K || COMPILE_TEST
+	select DRM_CLIENT_SELECTION
+	select DRM_GEM_SHMEM_HELPER
+	select DRM_KMS_HELPER
+	help
+	  DRM/KMS driver for the onboard graphics of the ELTEC Eurocom
+	  E17 (EUROCOM-17-5xx) VMEbus MC68040/060 single-board computer:
+	  a Brooktree Bt445 RAM-DAC with an on-chip pixel-clock PLL, a
+	  National LM1882 sync generator and 1 MB of video RAM.
+
+	  It provides a full atomic-modeset pipeline (800x600 and other
+	  SVGA/VGA modes, 8bpp indexed) with fbdev emulation, and replaces
+	  the framebuffer-console hack in arch/m68k/eltec/config.c.
+
+	  If M is selected the module is called e17drm.
