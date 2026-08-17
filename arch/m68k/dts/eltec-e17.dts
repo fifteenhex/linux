@@ -46,14 +46,22 @@
 			/* register file, then the interrupt-acknowledge window */
 			reg = <0xfec64000 0x100>, <0xfec66000 0x100>;
 			/*
-			 * No VIC irqchip yet: route through the generic
-			 * user-vector controller.  Cell N -> CPU vector
-			 * VEC_USER+N; the CD2401 fills the low two bits with
-			 * the interrupt type (11 = receive data), so cell 7
-			 * (vector 0x47) matches a receive-data interrupt.
+			 * Self-vectored on the LIRQ6 daisy chain at level 5 (cells
+			 * <lirq level vector>).  Per the HW manual only level-5 CPU
+			 * IACK cycles are routed to the chain, and the CD2401 supplies
+			 * its own vector (LIVR|type): the CPU IACK enters the chip's
+			 * service context directly, so no board-IACK-window poke is
+			 * needed and each type lands on its own IRQ.  RMON sets
+			 * LIVR = 0x50 -> 0x50 rx-exception, 0x51 modem, 0x52 tx,
+			 * 0x53 rx-data.  Only rx is enabled today (rx-exception shares
+			 * the rx handler); tx/modem are added when tx goes
+			 * interrupt-driven.
 			 */
-			interrupt-parent = <&intc_user>;
-			interrupts = <7>;
+			interrupt-parent = <&vic>;
+			interrupts = <6 5 0x53>,	/* rx data       */
+				     <6 5 0x50>;	/* rx exception  */
+			interrupt-names = "rx", "rxexc";
+			livr-base = <0x50>;
 			clock-frequency = <20000000>;
 			status = "okay";
 		};
@@ -66,26 +74,66 @@
 			status = "okay";
 		};
 
+		/*
+		 * System CIO: Port C drives the 7-seg POST display, Port B reads
+		 * the config DIP switches, and CT1/CT2 are used as a 32-bit
+		 * clocksource.  Standard Z8536 register order (C,B,A,control).
+		 * The counter/timers interrupt on the VIC LIRQ6 daisy chain
+		 * (self-vectored, level 5), CTVEC = 0x60 -- clear of the CD2401's
+		 * 0x50..0x5f block and the VIC's LIVBR groups.  Cells:
+		 * <lirq level vector>.
+		 */
 		cio1: timer@fec30000 {
-			compatible = "zilog,z8536";
+			compatible = "eltec,e17-cio-system", "zilog,z8536";
 			reg = <0xfec30000 0x4>;
+			interrupt-parent = <&vic>;
+			interrupts = <6 5 0x60>;
 			status = "okay";
 		};
 
 		lance: ethernet@fec68000 {
 			compatible = "amd,am79900";
 			reg = <0xfec68000 0x8>;
-			interrupt-parent = <&intc_user>;
-			interrupts = <5>;
+			/*
+			 * VIC LIRQ7 at CPU level 3 (HW manual Table 48).  The VIC
+			 * irqchip owns LICR7 masking/levelling and cascades this
+			 * line off the user-vector controller (vector LIVBR|7 =
+			 * 0x47).  Cells: <lirq level>.
+			 */
+			interrupt-parent = <&vic>;
+			interrupts = <7 3 0>;	/* LIRQ7, level 3, VIC-vectored */
 			rdp-offset = <0x2>;
 			rap-offset = <0x6>;
+			status = "okay";
 		};
 
 		scsi: scsi@fec6c000 {
 			compatible = "eltec,e17-53c720";
 			reg = <0xfec6c000 0x100>;
-			interrupt-parent = <&intc_user>;
-			interrupts = <4>;
+			/*
+			 * SCSI is VIC LIRQ3 (vector 0x43, level 2) per the HW
+			 * manual (Table 49) -- VIC-vectored.  The old <&intc_user>
+			 * <4> here was wrong (that is vector 0x44 = the video frame
+			 * interrupt).  No driver binds this yet.
+			 */
+			interrupt-parent = <&vic>;
+			interrupts = <3 2 0>;
+		};
+
+		keyboard: keyboard@fec60000 {
+			compatible = "eltec,e17-kbd";
+			/* data register @+0, control/status register @+1 */
+			reg = <0xfec60000 0x2>;
+			/*
+			 * Controller IRQ wired to VIC LIRQ1 at CPU level 1.
+			 * Cells: <lirq level>.  QEMU does not drive the
+			 * keyboard's LIRQ1 input, so the driver also keeps a
+			 * polling backstop until interrupt delivery is confirmed
+			 * on real hardware.
+			 */
+			interrupt-parent = <&vic>;
+			interrupts = <1 1 0>;	/* LIRQ1, level 1, VIC-vectored */
+			status = "okay";
 		};
 
 		rtc: rtc@fec20000 {
@@ -93,9 +141,52 @@
 			reg = <0xfec20000 0x800>;
 		};
 
-		vic: interrupt-controller@fec01000 {
+		/*
+		 * VIC068A interrupt controller.  Its local-interrupt-control
+		 * registers (LICR1..LICR7 at 0x27..0x3f, LIVBR at 0x57) live in the
+		 * onboard I/O block at 0xfec00000 -- the same base config.c and the
+		 * CD2401 driver already poke.  #interrupt-cells = <3> is
+		 * <LIRQ level vector>: the VIC local IRQ number (LIRQ1..LIRQ7), the CPU
+		 * IPL to raise, and the CPU vector -- 0 for a VIC-vectored line (the VIC
+		 * supplies LIVBR|LIRQ) or the device-supplied vector for a self-vectored
+		 * line (the CD2401 daisy chain on LIRQ6).  Peripherals are migrated onto
+		 * it one at a time (see the driver).
+		 */
+		vic: interrupt-controller@fec00000 {
 			compatible = "eltec,e17-vic068a";
-			reg = <0xfec01000 0x100>;
+			reg = <0xfec00000 0x100>;
+			interrupt-controller;
+			#interrupt-cells = <3>;
 		};
+
+		video: video@fec40000 {
+			compatible = "eltec,e17-video";
+			reg = <0xfec40000 0x8>,		/* Bt445 RAM-DAC          */
+			      <0xfec48000 0x8>,		/* address/sync generator */
+			      <0x0fc00000 0x100000>,	/* 1 MB video RAM         */
+			      <0xfec54000 0x2>;		/* CIO/frame IRQ-level reg */
+			reg-names = "dac", "crtc", "vram", "irqroute";
+			/*
+			 * Frame interrupt: the LM1882 cursor pulse (~vblank) on VIC
+			 * LIRQ4 at level 4, VIC-vectored (vector 0x44).  Cells:
+			 * <lirq level vector>.  Routed here by the FR bit of the
+			 * interrupt-level register at 0xfec54001 (default LIRQ4).
+			 */
+			interrupt-parent = <&vic>;
+			interrupts = <4 5 0>;	/* LIRQ4, level 5, VIC-vectored (0x44) */
+			interrupt-names = "vblank";
+			status = "okay";
+		};
+	};
+};
+
+&cpus {
+	cpu1: cpu@1 {
+		compatible = "motorola,mc68040";
+		device_type = "cpu";
+		reg = <0x1>;
+		/* Released by the primary via CPU2CON ($FEC58000 bit5); the
+		 * eltec board code drives the pulse (arch/m68k/eltec/smp_e17.c).
+		 * This node only makes smp_init_cpus() count the second socket. */
 	};
 };

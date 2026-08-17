@@ -840,4 +840,13 @@ config SUNPLUS_SP7021_INTC
 	  chained controller, routing all interrupt source in P-Chip to
 	  the primary controller on C-Chip.
 
+config E17_VIC068A
+	bool "ELTEC EUROCOM-17 VIC068A interrupt controller"
+	depends on ELTEC_E17
+	default ELTEC_E17
+	select IRQ_DOMAIN
+	help
+	  Interrupt controller (VIC068A) on the ELTEC EUROCOM-17 m68k board.
+	  Peripherals are migrated onto it in stages; harmless if unused.
+
 endmenu
