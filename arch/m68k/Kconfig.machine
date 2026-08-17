@@ -72,6 +72,8 @@ config ELTEC_E17
 	depends on VME
 	select M68040
 	select LEGACY_TIMER_TICK
+	select FONT_SUPPORT
+	select FONT_8x8
 	help
 	  Say Y to include support for the ELTEC Eurocom E17, a VMEbus
 	  single-board computer based on the MC68040 (or MC68060).  The
