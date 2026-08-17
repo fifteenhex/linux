@@ -472,6 +472,12 @@ func_define	console_plot_pixel,3
 func_define	console_scroll
 
 .macro	putc	ch
+	/*
+	 * NB: on the E17 the checkpoint is emitted on serial only.  It used to
+	 * also be dropped on the POST display, but that made the display churn
+	 * through the A..N checkpoints and masked the deliberate milestone /
+	 * exception codes -- so the display is now reserved for those.
+	 */
 #if defined(CONSOLE_DEBUG) || defined(SERIAL_DEBUG)
 	pea	\ch
 #endif
@@ -594,6 +600,16 @@ ENTRY(__start)
  * Setup initial stack pointer
  */
 	lea	%pc@(_stext),%sp
+
+#ifdef CONFIG_ELTEC_E17
+	/*
+	 * POST 'E' = reached the kernel entry (before bootinfo/machtype).
+	 * The 7-seg latch upper nibble is an active-low write-enable for the
+	 * lower nibble, so the upper nibble MUST be 0 to update the display
+	 * (0xee would enable only bit0 and leave the digit garbled).
+	 */
+	moveb	#0x0e,0xfec30000
+#endif
 
 /*
  * Record the CPU and machine type.
@@ -739,9 +755,20 @@ L(test_notvirt):
 	jra	L(save_cachetype)
 #endif /* CONFIG_060_WRITETHROUGH */
 1:
-	movew	#_PAGE_CACHE040,%d0
+	movel	#_PAGE_CACHE040W,%d1		| page-table cachemode = write-through
 
-	movel	#_PAGE_CACHE040W,%d1
+	/*
+	 * ELTEC E17: use WRITE-THROUGH for supervisor memory too, not copyback.
+	 * On this board a copyback dirty-line eviction (a 16-byte burst writeback)
+	 * hard-locks the bus at unpredictable times -- write-through never
+	 * produces dirty lines, so there is no writeback burst.  RMON avoids this
+	 * by running caches-off.
+	 */
+	is_e17(L(e17_sup_wt))
+	movew	#_PAGE_CACHE040,%d0		| others: copyback
+	jra	L(save_cachetype)
+L(e17_sup_wt):
+	movew	#_PAGE_CACHE040W,%d0		| E17: write-through
 
 L(save_cachetype):
 	/* Save cache mode for supervisor mode and page tables
@@ -1096,11 +1123,20 @@ L(not147):
 
 	/*
 	 * ELTEC E17: RAM is already mapped above.  Transparently map the
-	 * top 0.5GB (supervisor, no-cache) so the onboard I/O window at
-	 * 0xfec00000 (and the ROM/SRAM) is reachable, as on the other
-	 * VME boards.
+	 * top 0.5GB (supervisor, no-cache) via dtt1/itt1 so the onboard I/O
+	 * window at 0xfec00000 (and the ROM/SRAM) is reachable, as on the
+	 * other VME boards.
 	 */
 	mmu_map_tt	#1,#0xe0000000,#0x20000000,#_PAGE_NOCACHE_S
+	/*
+	 * Also transparently map the 16MB block containing the onboard video
+	 * RAM (0x0fc00000, 4MB, 8bpp 800x600) via dtt0/itt0.  Use WRITE-THROUGH,
+	 * exactly as RMON/u-boot map it (their 0x0-0x7fffffff TTR is CM=00=WT):
+	 * nocache access to the VRAM contends badly with the video scanout and
+	 * locks unpredictably, whereas write-through (as the firmware uses) is
+	 * reliable.
+	 */
+	mmu_map_tt	#0,#0x0f000000,#0x01000000,#_PAGE_CACHE040W
 
 	jbra	L(mmu_init_done)
 
@@ -1493,6 +1529,24 @@ L(cache680460):
 
 	is_060(L(cache68060))
 
+	/*
+	 * E17 data-cache policy.  The old lockups with the D-cache on were NOT bus
+	 * contention -- they were the SMP page-table sub-allocator and user-mm TLB
+	 * shootdown races (both since fixed).  With CONFIG_E17_SMP_DCACHE (Tier-1)
+	 * enable the DATA cache in WRITE-THROUGH mode (the page tables use
+	 * _PAGE_CACHE040W) together with 68040 bus snooping (SNCR, programmed in
+	 * smp_e17.c) -- the coherent mode the HW manual prescribes.  Without it
+	 * (Tier-0) run I-cache only, data cache OFF: slow but trivially coherent.
+	 */
+	is_not_e17(1f)
+#ifdef CONFIG_E17_SMP_DCACHE
+	movel	#CC6_ENABLE_D+CC6_ENABLE_I,%d0	| Tier-1: D-cache on (write-through + snoop)
+#else
+	movel	#CC6_ENABLE_I,%d0		| Tier-0: D-cache off (safe baseline)
+#endif
+	movec	%d0,%cacr
+	jra	L(cache_done)
+1:
 	movel	#CC6_ENABLE_D+CC6_ENABLE_I,%d0
 	/* MMU stuff works in copyback mode now, so enable the cache */
 	movec	%d0,%cacr
@@ -1530,15 +1584,35 @@ L(cache_done):
 
 	subl	%a6,%a6		/* clear a6 for gdb */
 
+	putc	'L'		/* L = past init-stack setup, about to trap_init */
+#ifdef CONFIG_ELTEC_E17
+	moveb	#0x00,0xfec30000	/* display '0' = about to call base_trap_init */
+#endif
+
 /*
  * The new 64bit printf support requires an early exception initialization.
  */
 	jbsr	base_trap_init
 
+	putc	'M'		/* M = base_trap_init returned */
+#ifdef CONFIG_ELTEC_E17
+	moveb	#0x05,0xfec30000	/* display '5' = base_trap_init returned */
+#endif
+
 /* jump to the kernel start */
 
-	putc	'\n'
 	leds	0x55
+
+	putc	'N'		/* N = about to call start_kernel() */
+#ifdef CONFIG_ELTEC_E17
+	moveb	#0x0f,0xfec30000	/* display 'F' = about to call start_kernel */
+	/*
+	 * NB: the diagnostic low-page fill (writing ILLEGAL opcodes to virtual
+	 * 0..0x1000) has been REMOVED -- it was scaffolding for the old exception
+	 * reporter and wrote to address 0, which may fault/hang on real hardware
+	 * (it only ever worked because QEMU maps 0 as plain RAM).
+	 */
+#endif
 
 	jbsr	start_kernel
 
@@ -3151,6 +3225,30 @@ func_start	serial_putc,%d0/%d1/%a0/%a1
 2:
 #endif /* CONFIG_MVME16x */
 
+#ifdef CONFIG_ELTEC_E17
+	is_not_e17(2f)
+	/*
+	 * CD2401 at 0xfec64000, channel 0 = the console.  The real chip only
+	 * transmits from its interrupt-service context (a plain TDR write is
+	 * ignored), so drive it the way the firmware does: select the channel,
+	 * enable the tx interrupt, wait (bounded) for the VIC to see the line
+	 * asserted (LICR6 STATE, active low), acknowledge it through the board
+	 * IACK window (base + 0x2000, at the tx priority level) to enter tx
+	 * service, write the byte and end the service with TEOIR.
+	 */
+	/*
+	 * DISABLED: this simplified per-byte CD2401 writer is unreliable (drops
+	 * after ~8-12 chars) AND a hang risk -- if a stale (e.g. rx) interrupt is
+	 * pending its STATE poll matches and it IACKs at the tx level, gets no
+	 * DTACK, and wedges the bus.  head.S therefore emits NOTHING on serial;
+	 * the datasheet-correct C console (arch/m68k/eltec/config.c) is the sole,
+	 * reliable serial channel from start_kernel onward.  (The deliberate POST
+	 * display writes elsewhere in head.S are unaffected.)
+	 */
+	jbra	L(serial_putc_done)
+2:
+#endif /* CONFIG_ELTEC_E17 */
+
 #ifdef CONFIG_BVME6000
 	is_not_bvme6000(2f)
 	/*
@@ -3228,6 +3326,130 @@ func_start	serial_putc,%d0/%d1/%a0/%a1
 
 L(serial_putc_done):
 func_return	serial_putc
+
+#ifdef CONFIG_ELTEC_E17
+/*
+ * C-callable single-character debug output, using the SAME proven serial_putc
+ * path that reliably prints the head.S A..N checkpoints.  Lets us extend the
+ * checkpoint trail into start_kernel()/setup_arch() to see where the boot dies,
+ * since the C console (register_console) is silent on real hardware.  One char
+ * per call, spaced by real work, is what the CD2401 tolerates.
+ *   void e17_dbg_putc(int ch);   ch at sp@(4) on entry (m68k C ABI)
+ */
+	.globl	e17_dbg_putc
+e17_dbg_putc:
+	movel	%sp@(4),%sp@-		| re-push ch as serial_putc's ARG1
+	jbsr	L(serial_putc)
+	addql	#4,%sp
+	rts
+
+/*
+ * ELTEC E17 diagnostic exception reporter.  base_trap_init() points every
+ * vector here so that any early fault (before the real handlers are in place)
+ * is FROZEN instead of vectoring through a NULL entry to address 0 and
+ * re-running head.S.  It reads the exception vector number out of the 68040
+ * exception frame (format/vector word at frame+6, vector offset = number*4)
+ * and blinks it against 'E' on the POST display, then never returns -- so the
+ * display holds the faulting vector: 2=bus error, 3=address error,
+ * 4=illegal, 8=privilege, a=line-A, b=line-F(FPU), etc.
+ */
+ENTRY(e17_exc_report)
+	movew	#0x2700,%sr		| supervisor, mask all interrupts
+	/*
+	 * Latch a once-flag FIRST.  Masking (above) blocks levels 1-6, but the
+	 * board's watchdog fires a level-7 NMI when the CPU stalls -- and stop
+	 * halts the CPU -- so the NMI CAN re-enter here (via vectors[31], NULL
+	 * this early -> 0 -> illegal).  The flag (in writable .bss now, so the
+	 * store actually sticks despite CONFIG_STRICT_KERNEL_RWX making text RO)
+	 * makes any such re-entry fall straight through to the halt: one report.
+	 */
+	lea	L(e17_rep_flag),%a3	| absolute: scratch is in .bss, far from here
+	tstb	%a3@
+	jne	8f
+	st	%a3@
+	/* vector number (frame+6) -> d2 as an ascii hex digit */
+	movew	%sp@(6),%d0
+	andw	#0x0fff,%d0
+	lsrw	#2,%d0
+	andl	#0xf,%d0
+	addl	#'0',%d0
+	cmpl	#'9',%d0
+	jle	1f
+	addl	#7,%d0
+1:	movel	%d0,%d2
+	/*
+	 * Gather, into scratch, a window of the crashed context so the caller
+	 * chain can be read by eye:
+	 *   val[0]      = faulting PC (frame+2)
+	 *   val[1..10]  = 10 longwords of the crashed stack above the 8-byte
+	 *                 frame (frame+8, +12, ...), each bounds-checked (even,
+	 *                 in RAM) so a wild sp can't fault us -- 0 if unreadable.
+	 */
+	lea	L(e17_rep_vals),%a1
+	movel	%sp@(2),%a1@		| val[0] = faulting PC
+	lea	%sp@(8),%a0		| crashed stack above the frame
+	moveq	#10,%d1			| count
+	moveq	#1,%d3			| scratch longword index
+2:	clrl	%a1@(0,%d3:l:4)		| default 0
+	movel	%a0,%d4
+	btst	#0,%d4
+	jne	3f			| odd -> skip
+	cmpl	#0x1000,%d4
+	jcs	3f
+	cmpl	#0x02000000,%d4
+	jcc	3f			| out of RAM -> skip
+	movel	%a0@,%a1@(0,%d3:l:4)	| store stack longword
+3:	addql	#4,%a0
+	addql	#1,%d3
+	subql	#1,%d1
+	jne	2b
+	/* switch to the private stack and print vector + 11 values */
+	lea	L(e17_rep_stack),%sp
+	moveb	#0x0e,0xfec30000	| 'E' on the display
+	movel	%d2,%sp@-		| vector digit
+	jbsr	L(serial_putc)
+	addql	#4,%sp
+	moveq	#0,%d2			| value index (d2 survives putn)
+4:	lea	L(e17_rep_vals),%a2
+	movel	%a2@(0,%d2:l:4),%sp@-	| " XXXXXXXX" (9 chars, under the fifo limit)
+	jbsr	L(putn)
+	addql	#4,%sp
+	/*
+	 * Pace ONLY the reporter (not the boot's serial_putc): each 9-char value
+	 * fits the CD2401's ~12-char burst window, but the whole ~100-char dump
+	 * did not -- so drain between values here.  d3 is free after putn.  This
+	 * one-shot delay doesn't slow the boot, so it can't shift any watchdog
+	 * deadline the way a per-byte serial_putc drain did.
+	 */
+	movel	#0x40000,%d3
+5:	subql	#1,%d3
+	jne	5b
+	addql	#1,%d2
+	cmpl	#11,%d2
+	jcs	4b
+	pea	10			| '\n'
+	jbsr	L(serial_putc)
+	addql	#4,%sp
+8:	stop	#0x2700			| HALT
+	jra	8b
+
+	/*
+	 * Diagnostic scratch -- MUST be writable, so put it in .bss (kernel text
+	 * is read-only under CONFIG_STRICT_KERNEL_RWX).  The private stack grows
+	 * DOWN from L(e17_rep_stack) into the reserved area above e17_rep_vals.
+	 */
+	.section .bss
+	.align	4
+L(e17_rep_flag):
+	.space	4			| once-flag (0 = not yet reported)
+L(e17_rep_vals):
+	.space	64			| val[0]=PC, val[1..10]=stack (16 longs slack)
+	.space	512			| private-stack growth area
+L(e17_rep_stack):
+	.space	4
+	.previous
+
+#endif /* CONFIG_ELTEC_E17 */
 
 /*
  * Output a string.
