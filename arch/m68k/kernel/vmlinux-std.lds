@@ -43,6 +43,14 @@ SECTIONS
   __init_begin = .;
   INIT_TEXT_SECTION(PAGE_SIZE) :data
   INIT_DATA_SECTION(16)
+  /*
+   * The per-CPU template. Needed once CONFIG_SMP is set (it defines
+   * __per_cpu_start/__per_cpu_end that mm/percpu.c references); harmless on UP.
+   * Placed in the init-freed region like arch/m68k/kernel/vmlinux-nommu.lds:
+   * setup_per_cpu_areas() copies it into the allocated per-CPU chunks, then the
+   * template is released with the rest of __init.
+   */
+  PERCPU_SECTION(16)
   STRUCT_ALIGN();
   .embedded_dtbs : {
 	embedded_dtbs = .;

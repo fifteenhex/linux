@@ -28,6 +28,68 @@
  *	So we use the best form possible on a given platform.
  */
 
+#ifdef CONFIG_SMP
+/*
+ * SMP-atomic bit operations.  The native bset/bclr/bchg (and the bitfield
+ * bfset/bfclr/bfchg forms) are NOT LOCKed read-modify-write cycles on the
+ * 680x0, so they are atomic only against interrupts on one CPU -- NOT across
+ * CPUs.  Redo them with a casl retry loop on the containing long, using the
+ * same word/mask layout as generic_test_bit() (== arch_test_bit) so set and
+ * test agree.  CONFIG_SMP selects RMW_INSNS, so casl is always available.
+ */
+#define E17_BITOP_CAS(insn, maskexpr)					\
+	volatile unsigned long *p = vaddr + (nr >> 5);			\
+	unsigned long mask = (maskexpr);				\
+	unsigned long t, old;						\
+	__asm__ __volatile__(						\
+		"1:	movel %2,%1\n"					\
+		"	" insn " %3,%1\n"				\
+		"	casl %2,%1,%0\n"				\
+		"	jne 1b"						\
+		: "+m" (*p), "=&d" (t), "=&d" (old)			\
+		: "d" (mask), "2" (*p)					\
+		: "cc")
+
+static inline void bcas_set_bit(int nr, volatile unsigned long *vaddr)
+{
+	E17_BITOP_CAS("orl", 1UL << (nr & 31));
+}
+
+static inline void bcas_clear_bit(int nr, volatile unsigned long *vaddr)
+{
+	E17_BITOP_CAS("andl", ~(1UL << (nr & 31)));
+}
+
+static inline void bcas_change_bit(int nr, volatile unsigned long *vaddr)
+{
+	E17_BITOP_CAS("eorl", 1UL << (nr & 31));
+}
+
+static inline int bcas_test_and_set_bit(int nr, volatile unsigned long *vaddr)
+{
+	unsigned long bit = 1UL << (nr & 31);
+
+	E17_BITOP_CAS("orl", bit);
+	return (old & bit) != 0;			/* casl leaves old in %2 */
+}
+
+static inline int bcas_test_and_clear_bit(int nr, volatile unsigned long *vaddr)
+{
+	unsigned long bit = 1UL << (nr & 31);
+
+	E17_BITOP_CAS("andl", ~bit);
+	return (old & bit) != 0;
+}
+
+static inline int bcas_test_and_change_bit(int nr, volatile unsigned long *vaddr)
+{
+	unsigned long bit = 1UL << (nr & 31);
+
+	E17_BITOP_CAS("eorl", bit);
+	return (old & bit) != 0;
+}
+#endif /* CONFIG_SMP */
+
 static inline void bset_reg_set_bit(int nr, volatile unsigned long *vaddr)
 {
 	char *p = (char *)vaddr + (nr ^ 31) / 8;
@@ -55,7 +117,9 @@ static inline void bfset_mem_set_bit(int nr, volatile unsigned long *vaddr)
 		: "memory");
 }
 
-#if defined(CONFIG_COLDFIRE)
+#if defined(CONFIG_SMP)
+#define	set_bit(nr, vaddr)	bcas_set_bit(nr, vaddr)
+#elif defined(CONFIG_COLDFIRE)
 #define	set_bit(nr, vaddr)	bset_reg_set_bit(nr, vaddr)
 #elif defined(CONFIG_CPU_HAS_NO_BITFIELDS)
 #define	set_bit(nr, vaddr)	bset_mem_set_bit(nr, vaddr)
@@ -98,7 +162,9 @@ static inline void bfclr_mem_clear_bit(int nr, volatile unsigned long *vaddr)
 		: "memory");
 }
 
-#if defined(CONFIG_COLDFIRE)
+#if defined(CONFIG_SMP)
+#define	clear_bit(nr, vaddr)	bcas_clear_bit(nr, vaddr)
+#elif defined(CONFIG_COLDFIRE)
 #define	clear_bit(nr, vaddr)	bclr_reg_clear_bit(nr, vaddr)
 #elif defined(CONFIG_CPU_HAS_NO_BITFIELDS)
 #define	clear_bit(nr, vaddr)	bclr_mem_clear_bit(nr, vaddr)
@@ -141,7 +207,9 @@ static inline void bfchg_mem_change_bit(int nr, volatile unsigned long *vaddr)
 		: "memory");
 }
 
-#if defined(CONFIG_COLDFIRE)
+#if defined(CONFIG_SMP)
+#define	change_bit(nr, vaddr)	bcas_change_bit(nr, vaddr)
+#elif defined(CONFIG_COLDFIRE)
 #define	change_bit(nr, vaddr)	bchg_reg_change_bit(nr, vaddr)
 #elif defined(CONFIG_CPU_HAS_NO_BITFIELDS)
 #define	change_bit(nr, vaddr)	bchg_mem_change_bit(nr, vaddr)
@@ -197,7 +265,9 @@ static inline int bfset_mem_test_and_set_bit(int nr,
 	return retval;
 }
 
-#if defined(CONFIG_COLDFIRE)
+#if defined(CONFIG_SMP)
+#define	test_and_set_bit(nr, vaddr)	bcas_test_and_set_bit(nr, vaddr)
+#elif defined(CONFIG_COLDFIRE)
 #define	test_and_set_bit(nr, vaddr)	bset_reg_test_and_set_bit(nr, vaddr)
 #elif defined(CONFIG_CPU_HAS_NO_BITFIELDS)
 #define	test_and_set_bit(nr, vaddr)	bset_mem_test_and_set_bit(nr, vaddr)
@@ -250,7 +320,9 @@ static inline int bfclr_mem_test_and_clear_bit(int nr,
 	return retval;
 }
 
-#if defined(CONFIG_COLDFIRE)
+#if defined(CONFIG_SMP)
+#define	test_and_clear_bit(nr, vaddr)	bcas_test_and_clear_bit(nr, vaddr)
+#elif defined(CONFIG_COLDFIRE)
 #define	test_and_clear_bit(nr, vaddr)	bclr_reg_test_and_clear_bit(nr, vaddr)
 #elif defined(CONFIG_CPU_HAS_NO_BITFIELDS)
 #define	test_and_clear_bit(nr, vaddr)	bclr_mem_test_and_clear_bit(nr, vaddr)
@@ -303,7 +375,9 @@ static inline int bfchg_mem_test_and_change_bit(int nr,
 	return retval;
 }
 
-#if defined(CONFIG_COLDFIRE)
+#if defined(CONFIG_SMP)
+#define	test_and_change_bit(nr, vaddr)	bcas_test_and_change_bit(nr, vaddr)
+#elif defined(CONFIG_COLDFIRE)
 #define	test_and_change_bit(nr, vaddr)	bchg_reg_test_and_change_bit(nr, vaddr)
 #elif defined(CONFIG_CPU_HAS_NO_BITFIELDS)
 #define	test_and_change_bit(nr, vaddr)	bchg_mem_test_and_change_bit(nr, vaddr)
@@ -328,6 +402,27 @@ static inline bool xor_unlock_is_negative_byte(unsigned long mask,
 		: "d" (mask)
 		: "memory");
 	return *p & (1 << 7);
+#elif defined(CONFIG_SMP)
+	/*
+	 * The plain eor.b below is a non-atomic read-modify-write on the low
+	 * byte of *p (which holds PG_locked..PG_waiters); on SMP a concurrent
+	 * casl flag update from the other CPU landing between its read and write
+	 * would be lost (missed wakeup / stuck folio lock).  Do the xor as a casl
+	 * retry loop on the containing long instead (same layout as the atomic
+	 * bitops above).  mask is a byte value applied to the big-endian low byte,
+	 * i.e. the long's value bits 0..7; bit 7 is the "negative" bit tested.
+	 */
+	unsigned long old, new;
+
+	__asm__ __volatile__(
+		"1:	movel %2,%1\n"
+		"	eorl %3,%1\n"
+		"	casl %2,%1,%0\n"
+		"	jne 1b"
+		: "+m" (*p), "=&d" (new), "=&d" (old)
+		: "d" (mask & 0xff), "2" (*p)
+		: "cc");
+	return (new & 0x80) != 0;
 #else
 	char result;
 	char *cp = (char *)p + 3;	/* m68k is big-endian */
