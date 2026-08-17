@@ -194,6 +194,18 @@ config KEYBOARD_EP93XX
 	  To compile this driver as a module, choose M here: the
 	  module will be called ep93xx_keypad.
 
+config KEYBOARD_E17
+	tristate "ELTEC EUROCOM-17 AT keyboard controller"
+	depends on (M68K && MMU) || COMPILE_TEST
+	help
+	  Say Y here to enable support for the onboard AT keyboard
+	  controller of the ELTEC EUROCOM-17 (E17) m68k VME single-board
+	  computer.  The controller lives at 0xfec60000 and delivers raw
+	  AT scan code set 2, which this driver decodes to Linux keycodes.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called e17_kbd.
+
 config KEYBOARD_GPIO
 	tristate "GPIO Buttons"
 	depends on GPIOLIB || COMPILE_TEST
