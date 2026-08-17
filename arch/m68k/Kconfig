@@ -52,6 +52,7 @@ config M68K
 	select GENERIC_CLOCKEVENTS
 	select TIMER_OF
 	select IRQ_DOMAIN
+	select HOTPLUG_CORE_SYNC_DEAD if HOTPLUG_CPU
 
 config CPU_BIG_ENDIAN
 	def_bool y
@@ -129,6 +130,71 @@ source "arch/m68k/Kconfig.bus"
 endmenu
 
 menu "Kernel Features"
+
+config SMP
+	bool "Symmetric multi-processing support (ELTEC EUROCOM-17 dual-68040)"
+	depends on ELTEC_E17 && MMU && (M68040 || M68060) && !COLDFIRE && !SUN3
+	select GENERIC_SMP_IDLE_THREAD
+	# NB: do NOT select GENERIC_IRQ_MULTI_HANDLER. m68k dispatches interrupts
+	# through the per-CPU 680x0 vector table (m68k_setup_{auto,user}_interrupt
+	# -> do_IRQ); it never registers a single root handle_arch_irq(). Selecting
+	# the multi-handler routes IRQs to a NULL handle_arch_irq and the first
+	# timer tick after init_IRQ hangs the boot.  Each CPU has its own VBR, so
+	# per-CPU IRQ delivery already works without it.
+	# SMP needs native cas atomics / ticket spinlocks
+	select RMW_INSNS
+	# generic-y spinlock.h pulls in asm-generic qrwlock, whose slowpaths
+	# (queued_{read,write}_lock_slowpath) only build under this symbol.
+	select ARCH_USE_QUEUED_RWLOCKS
+	help
+	  Bring up the second 68040/68060 CPU fitted to the EUROCOM-17-5xx.
+	  This is the only m68k platform with SMP support. On any other m68k
+	  machine, or a single-CPU E17, say N.  If unsure, say N.
+
+config NR_CPUS
+	int "Maximum number of CPUs" if SMP
+	depends on SMP
+	range 2 2
+	default "2"
+	help
+	  The EUROCOM-17-5xx has exactly two CPU sockets.
+
+config HOTPLUG_CPU
+	bool "Support for hot-pluggable CPUs"
+	depends on SMP
+	select GENERIC_IRQ_MIGRATION
+	help
+	  Allow the second EUROCOM-17 CPU to be brought online/offline at
+	  runtime via /sys/devices/system/cpu/cpu1/online.  Very useful for
+	  bring-up: boot with "maxcpus=1" to a shell, then online CPU1 with the
+	  console and dmesg available.  If unsure, say Y.
+
+config E17_SMP_HW_IPI
+	bool "E17 SMP: interrupt-driven mailbox IPI to the secondary"
+	depends on SMP && ELTEC_E17
+	default y
+	help
+	  Deliver primary->secondary IPIs through the real CPU2CON mailbox
+	  doorbell (an autovectored level-6 interrupt on the secondary, acked
+	  with SICF=IACK_MBOX) instead of the software pending bitmap polled from
+	  the idle loop / timer tick.  This is faster and more faithful to the
+	  hardware, and is exercised by the QEMU e17 model.
+
+	  If the secondary hangs immediately after coming online on real hardware
+	  (a level-triggered doorbell that is never de-asserted storms the CPU),
+	  say N to fall back to the proven poll-only baseline.  Secondary->primary
+	  IPIs are polled either way until the VIC ICGS irqchip is modelled.
+
+	  If unsure, say Y.
+
+config E17_SMP_DCACHE
+	bool "E17 SMP: write-through data cache with hardware snooping (Tier 1)"
+	depends on SMP && ELTEC_E17
+	default n
+	help
+	  Enable the 68040 data cache in WRITE-THROUGH mode on both CPUs and turn
+	  on VIC/68040 bus snooping (SNCR at $FEC5.E000).  Leave N for the safe
+	  D-cache-off baseline (Tier 0); only enable after confirming stability.
 
 endmenu
 
