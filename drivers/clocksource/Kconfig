@@ -824,4 +824,14 @@ choice
 
 endchoice
 
+config E17_CIO_TIMER
+	bool "ELTEC EUROCOM-17 Z8536 CIO clocksource"
+	depends on ELTEC_E17 || COMPILE_TEST
+	default ELTEC_E17
+	help
+	  Zilog Z8536 CIO driver for the ELTEC EUROCOM-17.  Bound to the
+	  System CIO, it provides a 32-bit free-running clocksource from the
+	  linked CT1/CT2 counter cascade (2.5 MHz) and owns Port C, which
+	  drives the board's 4-bit 7-seg POST display.
+
 endmenu
