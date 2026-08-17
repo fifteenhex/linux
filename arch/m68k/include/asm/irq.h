@@ -15,6 +15,16 @@
  */
 #if defined(CONFIG_COLDFIRE)
 #define NR_IRQS 256
+#elif defined(CONFIG_ELTEC_E17)
+/*
+ * VME board: 192 user vectors (IRQ_USER..IRQ_USER+191) fill 8..199 and the
+ * auto-vectors take 1..7, so the base VME count of 200 leaves no descriptors
+ * for the on-board VIC068A irqchip, whose driver-facing virqs are allocated
+ * *above* the user-vector range (its lines are still delivered through user
+ * vectors that live inside it).  Add headroom for the VIC's local inputs
+ * (LIRQ1..7) plus a little slack for future secondary controllers.
+ */
+#define NR_IRQS 232
 #elif defined(CONFIG_VME) || defined(CONFIG_SUN3) || \
       defined(CONFIG_SUN3X) || defined(CONFIG_VIRT)
 #define NR_IRQS 200
