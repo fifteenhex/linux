@@ -793,16 +793,6 @@ static struct drm_driver e17_drm_driver = {
 };
 
 /*
- * DEBUG (SMP bring-up): e17_early_puts() rolls the 7-seg once the AP is online,
- * so these bracket the DRM probe -- the prime suspect for the do_initcalls wedge
- * (its big VRAM clear/logo blit can hard-lock the bus with the AP also a bus
- * master).  Roll sequence from 9: 'a' probe entered, 'b' modeset done, 'c' about
- * to run fbdev (the big VRAM write), 'd' probe returned.  Stuck at 'c' => the
- * framebuffer VRAM blit is the wedge.
- */
-extern void e17_early_puts(const char *);
-
-/*
  * Video frame interrupt (LM1882 frame pulse -> VIC LIRQ4, VIC-vectored 0x44,
  * level 5).  Delivery is PROVEN on hardware but real DRM vblank on top of it
  * wedges the console (the vblank lifecycle disturbs the shared LIRQ4/console
@@ -818,10 +808,6 @@ static irqreturn_t e17_frame_isr(int irq, void *dev_id)
 
 	if (n == 1)
 		pr_info("e17drm: frame interrupt is being delivered (IRQ %d)\n", irq);
-	if (n == 1000) {
-		pr_info("e17drm: frame interrupt healthy (%d taken)\n", n);
-		disable_irq_nosync(irq);
-	}
 	return IRQ_HANDLED;
 }
 
@@ -832,8 +818,6 @@ static int e17_probe(struct platform_device *pdev)
 	struct resource *vram_res;
 	void __iomem *vram;
 	int ret, irq;
-
-	e17_early_puts("");			/* 7-seg 'a': DRM probe entered */
 
 	e17 = devm_drm_dev_alloc(&pdev->dev, &e17_drm_driver,
 				 struct e17_device, dev);
@@ -887,10 +871,7 @@ static int e17_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	e17_early_puts("");		/* 7-seg 'b': registered, modeset done */
-	e17_early_puts("");		/* 7-seg 'c': about to set up fbdev (VRAM blit) */
 	drm_client_setup(dev, NULL);	/* fbdev at preferred_depth (C8/8bpp) */
-	e17_early_puts("");		/* 7-seg 'd': fbdev/probe complete */
 
 	/*
 	 * Video frame interrupt: route it to VIC LIRQ4 ($FEC5.4001 FR bit set =
