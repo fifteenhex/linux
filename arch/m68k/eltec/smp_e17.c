@@ -208,7 +208,9 @@ int e17_boot_secondary(unsigned int cpu, struct task_struct *idle)
 
 	/* Copy the blob (vector-table space + ap_entry + ap_exc_handler) to page0. */
 	bloblen = ap_blob_end - ap_blob_start;
-	if (bloblen > PAGE_SIZE) {
+	if (bloblen > E17_AP_DESC_OFF) {
+		/* the kernel-entry descriptor lives at page0 + E17_AP_DESC_OFF;
+		 * a blob overrunning it would be silently corrupted. */
 		pr_err("SMP: AP blob too large (%lu bytes)\n", bloblen);
 		return -EINVAL;
 	}
@@ -316,8 +318,9 @@ int e17_boot_secondary(unsigned int cpu, struct task_struct *idle)
 	 *      second mailbox poll AFTER its own VIC-clock has ticked (it shows '2'
 	 *      in between), so ack #2 proves the secondary can see its own clock
 	 *      source.  The AP then shows '3'.
-	 * We do NOT continue the boot: after the checks we re-assert reset to park the
-	 * AP (see the 'stop' label) and return an error, so cpu%u stays offline.
+	 * These are pre-flight checks: if any fails we jump to 'stop', park the AP and
+	 * return an error.  If they all pass we fall through to the kernel-entry stages
+	 * below (come-in, MMU validation, secondary_start_kernel) and bring cpu%u up.
 	 */
 	mdelay(5);				/* AP: reset + reach the poll loop */
 
@@ -495,13 +498,12 @@ int e17_boot_secondary(unsigned int cpu, struct task_struct *idle)
 
 stop:
 	/*
-	 * Milestone stop / failure path: the AP is only running our bring-up test, it
-	 * never enters the kernel, so DO NOT leave it running loose -- polling the bus
-	 * and 7-seg, it races the boot CPU and wedges/crashes the boot (most visibly a
-	 * boot-time, non-"maxcpus=1" bring-up).  Re-assert reset (SRESET=0) to PARK the
+	 * Failure path: some pre-flight check or kernel-entry stage above failed, so the
+	 * AP is stuck mid-bring-up (or looping in its stub) rather than in the kernel.
+	 * Do NOT leave it running loose -- polling the bus and 7-seg, it races the boot
+	 * CPU and wedges/crashes the boot.  Re-assert reset (SRESET=0) to PARK the
 	 * secondary, and return an error so cpuhp rolls the online back cleanly (cpu1
-	 * stays offline).  When real kernel entry lands, the success path will instead
-	 * return 0 without parking.
+	 * stays offline).  The success path above returns 0 without reaching here.
 	 */
 	writeb(0x00, cpu2con);			/* SRESET=0: hold the secondary in reset */
 	pr_info("SMP: secondary parked (reset re-asserted); cpu%u left offline\n", cpu);
