@@ -50,29 +50,17 @@ void arch_cpu_idle(void)
 {
 #ifdef CONFIG_SMP
 	/*
-	 * E17 SMP bring-up: the inter-processor doorbell is not yet delivered as
-	 * a hardware interrupt (VIC irqchip TODO; the emulator raises no doorbell
-	 * IRQ at all), and the secondary CPU has no timer tick of its own under
-	 * QEMU.  A plain "stop" would therefore halt the AP forever with pending
-	 * cross-calls unserviced.  Poll the doorbell instead of halting so
-	 * reschedule / smp_call_function IPIs make progress.  Interrupts are
-	 * disabled on entry (idle contract); drain in that context, then enable
-	 * so the boot CPU still takes its timer tick.
+	 * E17 SMP: the primary->secondary doorbell is a real level-6 mailbox IRQ,
+	 * but the secondary->primary ICMS doorbell is not yet wired as an interrupt
+	 * (still poll-only), and QEMU raises no doorbell IRQ.  So poll the pending
+	 * IPI bitmap in idle as a backstop instead of halting, otherwise a CPU can
+	 * sit with cross-calls unserviced.  Interrupts are disabled on entry (idle
+	 * contract); drain here, then enable so the boot CPU still takes its tick.
+	 * (FIXME: once the ICMS sec->pri IRQ is fixed this poll can be dropped.)
 	 */
 	if (MACH_IS_E17) {
 		unsigned int d = 8192;
 
-		/*
-		 * DEBUG: AP idle heartbeat -- rolls the 7-seg every idle iteration on
-		 * the secondary CPU.  Success indicator: if the VIC-clock tick lets the
-		 * AP finish cpuhp and reach idle, the 7-seg ROLLS FOREVER; if the AP is
-		 * still wedged in a cpuhp state it FREEZES.  Only the AP writes it.
-		 */
-		if (raw_smp_processor_id() != 0) {
-			static u8 hb;
-
-			*(volatile u8 *)0xfec30000 = hb++ & 0x0f;
-		}
 		e17_ipi_poll();
 		raw_local_irq_enable();
 		/*
