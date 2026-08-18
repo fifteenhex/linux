@@ -157,8 +157,10 @@
 #define E17_AP_FPU_ABSENT	0x4e4f4e4f	/* "NONO": fnop line-F trapped -> no FPU */
 
 /*
- * e17_ap_boot.status handshake values. Defined outside the __ASSEMBLY__ guard:
- * the trampoline (smp_secondary.S) stores #E17_AP_ALIVE into E17_APB_STATUS.
+ * e17_ap_boot.status handshake values.  RESERVED: the current trampoline does
+ * NOT write this field -- AP liveness is proven by the mailbox-ack handshake and
+ * the e17_ap_progress milestones instead -- so smp.c's failure message prints the
+ * initial value.  Kept for a future trampoline-side status store.
  */
 #define E17_AP_HELD	0
 #define E17_AP_BOOTING	1
