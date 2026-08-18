@@ -593,8 +593,8 @@ void e17_send_ipi(const struct cpumask *mask, unsigned int ipi_msg)
 		 * unmasked in ICMSICR the VIC raises the ICMS group interrupt on the
 		 * primary at the IPL and vector we programmed (level 6, ICMSIVBR-based
 		 * 0x40 -> IRQ_USER); e17_ipi_isr() there drops the bit (e17_ipi_ack_self)
-		 * to deassert it and drains the bitmap.  e17_ipi_poll() stays as a
-		 * backstop until the ICMS interrupt is confirmed on real hardware.
+		 * to deassert it and drains the bitmap.  (e17_ipi_poll() only carries
+		 * IPIs in the CONFIG_E17_SMP_HW_IPI=n poll-only baseline.)
 		 */
 		if (IS_ENABLED(CONFIG_E17_SMP_HW_IPI)) {
 			if (cpu == 1) {
@@ -658,15 +658,12 @@ static irqreturn_t e17_ipi_isr(int irq, void *dev_id)
 }
 
 /*
- * Drain the local pending IPI bitmap.  Called from the idle loop / timer tick.
- *
- * Primary -> secondary IPIs are now interrupt-driven (CONFIG_E17_SMP_HW_IPI):
- * the CPU2CON mailbox raises level-6 on the secondary and e17_ipi_isr() drains
- * it, so on the secondary this poll is just a cheap belt-and-braces backstop.
- * Secondary -> primary IPIs are now interrupt-driven too (the VIC068A ICMS
- * module-switch doorbell into the primary), but the primary keeps calling this
- * as a backstop until that interrupt is confirmed firing on real hardware.
- * With CONFIG_E17_SMP_HW_IPI=n both directions rely on it (poll-only baseline).
+ * Drain the local pending IPI bitmap.  This is the CONFIG_E17_SMP_HW_IPI=n
+ * poll-only baseline: both directions rely on it, called from the idle loop and
+ * the timer tick.  With HW_IPI both doorbells are real, hardware-confirmed IRQs
+ * (CPU2CON mailbox pri->sec, VIC ICMS module switch sec->pri) drained by
+ * e17_ipi_isr(), so this poll is not called at all -- idle halts on stop and the
+ * tick backstop is compiled out.
  */
 void e17_ipi_poll(void)
 {
@@ -733,8 +730,8 @@ static int __init e17_smp_backend_init(void)
 	 *     written after reset; reset value is $F0).
 	 *   - ICMSICR: clear ICMS0's mask (bit 4) to enable it and set the group IPL
 	 *     (bits 2-0) to level 6, leaving ICMS1-3 masked.
-	 * e17_ipi_poll() from the primary idle loop / timer tick remains a backstop
-	 * until this interrupt is confirmed firing on real hardware.
+	 * With this in place both directions are interrupt-driven, so idle halts on
+	 * stop and e17_ipi_poll() is not used (it is the HW_IPI=n baseline only).
 	 */
 	if (IS_ENABLED(CONFIG_E17_SMP_HW_IPI)) {
 		void __iomem *icmsicr = (void __iomem *)E17_VIC_ICMSICR;

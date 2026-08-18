@@ -554,11 +554,12 @@ static irqreturn_t e17_timer_int(int irq, void *dev_id)
 	legacy_timer_tick(1);
 #ifdef CONFIG_SMP
 	/*
-	 * Pre-irqchip fallback: service any inter-processor doorbell that arrived
-	 * while this (boot) CPU was busy.  Harmless once the real doorbell ISR is
-	 * wired; see e17_ipi_poll().
+	 * Poll-only baseline (CONFIG_E17_SMP_HW_IPI=n): service any inter-processor
+	 * doorbell that arrived while this CPU was busy.  With HW_IPI the mailbox and
+	 * ICMS doorbell ISRs handle delivery, so this tick backstop is not needed.
 	 */
-	e17_ipi_poll();
+	if (!IS_ENABLED(CONFIG_E17_SMP_HW_IPI))
+		e17_ipi_poll();
 #endif
 	return IRQ_HANDLED;
 }

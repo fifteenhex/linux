@@ -50,27 +50,25 @@ void arch_cpu_idle(void)
 {
 #ifdef CONFIG_SMP
 	/*
-	 * E17 SMP: both doorbells are now real IRQs -- the primary->secondary
-	 * CPU2CON mailbox (level 6) and the secondary->primary VIC ICMS module
-	 * switch (IRQ_USER).  We still drain the pending IPI bitmap here in idle
-	 * as a backstop, so a CPU never sits with cross-calls unserviced if a
-	 * doorbell edge is missed.  Interrupts are disabled on entry (idle
-	 * contract); drain here, then enable so the boot CPU still takes its tick.
-	 * (FIXME: once the ICMS sec->pri IRQ is confirmed on real hardware this
-	 * poll can be dropped.)
+	 * E17 SMP: with CONFIG_E17_SMP_HW_IPI both doorbells are real, hardware-
+	 * confirmed IRQs -- the CPU2CON mailbox (pri->sec, level 6) and the VIC
+	 * ICMS module switch (sec->pri, IRQ_USER).  Idle then just halts on stop
+	 * like every other m68k: a pending IPI is latched (MIPEND / the ICFSR
+	 * switch bit) and taken the instant stop drops the IPL, and IPIs run through
+	 * the normal interrupt-entry path so RCU idle bookkeeping stays correct.
+	 *
+	 * Without HW_IPI there is no doorbell IRQ, so fall back to the poll-only
+	 * baseline: drain the pending bitmap here and busy-spin instead of halting.
+	 * The spin is REGISTER-ONLY (no memory/bus access) so the AP does not
+	 * saturate the shared local bus between polls -- a poll loop touching
+	 * DRAM/I/O every iteration starves CPU0's VRAM/console and the video
+	 * scanout (hard bus lock).  IPI latency stays in the low microseconds.
 	 */
-	if (MACH_IS_E17) {
+	if (MACH_IS_E17 && !IS_ENABLED(CONFIG_E17_SMP_HW_IPI)) {
 		unsigned int d = 8192;
 
 		e17_ipi_poll();
 		raw_local_irq_enable();
-		/*
-		 * Throttle the poll with a REGISTER-ONLY spin (no memory/bus access)
-		 * so the AP does not saturate the shared local bus between polls.  A
-		 * tight poll loop that touches DRAM/I/O every iteration starves CPU0's
-		 * VRAM/console writes and the video scanout (hard bus lock).  IPI
-		 * latency stays in the low microseconds, which is fine for Tier-0.
-		 */
 		asm volatile("1: subql #1,%0 ; jne 1b" : "+d"(d) : : "cc");
 		return;
 	}
