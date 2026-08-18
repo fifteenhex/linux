@@ -3,8 +3,8 @@
  * arch/m68k/eltec/smp_e17.c
  *
  * ELTEC EUROCOM-17-5xx board glue for SMP: secondary bring-up over CPU2CON
- * ($FEC58000), the bidirectional hardware IPI doorbells (CPU2CON SIPL and VIC
- * ICGS $FEC0105F), and the SNCR ($FEC5E000) snoop-mode management.
+ * ($FEC58000), the bidirectional hardware IPI doorbells (CPU2CON SIPL and the
+ * VIC ICMS switch $FEC0105F), and the SNCR ($FEC5E000) snoop-mode management.
  *
  * See DESIGN.md for the full rationale and the manual citations.
  */
@@ -588,22 +588,24 @@ void e17_send_ipi(const struct cpumask *mask, unsigned int ipi_msg)
 		 * 50).  The secondary's e17_ipi_isr() edge-acks it with SICF=IACK_MBOX
 		 * (which drops the level so it does not storm) and drains the bitmap.
 		 *
-		 * Secondary -> primary: ring the VIC068A ICGS group-interrupt doorbell
-		 * (a 0->1 edge on our dedicated ICGS bit).  The VIC raises it to the
-		 * primary as a level-6 interrupt vectored at LIVBR|0 = 0x40 -> IRQ_USER;
-		 * e17_ipi_isr() there drops the bit (e17_ipi_ack_self) to deassert it and
-		 * drains the bitmap.  e17_ipi_poll() stays as a cheap backstop.
+		 * Secondary -> primary: ring the VIC068A ICMS module-switch doorbell
+		 * (a clear->set edge on our module switch, ICFSR bit 0).  With ICMS0
+		 * unmasked in ICMSICR the VIC raises the ICMS group interrupt on the
+		 * primary at the IPL and vector we programmed (level 6, ICMSIVBR-based
+		 * 0x40 -> IRQ_USER); e17_ipi_isr() there drops the bit (e17_ipi_ack_self)
+		 * to deassert it and drains the bitmap.  e17_ipi_poll() stays as a
+		 * backstop until the ICMS interrupt is confirmed on real hardware.
 		 */
 		if (IS_ENABLED(CONFIG_E17_SMP_HW_IPI)) {
 			if (cpu == 1) {
 				writeb(E17_CPU2CON_SRESET | E17_IPI_SEC_IPL,
 				       (void __iomem *)E17_CPU2CON);
 			} else {
-				void __iomem *icgs = (void __iomem *)E17_VIC_ICGS;
-				u8 v = readb(icgs) & ~E17_ICGS_IPI_BIT;
+				void __iomem *icfsr = (void __iomem *)E17_VIC_ICFSR;
+				u8 v = readb(icfsr) & ~E17_ICMS_IPI_SW;
 
-				writeb(v, icgs);			/* ensure 0    */
-				writeb(v | E17_ICGS_IPI_BIT, icgs);	/* 0 -> 1 edge */
+				writeb(v, icfsr);			/* ensure 0    */
+				writeb(v | E17_ICMS_IPI_SW, icfsr);	/* 0 -> 1 edge */
 			}
 		}
 	}
@@ -615,10 +617,10 @@ void e17_ipi_ack_self(void)
 		/* secondary: SICF=101 IACKs the mailbox IRQ, clears SIPL+MIPEND */
 		writeb(E17_SICF_IACK_MBOX, (void __iomem *)E17_CPU2CON);
 	} else {
-		/* primary: drop our ICGS doorbell bit so the next edge is seen */
-		void __iomem *icgs = (void __iomem *)E17_VIC_ICGS;
+		/* primary: drop our ICMS module-switch bit so the next edge is seen */
+		void __iomem *icfsr = (void __iomem *)E17_VIC_ICFSR;
 
-		writeb(readb(icgs) & ~E17_ICGS_IPI_BIT, icgs);
+		writeb(readb(icfsr) & ~E17_ICMS_IPI_SW, icfsr);
 	}
 }
 
@@ -661,10 +663,10 @@ static irqreturn_t e17_ipi_isr(int irq, void *dev_id)
  * Primary -> secondary IPIs are now interrupt-driven (CONFIG_E17_SMP_HW_IPI):
  * the CPU2CON mailbox raises level-6 on the secondary and e17_ipi_isr() drains
  * it, so on the secondary this poll is just a cheap belt-and-braces backstop.
- * Secondary -> primary IPIs are still carried purely by this bitmap (the VIC068A
- * ICGS group-interrupt doorbell into the primary is not modelled/wired yet), so
- * the primary MUST keep calling this.  With CONFIG_E17_SMP_HW_IPI=n both
- * directions rely on it (the poll-only Tier-0 baseline).
+ * Secondary -> primary IPIs are now interrupt-driven too (the VIC068A ICMS
+ * module-switch doorbell into the primary), but the primary keeps calling this
+ * as a backstop until that interrupt is confirmed firing on real hardware.
+ * With CONFIG_E17_SMP_HW_IPI=n both directions rely on it (poll-only baseline).
  */
 void e17_ipi_poll(void)
 {
@@ -677,7 +679,7 @@ void e17_ipi_poll(void)
 	 * This is called from every idle iteration and every timer tick, so it must
 	 * be cheap and must NOT touch I/O when there is nothing to do.  The old
 	 * version called e17_ipi_isr(), which did an e17_ipi_ack_self() (a CPU2CON /
-	 * ICGS I/O write) on EVERY call -- from the AP's tight busy-idle loop that
+	 * ICFSR I/O write) on EVERY call -- from the AP's tight busy-idle loop that
 	 * is a relentless I/O write stream that contends with the primary on the
 	 * local bus.  In Tier-0 polling mode there is no hardware doorbell to ack
 	 * anyway, so just xchg the pending word and dispatch.
@@ -724,26 +726,37 @@ static int __init e17_smp_backend_init(void)
 	 * harmless on the primary, which never asserts autovector 6 (its devices are
 	 * VIC-vectored, not autovectored).  IRQF_SHARED so it coexists cleanly.
 	 *
-	 * Secondary -> primary IPIs are now interrupt-driven too, via the VIC068A
-	 * ICGS group-interrupt doorbell: unmask our ICGS bit in the ICMS control
-	 * register and take the resulting group interrupt on the primary at its
-	 * VIC-supplied vector LIVBR|0 = 0x40 -> IRQ_USER.  e17_ipi_poll() from the
-	 * primary idle loop / timer tick remains as a belt-and-braces backstop.
+	 * Secondary -> primary IPIs are interrupt-driven via the VIC068A ICMS
+	 * module-switch doorbell (HW manual 3.19.2).  Register the handler on the
+	 * ICMS0 IACK vector (0x40 -> IRQ_USER), then arm the hardware:
+	 *   - ICMSIVBR := 0x40 so the ICMS0 IACK supplies vector 0x40 (must be
+	 *     written after reset; reset value is $F0).
+	 *   - ICMSICR: clear ICMS0's mask (bit 4) to enable it and set the group IPL
+	 *     (bits 2-0) to level 6, leaving ICMS1-3 masked.
+	 * e17_ipi_poll() from the primary idle loop / timer tick remains a backstop
+	 * until this interrupt is confirmed firing on real hardware.
 	 */
 	if (IS_ENABLED(CONFIG_E17_SMP_HW_IPI)) {
-		void __iomem *icms = (void __iomem *)E17_VIC_ICMS_ICR;
+		void __iomem *icmsicr = (void __iomem *)E17_VIC_ICMSICR;
+		void __iomem *icmsivbr = (void __iomem *)E17_VIC_ICMSIVBR;
+		u8 icr;
 
 		if (request_irq(IRQ_AUTO_6, e17_ipi_isr,
 				IRQF_SHARED | IRQF_NO_THREAD,
 				"ipi-mailbox", &e17_ipi_isr))
 			pr_err("E17 SMP: failed to register mailbox IPI on IRQ_AUTO_6\n");
 
-		/* unmask the ICGS doorbell (fires when its ICMS bit is 0) */
-		writeb(readb(icms) & ~E17_ICGS_IPI_BIT, icms);
 		if (request_irq(IRQ_USER, e17_ipi_isr, IRQF_NO_THREAD,
-				"ipi-icgs", &e17_ipi_poll))
-			pr_err("E17 SMP: failed to register ICGS IPI on IRQ_USER\n");
-		pr_info("E17 SMP: IPI backend up (mbox IRQ pri->sec, ICGS IRQ sec->pri)\n");
+				"ipi-icms", &e17_ipi_poll))
+			pr_err("E17 SMP: failed to register ICMS IPI on IRQ_USER\n");
+
+		/* arm the ICMS0 doorbell: vector base, then unmask + set IPL */
+		writeb(E17_ICMS_IPI_VEC, icmsivbr);
+		icr = readb(icmsicr);
+		icr &= ~(E17_ICMS0_MASK | 0x07);	/* enable ICMS0, clear IPL field */
+		icr |= E17_IPI_PRI_LEVEL;		/* group IPL = level 6           */
+		writeb(icr, icmsicr);
+		pr_info("E17 SMP: IPI backend up (mbox IRQ pri->sec, ICMS IRQ sec->pri)\n");
 	} else {
 		pr_info("E17 SMP: IPI backend up (poll-only, both directions)\n");
 	}
@@ -990,36 +1003,37 @@ late_initcall(e17_concurrent_coherency_selftest);
 
 /*
  * Secondary -> primary IPI self-test (behind "e17_smptest").  Forces a
- * CPU1 -> CPU0 IPI via the VIC068A ICGS doorbell and checks the primary's
- * ipi-icgs IRQ (IRQ_USER) actually incremented -- i.e. the interrupt path
- * delivered, not just the e17_ipi_poll() backstop.
+ * CPU1 -> CPU0 IPI via the VIC068A ICMS module-switch doorbell and checks the
+ * primary's ipi-icms IRQ (IRQ_USER) actually incremented -- i.e. the interrupt
+ * path delivered, not just the e17_ipi_poll() backstop.  This is the check that
+ * tells real hardware apart from the poll fallback.
  */
-static void e17_icgs_noop(void *info) { }
-static long e17_icgs_ping(void *unused)
+static void e17_icms_noop(void *info) { }
+static long e17_icms_ping(void *unused)
 {
 	/* Runs on CPU1: fire a CPU1->CPU0 IPI and wait for CPU0 to service it. */
-	return smp_call_function_single(0, e17_icgs_noop, NULL, 1);
+	return smp_call_function_single(0, e17_icms_noop, NULL, 1);
 }
-static int __init e17_icgs_selftest(void)
+static int __init e17_icms_selftest(void)
 {
 	unsigned int before, after;
 
 	if (!e17_smptest)
 		return 0;
 	if (num_online_cpus() < 2) {
-		pr_info("E17 SMP: ICGS self-test skipped (1 CPU online)\n");
+		pr_info("E17 SMP: ICMS self-test skipped (1 CPU online)\n");
 		return 0;
 	}
 
 	before = kstat_irqs_cpu(IRQ_USER, 0);
-	work_on_cpu(1, e17_icgs_ping, NULL);	/* CPU1 -> CPU0 IPI */
-	mdelay(50);				/* let the ICGS interrupt land on CPU0 */
+	work_on_cpu(1, e17_icms_ping, NULL);	/* CPU1 -> CPU0 IPI */
+	mdelay(50);				/* let the ICMS interrupt land on CPU0 */
 	after = kstat_irqs_cpu(IRQ_USER, 0);
 
-	pr_info("E17 SMP: ICGS self-test: CPU1->CPU0 IPI delivered; ipi-icgs count %u->%u (%s)\n",
+	pr_info("E17 SMP: ICMS self-test: CPU1->CPU0 IPI delivered; ipi-icms count %u->%u (%s)\n",
 		before, after,
 		after > before ? "INTERRUPT-driven"
-			       : "POLL-only -- ICGS irq did NOT fire");
+			       : "POLL-only -- ICMS irq did NOT fire");
 	return 0;
 }
-late_initcall(e17_icgs_selftest);
+late_initcall(e17_icms_selftest);

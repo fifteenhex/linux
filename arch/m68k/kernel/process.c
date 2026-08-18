@@ -50,13 +50,14 @@ void arch_cpu_idle(void)
 {
 #ifdef CONFIG_SMP
 	/*
-	 * E17 SMP: the primary->secondary doorbell is a real level-6 mailbox IRQ,
-	 * but the secondary->primary ICMS doorbell is not yet wired as an interrupt
-	 * (still poll-only), and QEMU raises no doorbell IRQ.  So poll the pending
-	 * IPI bitmap in idle as a backstop instead of halting, otherwise a CPU can
-	 * sit with cross-calls unserviced.  Interrupts are disabled on entry (idle
+	 * E17 SMP: both doorbells are now real IRQs -- the primary->secondary
+	 * CPU2CON mailbox (level 6) and the secondary->primary VIC ICMS module
+	 * switch (IRQ_USER).  We still drain the pending IPI bitmap here in idle
+	 * as a backstop, so a CPU never sits with cross-calls unserviced if a
+	 * doorbell edge is missed.  Interrupts are disabled on entry (idle
 	 * contract); drain here, then enable so the boot CPU still takes its tick.
-	 * (FIXME: once the ICMS sec->pri IRQ is fixed this poll can be dropped.)
+	 * (FIXME: once the ICMS sec->pri IRQ is confirmed on real hardware this
+	 * poll can be dropped.)
 	 */
 	if (MACH_IS_E17) {
 		unsigned int d = 8192;

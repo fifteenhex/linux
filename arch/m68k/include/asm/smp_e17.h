@@ -55,21 +55,31 @@
 #define E17_ESR			0xfec5c000
 
 /*
- * VIC068A interprocessor-communication (manual section 3.19.2):
- *  ICGS switch register  $FEC0.105F : secondary writes a bit 0->1 to IRQ primary
- *  ICMS interrupt-ctrl   $FEC0.1047 : mask; the ICGS bit fires when its ICMS
- *                                     control bit is 0. ICGS group IRQ = level 6.
+ * VIC068A interprocessor communication -- secondary->primary doorbell.
+ * HW manual 3.19.2 ("Interrupting the Primary CPU"): the secondary interrupts
+ * the primary via the VIC's interprocessor communication MODULE switch (ICMS)
+ * facility, NOT the global switches (ICGS).  A clear->set transition on one of
+ * ICFSR bits 0-3 raises the ICMS group interrupt on the primary when that
+ * switch's mask bit in ICMSICR is clear.  Per the VIC068A datasheet:
+ *   - ICFSR ($5F)   bit 0     = module switch ICMS0 (our doorbell).
+ *   - ICMSICR ($47) bit 4     = ICMS0 mask (0 = enabled); bits 2-0 = group IPL.
+ *   - ICMSIVBR ($53)          = ICMS status/ID vector base (bits 7-2), reset $F0;
+ *                               must be written after reset.  The ICMS0 IACK
+ *                               then supplies (ICMSIVBR & 0xfc) | switch# .
  */
 #define E17_VIC_BASE		0xfec00000
-#define E17_VIC_ICGS		0xfec0105f
-#define E17_VIC_ICMS_ICR	0xfec01047
+#define E17_VIC_ICFSR		0xfec0105f	/* interproc comm switch register  */
+#define E17_VIC_ICMSICR		0xfec01047	/* ICMS interrupt control register */
+#define E17_VIC_ICMSIVBR	0xfec01053	/* ICMS interrupt vector base reg  */
 
-/* One dedicated ICGS bit used as the secondary->primary doorbell. */
-#define E17_ICGS_IPI_BIT	0x01
+/* Our dedicated module switch (ICMS0) used as the secondary->primary doorbell. */
+#define E17_ICMS_IPI_SW		0x01	/* ICFSR bit 0  : module switch ICMS0    */
+#define E17_ICMS0_MASK		0x10	/* ICMSICR bit 4: ICMS0 mask (0=enabled) */
+#define E17_ICMS_IPI_VEC	0x40	/* ICMSIVBR -> ICMS0 vector 0x40 (IRQ_USER) */
 
 /* IPL/level choices (manual Table 48). */
 #define E17_IPI_SEC_IPL		6	/* primary->secondary: SIPL level        */
-#define E17_IPI_PRI_LEVEL	6	/* secondary->primary: ICGS group, lvl 6 */
+#define E17_IPI_PRI_LEVEL	6	/* secondary->primary: ICMS group IPL    */
 #define E17_SEC_TICK_LEVEL	4	/* secondary VIC-clock tick, autovector  */
 
 /* ---- Memory: cache-inhibited RAM mirror (manual Table 26 / section 3.2.4) - */

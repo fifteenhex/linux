@@ -183,7 +183,8 @@ config E17_SMP_HW_IPI
 	  If the secondary hangs immediately after coming online on real hardware
 	  (a level-triggered doorbell that is never de-asserted storms the CPU),
 	  say N to fall back to the proven poll-only baseline.  Secondary->primary
-	  IPIs are polled either way until the VIC ICGS irqchip is modelled.
+	  IPIs use the VIC ICMS module-switch doorbell, with the idle poll kept as a
+	  backstop until that interrupt is confirmed firing on real hardware.
 
 	  If unsure, say Y.
 
