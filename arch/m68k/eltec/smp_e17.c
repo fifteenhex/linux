@@ -635,15 +635,6 @@ static irqreturn_t e17_ipi_isr(int irq, void *dev_id)
 	unsigned int cpu = smp_processor_id();
 	unsigned long ops;
 
-	/*
-	 * DEBUG (real-HW AP bring-up): stamp '8' on entry when this fires on the
-	 * secondary.  If IACK_MBOX does not de-assert the level-6 mailbox line on
-	 * real hardware, this handler re-fires forever and the 7-seg FREEZES at '8'
-	 * (mailbox storm).  Remove once SMP is stable on hardware.
-	 */
-	if (cpu != 0)
-		*(volatile u8 *)0xfec30000 = 0x08;
-
 	e17_ipi_ack_self();			/* edge-ack the hardware first */
 
 	while ((ops = e17_ipi_take_pending(cpu)) != 0) {
@@ -773,9 +764,9 @@ early_initcall(e17_smp_backend_init);
  * supervisor (kernel .bss) word is used; if this PASSES but user space still
  * faults, the problem is the USER page cache mode, not snooping.
  *
- * NOTE: relies on smp_call_function_single() completing.  That works on real
- * hardware; the QEMU e17 model currently does not complete the cross-call, so
- * this hangs under emulation (a model limitation, not a kernel bug).
+ * NOTE: relies on smp_call_function_single() completing, i.e. on the IPI
+ * doorbells working in both directions (mailbox pri->sec, ICMS sec->pri).  That
+ * holds on real hardware and on the QEMU e17 model.
  */
 static u32 *e17_coh_ptr;		/* word currently under test */
 
