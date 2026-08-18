@@ -113,7 +113,7 @@ struct e17_cio {
 	const struct e17_cio_layout	*layout;
 	raw_spinlock_t			lock;	/* control-port protocol */
 	struct clocksource		cs;
-	unsigned int			irq;	/* CT interrupt (0 = none)  */
+	int				irq;	/* CT interrupt (<=0 = none) */
 };
 
 /* The System CIO instance that owns the 7-seg, for e17_cio_display(). */
@@ -142,16 +142,26 @@ static u64 e17_cio_cs_read(struct clocksource *cs)
 {
 	struct e17_cio *c = container_of(cs, struct e17_cio, cs);
 	unsigned long flags;
-	u8 m1, l1, m2, l2;
+	u8 m1, l1, m2, l2, m2b, l2b;
 
+	/*
+	 * CT2 is the high half, CT1 the low; each RCC latches its own counter and
+	 * the latches are several bus cycles apart while CT1 wraps every ~26 ms.
+	 * Latch/read high, then low, then high again: if the high half moved, the
+	 * low half wrapped between them (a torn read is off by 0x10000) -- retry.
+	 */
 	raw_spin_lock_irqsave(&c->lock, flags);
-	/* Latch the cascade (CT2 is the high half, CT1 the low half). */
-	e17_cio_wr(c, Z8536_CT1_CMDSTAT, Z8536_CT_RCC | Z8536_CT_GCB);
-	e17_cio_wr(c, Z8536_CT2_CMDSTAT, Z8536_CT_RCC | Z8536_CT_GCB);
-	m1 = e17_cio_rd(c, Z8536_CT1_VAL_MSB);
-	l1 = e17_cio_rd(c, Z8536_CT1_VAL_LSB);
-	m2 = e17_cio_rd(c, Z8536_CT2_VAL_MSB);
-	l2 = e17_cio_rd(c, Z8536_CT2_VAL_LSB);
+	do {
+		e17_cio_wr(c, Z8536_CT2_CMDSTAT, Z8536_CT_RCC | Z8536_CT_GCB);
+		m2 = e17_cio_rd(c, Z8536_CT2_VAL_MSB);
+		l2 = e17_cio_rd(c, Z8536_CT2_VAL_LSB);
+		e17_cio_wr(c, Z8536_CT1_CMDSTAT, Z8536_CT_RCC | Z8536_CT_GCB);
+		m1 = e17_cio_rd(c, Z8536_CT1_VAL_MSB);
+		l1 = e17_cio_rd(c, Z8536_CT1_VAL_LSB);
+		e17_cio_wr(c, Z8536_CT2_CMDSTAT, Z8536_CT_RCC | Z8536_CT_GCB);
+		m2b = e17_cio_rd(c, Z8536_CT2_VAL_MSB);
+		l2b = e17_cio_rd(c, Z8536_CT2_VAL_LSB);
+	} while (m2b != m2 || l2b != l2);
 	raw_spin_unlock_irqrestore(&c->lock, flags);
 
 	/* The counters count down; invert so the clocksource counts up. */
