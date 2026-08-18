@@ -141,9 +141,16 @@ static void e17_cd2401_tx_one(struct e17_cd2401_port *up, u8 ch)
 	while ((readb(up->vic + E17_VIC_LICR6) & E17_VIC_LICR_STATE) && --timeout)
 		cpu_relax();
 
-	readb(up->iack + CD2401_TX_IPL);	/* IACK -> enter tx service */
-	cd_write(port, CD2401_DR, ch);
-	cd_write(port, CD2401_TEOIR, 0);
+	/*
+	 * Only acknowledge if the chip actually asserted the tx request: an IACK
+	 * with nothing posted at this level gets no DTACK and hangs the bus.  If
+	 * the STATE poll timed out, drop the character rather than wedge.
+	 */
+	if (timeout) {
+		readb(up->iack + CD2401_TX_IPL);	/* IACK -> enter tx service */
+		cd_write(port, CD2401_DR, ch);
+		cd_write(port, CD2401_TEOIR, 0);
+	}
 	cd_write(port, CD2401_IER, ier);	/* restore (tx irq off) */
 
 	writeb(licr, up->vic + E17_VIC_LICR6);	/* restore VIC routing (STATE is RO) */
