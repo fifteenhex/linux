@@ -59,8 +59,10 @@
 			 */
 			interrupt-parent = <&vic>;
 			interrupts = <6 5 0x53>,	/* rx data       */
-				     <6 5 0x50>;	/* rx exception  */
-			interrupt-names = "rx", "rxexc";
+				     <6 5 0x50>,	/* rx exception  */
+				     <6 5 0x52>,	/* tx (txirq)    */
+				     <6 5 0x51>;	/* modem (txirq) */
+			interrupt-names = "rx", "rxexc", "tx", "modem";
 			livr-base = <0x50>;
 			clock-frequency = <20000000>;
 			status = "okay";
