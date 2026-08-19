@@ -65,6 +65,7 @@
 #include <drm/drm_plane_helper.h>
 #include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
+#include <drm/drm_vblank.h>
 
 #define DRIVER_NAME	"e17drm"
 #define DRIVER_DESC	"ELTEC Eurocom E17 onboard video"
@@ -82,6 +83,23 @@ static bool e17_modeset;
 module_param_named(modeset, e17_modeset, bool, 0444);
 MODULE_PARM_DESC(modeset,
 	"Reprogram video PLL/sync timing from scratch (default 0: keep firmware mode)");
+
+/*
+ * DRM vblank.  Default OFF.  When enabled we init vblank and drive it from drm's
+ * hrtimer (see e17_enable_vblank).  On real hardware that is not yet reliable:
+ * this board has no high-res clockevent, so the vblank hrtimer is low-res (tied
+ * to the periodic tick), and the fbdev damage worker waits for a vblank on every
+ * update (drm_fb_helper_fb_dirty -> drm_client_modeset_wait_for_vblank).  When
+ * the polled console holds interrupts off during heavy output the tick -- and
+ * thus the vblank -- stalls, the wait times out, and its WARN feeds more console
+ * output: a self-amplifying storm.  Until there is a real clockevent (or the
+ * fbdev wait is avoided) keep vblank behind this flag; the default build stays on
+ * the rock-solid counting-only frame IRQ.  Enable with e17drm.vblank=1.
+ */
+static bool e17_vblank;
+module_param_named(vblank, e17_vblank, bool, 0444);
+MODULE_PARM_DESC(vblank,
+	"Enable DRM vblank via hrtimer (default 0; not yet reliable on hardware)");
 
 
 /*
@@ -603,6 +621,9 @@ static void e17_crtc_atomic_enable(struct drm_crtc *crtc,
 	/* Load a sane default palette until fbcon/userspace sets its own. */
 	drm_crtc_fill_palette_8(crtc, e17_set_palette);
 
+	if (e17_vblank)
+		drm_crtc_vblank_on(crtc);	/* start vblank accounting (hrtimer) */
+
 	drm_dbg_kms(&e17->dev, "enabled %dx%d, pitch=%u (modeset=%d)\n",
 		    mode->hdisplay, mode->vdisplay, e17->pitch, e17_modeset);
 }
@@ -611,6 +632,10 @@ static void e17_crtc_atomic_disable(struct drm_crtc *crtc,
 				    struct drm_atomic_commit *state)
 {
 	struct e17_device *e17 = to_e17(crtc->dev);
+
+	/* Flush pending vblank events and stop the vblank timer before blanking. */
+	if (e17_vblank)
+		drm_crtc_vblank_off(crtc);
 
 	/* Blank: disable the address-transfer cycles (stops scan fetch). */
 	writeb(GRMODE_DISOVERL, e17->ag + AG_GRMODE);
@@ -636,6 +661,21 @@ static void e17_crtc_atomic_flush(struct drm_crtc *crtc,
 			drm_crtc_fill_palette_8(crtc, e17_set_palette);
 	}
 
+	/*
+	 * Complete the commit's flip event immediately.  The shadow-plane blit is
+	 * synchronous (the pixels are already in VRAM by now), so there is nothing
+	 * to defer to a real frame; sending here -- instead of arming it on a vblank
+	 * -- is what keeps a commit from ever blocking.  See e17_commit_tail() for
+	 * why this driver deliberately does not wait for vblank.  When vblank is off
+	 * the commit tail's fake-vblank path delivers the event instead, so only send
+	 * it here when vblank is actually enabled.
+	 */
+	if (e17_vblank && crtc_state->event) {
+		spin_lock_irq(&crtc->dev->event_lock);
+		drm_crtc_send_vblank_event(crtc, crtc_state->event);
+		crtc_state->event = NULL;
+		spin_unlock_irq(&crtc->dev->event_lock);
+	}
 }
 
 static const struct drm_crtc_helper_funcs e17_crtc_helper_funcs = {
@@ -645,6 +685,28 @@ static const struct drm_crtc_helper_funcs e17_crtc_helper_funcs = {
 	.atomic_flush = e17_crtc_atomic_flush,
 };
 
+/*
+ * Vblank source: a kernel hrtimer, NOT the frame hard-IRQ.
+ *
+ * The real LM1882 frame interrupt (VIC LIRQ4, CPU IPL 5) is left as a
+ * counting-only ISR (see e17_frame_isr).  Driving drm_crtc_handle_vblank() from
+ * that hard-IRQ on this first-ever m68k SMP board wedged the console: the
+ * cross-CPU wake of a waiter blocked in drm_atomic_helper_wait_for_vblanks()
+ * timed out and its WARNs collapsed fbcon throughput.  Using drm's core hrtimer
+ * vblank keeps the vblank handling in timer context, co-located with any waiter,
+ * and off the shared level-5 line.  Combined with e17_commit_tail() (which does
+ * not wait for vblank at all), no commit ever depends on a cross-CPU wake.
+ */
+static int e17_enable_vblank(struct drm_crtc *crtc)
+{
+	return drm_crtc_vblank_start_timer(crtc);
+}
+
+static void e17_disable_vblank(struct drm_crtc *crtc)
+{
+	drm_crtc_vblank_cancel_timer(crtc);
+}
+
 static const struct drm_crtc_funcs e17_crtc_funcs = {
 	.reset = drm_atomic_helper_crtc_reset,
 	.destroy = drm_crtc_cleanup,
@@ -652,6 +714,8 @@ static const struct drm_crtc_funcs e17_crtc_funcs = {
 	.page_flip = drm_atomic_helper_page_flip,
 	.atomic_duplicate_state = drm_atomic_helper_crtc_duplicate_state,
 	.atomic_destroy_state = drm_atomic_helper_crtc_destroy_state,
+	.enable_vblank = e17_enable_vblank,
+	.disable_vblank = e17_disable_vblank,
 };
 
 /*
@@ -708,8 +772,31 @@ static const struct drm_mode_config_funcs e17_mode_config_funcs = {
  * ---------------------------------------------------------------------
  */
 
+/*
+ * Custom commit tail: drm_atomic_helper_commit_tail_rpm() minus
+ * drm_atomic_helper_wait_for_vblanks().  This driver's plane update blits the
+ * damaged region into VRAM synchronously (e17_plane_atomic_update), so the
+ * pixels have already landed by commit_hw_done -- waiting for a frame boundary
+ * buys nothing here and only serialises every fbcon update behind a vblank.
+ * With real vblank enabled that wait is what wedged the console on hardware
+ * (the waiter timed out on a cross-CPU vblank wake), so we omit it.  vblank and
+ * userspace flip events still work (hrtimer source + event send in flush).
+ */
+static void e17_commit_tail(struct drm_atomic_commit *state)
+{
+	struct drm_device *dev = state->dev;
+
+	drm_atomic_helper_commit_modeset_disables(dev, state);
+	drm_atomic_helper_commit_modeset_enables(dev, state);
+	drm_atomic_helper_commit_planes(dev, state, DRM_PLANE_COMMIT_ACTIVE_ONLY);
+	drm_atomic_helper_fake_vblank(state);
+	drm_atomic_helper_commit_hw_done(state);
+	/* deliberately NO drm_atomic_helper_wait_for_vblanks() -- see above */
+	drm_atomic_helper_cleanup_planes(dev, state);
+}
+
 static const struct drm_mode_config_helper_funcs e17_mode_config_helper_funcs = {
-	.atomic_commit_tail = drm_atomic_helper_commit_tail_rpm,
+	.atomic_commit_tail = e17_commit_tail,
 };
 
 static int e17_modeset_init(struct e17_device *e17)
@@ -794,11 +881,11 @@ static struct drm_driver e17_drm_driver = {
 
 /*
  * Video frame interrupt (LM1882 frame pulse -> VIC LIRQ4, VIC-vectored 0x44,
- * level 5).  Delivery is PROVEN on hardware but real DRM vblank on top of it
- * wedges the console (the vblank lifecycle disturbs the shared LIRQ4/console
- * path), so for now the handler just accounts the interrupt so we can see it in
- * /proc/interrupts.  Self-disarms if it ever storms so it can't take out the
- * console.  (Full DRM vblank is parked -- see git history / the vblank branch.)
+ * level 5).  Counting-only: it just accounts the interrupt for /proc/interrupts.
+ * DRM vblank is driven by drm's hrtimer (see e17_enable_vblank), NOT from this
+ * hard-IRQ -- calling drm_crtc_handle_vblank() here wedged the console on real
+ * SMP hardware.  Kept because delivery is proven and it confirms the real frame
+ * rate on the board.
  */
 static atomic_t e17_frame_count = ATOMIC_INIT(0);
 
@@ -867,6 +954,18 @@ static int e17_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
+	/*
+	 * Vblank (opt-in, e17drm.vblank=1) is driven by drm's hrtimer (see
+	 * e17_enable_vblank) and does not depend on the frame IRQ; init it before
+	 * drm_dev_register.  With it off, drm_dev_has_vblank() stays false so the
+	 * fbdev damage worker never waits on vblank -- the stable default.
+	 */
+	if (e17_vblank) {
+		ret = drm_vblank_init(dev, 1);
+		if (ret)
+			return ret;
+	}
+
 	ret = drm_dev_register(dev, 0);
 	if (ret)
 		return ret;
@@ -874,22 +973,25 @@ static int e17_probe(struct platform_device *pdev)
 	drm_client_setup(dev, NULL);	/* fbdev at preferred_depth (C8/8bpp) */
 
 	/*
-	 * Video frame interrupt: route it to VIC LIRQ4 ($FEC5.4001 FR bit set =
-	 * 0xfc, RMON's default) and request it, so it counts in /proc/interrupts.
-	 * This is delivery-only for now -- full DRM vblank on this line wedges the
-	 * console, so it is parked.
+	 * Video frame interrupt: route the LM1882 frame pulse to VIC LIRQ4 and
+	 * request it as a counting-only ISR (visible in /proc/interrupts, confirms
+	 * the real frame rate).  It does NOT drive vblank -- see e17_frame_isr.
+	 * $FEC5.4001 FR bit = 0xfc, RMON's default; write-only, never RMW.  NB: the
+	 * HW manual Table 38 claims FR=0 routes to LIRQ4 and FR=1 disables, but the
+	 * board is the opposite (RMON leaves 0xfc / FR set and the frame IRQ fires,
+	 * confirmed on hardware) -- keep 0xfc, do not "fix" it to the manual.
 	 */
 	irq = platform_get_irq_optional(pdev, 0);
 	if (irq > 0) {
 		void __iomem *irqroute = devm_platform_ioremap_resource(pdev, 3);
 
 		if (!IS_ERR(irqroute))
-			writeb(0xfc, irqroute + 1);	/* FR=1 -> LIRQ4 */
+			writeb(0xfc, irqroute + 1);	/* FR -> LIRQ4 */
 		if (devm_request_irq(&pdev->dev, irq, e17_frame_isr, 0,
 				     "e17-frame", e17))
 			drm_warn(dev, "cannot request frame IRQ %d\n", irq);
 		else
-			drm_info(dev, "frame interrupt on IRQ %d\n", irq);
+			drm_info(dev, "frame interrupt on IRQ %d (counting)\n", irq);
 	}
 	return 0;
 }
