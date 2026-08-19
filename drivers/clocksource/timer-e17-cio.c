@@ -286,6 +286,174 @@ static void e17_cio_ct3_arm(struct e17_cio *c)
 	raw_spin_unlock(&c->lock);
 }
 
+/* --- CIO interrupt-routing probe (e17_cio_irqprobe boot arg) -------------- */
+/*
+ * Zero-risk diagnostic for resolving the parked CIO interrupt.  It answers "where
+ * does each CIO's CT3 request actually land, and what state are the CIOs in?"
+ * WITHOUT ever letting the CPU acknowledge an interrupt: it masks the VIC LIRQ4
+ * and LIRQ6 inputs first, so no IACK cycle can be issued (nothing can hang the
+ * bus), and only reads the LICR STATE bit -- the raw input-pin level, readable
+ * while masked, 0 = asserted -- to see which VIC input a request drives for each
+ * $FEC5.4001 SCIO/UCIO routing value.  Results are buffered and printed only
+ * after all registers are restored (printk itself drives the LIRQ6 console).
+ */
+#define E17_VIC_PHYS		0xfec00000
+#define E17_ILR_PHYS		0xfec54000	/* +1 = CIO/frame interrupt-level reg */
+#define E17_UCIO_PHYS		0xfec10000	/* User CIO register window          */
+#define E17_VIC_LICR1		0x27		/* LICRn = 0x27 + 4*(n-1)            */
+#define E17_VIC_LICR4		0x33
+#define E17_VIC_LICR6		0x3b
+#define E17_VIC_LICR_MASK	0x80
+#define E17_VIC_LICR_STATE	0x08		/* raw input pin, 0 = asserted      */
+#define E17_ILR_SCIO		0x01		/* $fec54001 bit0: system CIO route */
+#define E17_ILR_UCIO		0x02		/* $fec54001 bit1: user CIO route   */
+#define E17_ILR_FR		0x04		/* $fec54001 bit2: frame route (set=LIRQ4) */
+#define Z8536_CMD_CLR_IE	0xe0
+
+static bool e17_cio_do_irqprobe __initdata;
+static int __init e17_cio_irqprobe_setup(char *s)
+{
+	e17_cio_do_irqprobe = true;
+	return 1;
+}
+__setup("e17_cio_irqprobe", e17_cio_irqprobe_setup);
+
+static const char * __init e17_cio_where(u8 licr4, u8 licr6)
+{
+	bool l4 = !(licr4 & E17_VIC_LICR_STATE);
+	bool l6 = !(licr6 & E17_VIC_LICR_STATE);
+
+	if (l4 && l6)
+		return "BOTH LIRQ4+LIRQ6(!)";
+	if (l4)
+		return "LIRQ4";
+	if (l6)
+		return "LIRQ6";
+	return "neither";
+}
+
+/* Arm CT3 with a tiny reload so IP sets within a few counts; caller holds lock. */
+static void __init e17_cio_ct3_arm_short(struct e17_cio *c)
+{
+	e17_cio_wr(c, Z8536_CT3_RELOAD_MSB, 0x00);
+	e17_cio_wr(c, Z8536_CT3_RELOAD_LSB, 0x08);
+	e17_cio_wr(c, Z8536_CT3_MODE, Z8536_CT_MODE_CSC);
+	e17_cio_wr(c, Z8536_MICR, Z8536_MICR_MIE);	/* NV=0 -> supply CTVEC */
+	e17_cio_wr(c, Z8536_CTVEC, E17_CIO_CTVEC);
+	e17_cio_wr(c, Z8536_CT3_CMDSTAT, Z8536_CMD_SET_IE);
+	e17_cio_wr(c, Z8536_CT3_CMDSTAT, Z8536_CT_GCB | Z8536_CT_TCB);
+}
+
+static int __init e17_cio_irqprobe_run(void)
+{
+	struct e17_cio *c = e17_cio_display_dev;
+	void __iomem *vic = NULL, *ilrp = NULL, *ucio = NULL;
+	unsigned long flags;
+	u8 sav_licr4, sav_licr6, sav_ilr, sav_micr, sys_ctvec, sys_ct3cs;
+	u8 licr[8] = {};
+	u8 sys4[2], sys6[2];
+	bool sys_ip[2];
+	u8 u_micr, u_ctvec, u_ct3cs;
+	int i;
+
+	if (!e17_cio_do_irqprobe)
+		return 0;
+	if (!c) {
+		pr_warn("e17-cio irqprobe: System CIO not up; skipping\n");
+		return 0;
+	}
+
+	vic  = ioremap(E17_VIC_PHYS, 0x100);
+	ilrp = ioremap(E17_ILR_PHYS, 0x10);
+	ucio = ioremap(E17_UCIO_PHYS, 0x10);
+	if (!vic || !ilrp || !ucio) {
+		pr_warn("e17-cio irqprobe: ioremap failed\n");
+		goto out_unmap;
+	}
+
+	raw_spin_lock_irqsave(&c->lock, flags);
+
+	/* Snapshot (never touch $fec54000 offset 0 -- that is the I2C/watchdog reg). */
+	for (i = 1; i <= 7; i++)
+		licr[i] = readb(vic + E17_VIC_LICR1 + 4 * (i - 1));
+	sav_licr4 = readb(vic + E17_VIC_LICR4);
+	sav_licr6 = readb(vic + E17_VIC_LICR6);
+	sav_ilr   = readb(ilrp + 1);
+	sav_micr  = e17_cio_rd(c, Z8536_MICR);
+	sys_ctvec = e17_cio_rd(c, Z8536_CTVEC);
+	sys_ct3cs = e17_cio_rd(c, Z8536_CT3_CMDSTAT);
+
+	/* SAFETY: mask both VIC inputs -- from here no CPU IACK can be issued. */
+	writeb(sav_licr4 | E17_VIC_LICR_MASK, vic + E17_VIC_LICR4);
+	writeb(sav_licr6 | E17_VIC_LICR_MASK, vic + E17_VIC_LICR6);
+
+	/* P2: read the User CIO CT3 state config.c leaves armed every boot. */
+	writeb(Z8536_MICR, ucio + 3);        u_micr  = readb(ucio + 3);
+	writeb(Z8536_CTVEC, ucio + 3);       u_ctvec = readb(ucio + 3);
+	writeb(Z8536_CT3_CMDSTAT, ucio + 3); u_ct3cs = readb(ucio + 3);
+
+	/*
+	 * Isolate the System CIO's request so LICR STATE reflects only it.  Two other
+	 * sources can drive these inputs: the video frame on LIRQ4 (it asserts
+	 * continuously) and the User CIO.  Silence both: clear the FR bit in
+	 * $fec54001 (the board routes frame->LIRQ4 when FR is set -- confirmed 0xfc),
+	 * and disable the User CIO's master interrupt.  The CD2401 on LIRQ6 is idle
+	 * here (local IRQs off, no TX in progress).
+	 */
+	writeb(Z8536_MICR, ucio + 3); writeb(0x00, ucio + 3);	/* User CIO int off */
+
+	/* P1: System CIO CT3 routing truth table for SCIO = 0 then 1 (FR cleared). */
+	for (i = 0; i < 2; i++) {
+		u8 ilr = (sav_ilr & ~(E17_ILR_SCIO | E17_ILR_FR)) |
+			 (i ? E17_ILR_SCIO : 0);
+		int t;
+
+		writeb(ilr, ilrp + 1);
+		e17_cio_ct3_arm_short(c);
+		for (t = 5000; t; t--)
+			if (e17_cio_rd(c, Z8536_CT3_CMDSTAT) & Z8536_CT_IP)
+				break;
+		sys_ip[i] = t != 0;
+		sys4[i] = readb(vic + E17_VIC_LICR4);
+		sys6[i] = readb(vic + E17_VIC_LICR6);
+		e17_cio_wr(c, Z8536_CT3_CMDSTAT, Z8536_CMD_CLR_IPIUS);
+		e17_cio_wr(c, Z8536_CT3_CMDSTAT, Z8536_CMD_CLR_IE);
+	}
+
+	/* Restore everything before we re-enable delivery. */
+	writeb(Z8536_MICR, ucio + 3); writeb(u_micr, ucio + 3);	/* User CIO MICR */
+	e17_cio_wr(c, Z8536_MICR, sav_micr);
+	writeb(sav_ilr, ilrp + 1);
+	writeb(sav_licr4, vic + E17_VIC_LICR4);
+	writeb(sav_licr6, vic + E17_VIC_LICR6);
+
+	raw_spin_unlock_irqrestore(&c->lock, flags);
+
+	/* Report (safe now: printk uses the LIRQ6 console we just restored). */
+	pr_info("e17-cio irqprobe: ILR($fec54001)=0x%02x LICR4=0x%02x LICR6=0x%02x (mask=b7, state=b3 0=asserted)\n",
+		sav_ilr, sav_licr4, sav_licr6);
+	pr_info("e17-cio irqprobe: LICR 1=%02x 2=%02x 3=%02x 4=%02x 5=%02x 6=%02x 7=%02x\n",
+		licr[1], licr[2], licr[3], licr[4], licr[5], licr[6], licr[7]);
+	pr_info("e17-cio irqprobe: System CIO MICR=%02x CTVEC=%02x CT3CS=%02x\n",
+		sav_micr, sys_ctvec, sys_ct3cs);
+	pr_info("e17-cio irqprobe: User   CIO MICR=%02x CTVEC=%02x CT3CS=%02x [IP=%d IE=%d IUS=%d CIP=%d]\n",
+		u_micr, u_ctvec, u_ct3cs, !!(u_ct3cs & Z8536_CT_IP),
+		!!(u_ct3cs & Z8536_CT_IE), !!(u_ct3cs & 0x80), !!(u_ct3cs & 0x01));
+	for (i = 0; i < 2; i++)
+		pr_info("e17-cio irqprobe: SCIO=%d -> System CT3 (IP=%d) request on %s  [frame isolated, User CIO masked]\n",
+			i, sys_ip[i], e17_cio_where(sys4[i], sys6[i]));
+
+out_unmap:
+	if (vic)
+		iounmap(vic);
+	if (ilrp)
+		iounmap(ilrp);
+	if (ucio)
+		iounmap(ucio);
+	return 0;
+}
+late_initcall(e17_cio_irqprobe_run);
+
 static int e17_cio_probe(struct platform_device *pdev)
 {
 	struct e17_cio *c;
