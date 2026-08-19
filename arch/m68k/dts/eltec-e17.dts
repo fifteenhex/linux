@@ -144,6 +144,16 @@
 		};
 
 		/*
+		 * Watchdog: a single write-triggered register (manual 3.8).  The
+		 * first write arms it; each write pets it; not petting within the
+		 * jumper-selected period (100 ms / 1.6 s) resets the board.
+		 */
+		watchdog: watchdog@fec50000 {
+			compatible = "eltec,e17-wdt";
+			reg = <0xfec50000 0x4>;
+		};
+
+		/*
 		 * VIC068A interrupt controller.  Its local-interrupt-control
 		 * registers (LICR1..LICR7 at 0x27..0x3f, LIVBR at 0x57) live in the
 		 * onboard I/O block at 0xfec00000 -- the same base config.c and the

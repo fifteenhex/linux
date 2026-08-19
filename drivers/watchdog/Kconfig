@@ -1812,6 +1812,20 @@ config SIEMENS_SIMATIC_IPC_WDT
 
 # M68K Architecture
 
+config E17_WATCHDOG
+	tristate "ELTEC EUROCOM-17 watchdog"
+	depends on ELTEC_E17 || COMPILE_TEST
+	select WATCHDOG_CORE
+	help
+	  Watchdog for the ELTEC EUROCOM-17 (dual-68040 VMEbus SBC).  The
+	  board's watchdog register at $FEC5.0000 is armed by the first write
+	  and pets on every write; if not petted within the (jumper-selected)
+	  time-out it resets the board.  Useful for self-recovery while bringing
+	  up fragile hardware paths.
+
+	  To compile this driver as a module, choose M here: the module will be
+	  called e17_wdt.
+
 config M54xx_WATCHDOG
 	tristate "MCF54xx watchdog support"
 	depends on M548x
