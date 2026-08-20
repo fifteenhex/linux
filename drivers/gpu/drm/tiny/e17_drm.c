@@ -76,13 +76,25 @@
  * TEMPORARY: reprogram the analog video timing (Bt445 PLL + LM1882 sync)
  * from scratch on mode-set.  Off by default because those values currently
  * desync the monitor on real hardware; we instead inherit the firmware's
- * (RMON) known-good mode.  Enable with e17drm.modeset=1 while fixing the
+ * (RMON) known-good mode.  Enable with e17_drm.modeset=1 while fixing the
  * timing maths.
  */
 static bool e17_modeset;
 module_param_named(modeset, e17_modeset, bool, 0444);
 MODULE_PARM_DESC(modeset,
 	"Reprogram video PLL/sync timing from scratch (default 0: keep firmware mode)");
+
+/*
+ * With modeset=1, use the linear/panning address-generator layout (TRINC-padded
+ * pitch, SPLIT clear) instead of RMON's packed-line layout.  Default 0 (packed,
+ * matching RMON) -- packed keeps the pitch == visible width, halves the VRAM
+ * footprint and is the only layout that leaves room to double-buffer.  The
+ * linear path is retained for experiments only.
+ */
+static bool e17_linear_pitch;
+module_param_named(linear_pitch, e17_linear_pitch, bool, 0444);
+MODULE_PARM_DESC(linear_pitch,
+	"modeset=1: use linear TRINC-padded pitch instead of RMON's packed layout (default 0)");
 
 /*
  * DRM vblank.  Default OFF.  When enabled we init vblank and drive it from drm's
@@ -94,7 +106,7 @@ MODULE_PARM_DESC(modeset,
  * thus the vblank -- stalls, the wait times out, and its WARN feeds more console
  * output: a self-amplifying storm.  Until there is a real clockevent (or the
  * fbdev wait is avoided) keep vblank behind this flag; the default build stays on
- * the rock-solid counting-only frame IRQ.  Enable with e17drm.vblank=1.
+ * the rock-solid counting-only frame IRQ.  Enable with e17_drm.vblank=1.
  */
 static bool e17_vblank;
 module_param_named(vblank, e17_vblank, bool, 0444);
@@ -202,6 +214,15 @@ MODULE_PARM_DESC(vblank,
 				 GRMODE_PIXDEL | GRMODE_ENTRA)
 
 #define E17_LM1882_NREGS	19	/* timing registers 0..18           */
+#define E17_LM1882_RESTART	22	/* ADDRDEC Vectored Restart address */
+#define E17_LM1882_RESUME	19	/* dummy non-ADDRDEC addr to resume */
+
+/*
+ * Packed-line (SPLIT) transfer: TRINC holds the transfer burst size in 128-byte
+ * units, which RMON programs to 512 (=4) regardless of the visible width; the
+ * scan-out stride is the visible line length, not TRINC*128 (manual 3.4.7).
+ */
+#define E17_TRINC_PACKED	4
 
 /* PLL reference (manual 3.4.7: "PLL reference clock is 25.175 MHz"). */
 #define E17_PLL_REF_HZ		25175000u
@@ -471,7 +492,18 @@ static void e17_program_bt445(struct e17_device *e17, u32 dotclock_hz)
 	writeb(0x45, e17->dac + BT_PLLFMT);
 }
 
-/* Load the LM1882 sync-generator timing file (0..18), then clear reg22. */
+/*
+ * Load the LM1882 sync-generator timing file (regs 0..18), then Vectored Restart
+ * and RESUME.
+ *
+ * Address 22 (Vectored Restart) reloads the counters but FREEZES the sync
+ * outputs and stops the internal clock; the device stays frozen until a
+ * non-ADDRDEC address is loaded (LM1882 datasheet, ADDRDEC Logic).  RMON writes
+ * the restart, one data byte, then dummy address 19 to resume counting
+ * (rmon.asm fe80e93c..fe80e94a).  The resume write is essential -- omitting it
+ * (as this driver originally did) leaves the generator frozen, so there is no
+ * H/V sync at all and the monitor reports "no signal".
+ */
 static void e17_program_lm1882(struct e17_device *e17, const u16 *regs)
 {
 	unsigned int i;
@@ -481,18 +513,24 @@ static void e17_program_lm1882(struct e17_device *e17, const u16 *regs)
 		writeb(regs[i] & 0xff, e17->ag + AG_DAT1882);	/* low  */
 		writeb(regs[i] >> 8, e17->ag + AG_DAT1882);	/* high */
 	}
-	writeb(22, e17->ag + AG_ADR1882);
+	writeb(E17_LM1882_RESTART, e17->ag + AG_ADR1882);
 	writeb(0, e17->ag + AG_DAT1882);
+	writeb(E17_LM1882_RESUME, e17->ag + AG_ADR1882);	/* resume: unfreeze */
 }
 
-/* Program the transfer-address generator: start at 0, pitch, mode. */
-static void e17_program_addrgen(struct e17_device *e17, unsigned int pitch)
+/*
+ * Program the transfer-address generator: scan-out start 0, the transfer-burst
+ * size (TRINC, 128-byte units) and the graphics mode/enable (GRMODE).  Caller
+ * passes the raw TRINC and GRMODE values so the packed (RMON-parity) and linear
+ * (panning experiment) paths can differ.
+ */
+static void e17_program_addrgen(struct e17_device *e17, u8 trinc, u8 grmode)
 {
 	writeb(0x00, e17->ag + AG_TRLSB);	/* top-of-screen address 0 */
 	writeb(0x00, e17->ag + AG_TRMIB);
 	writeb(0x00, e17->ag + AG_TRMSB);
-	writeb(pitch / 128, e17->ag + AG_TRINC);
-	writeb(GRMODE_LINEAR_8BPP, e17->ag + AG_GRMODE);
+	writeb(trinc, e17->ag + AG_TRINC);
+	writeb(grmode, e17->ag + AG_GRMODE);
 }
 
 static const struct e17_mode *e17_find_mode(const struct drm_display_mode *m)
@@ -610,17 +648,31 @@ static void e17_crtc_atomic_enable(struct drm_crtc *crtc,
 	 * the monitor ("no signal") on real hardware - the PLL/timing values
 	 * still need work.  RMON leaves a known-good 800x600 mode set up when
 	 * video is fitted, so by default we KEEP that timing.  Pass
-	 * e17drm.modeset=1 to exercise the real mode-set path once its timing
+	 * e17_drm.modeset=1 to exercise the real mode-set path once its timing
 	 * maths is fixed.  TODO: fix the PLL/LM1882 programming and make full
 	 * modeset the default.
 	 */
 	if (e17_modeset) {
-		/* Full mode-set: TRINC-padded pitch (128-byte units) + timing. */
-		e17->pitch = e17_pitch(mode->hdisplay, 1); /* C8: 896 for 800px */
-		e17_program_bt445(e17, hw->dotclock_hz);
+		/*
+		 * Full mode-set, in RMON's proven order: LM1882 sync generator
+		 * first (loaded + restarted + resumed), then the address
+		 * generator, then the Bt445 PLL/format ending with the pixel
+		 * pipeline enable.  Default to RMON's packed-line layout (pitch
+		 * == visible width, TRINC=4/512-byte burst, GRMODE 0x17); the
+		 * linear/panning layout (896 pitch, GRMODE 0x12) is retained
+		 * behind e17_drm.linear_pitch for experiments.
+		 */
 		e17_program_lm1882(e17, hw->lm1882);
-		e17_program_addrgen(e17, e17->pitch);
-		e17->grmode = GRMODE_LINEAR_8BPP; /* what addrgen just wrote */
+		if (e17_linear_pitch) {
+			e17->pitch = e17_pitch(mode->hdisplay, 1); /* 896 */
+			e17->grmode = GRMODE_LINEAR_8BPP;
+			e17_program_addrgen(e17, e17->pitch / 128, e17->grmode);
+		} else {
+			e17->pitch = mode->hdisplay;		/* packed: 800 */
+			e17->grmode = GRMODE_INHERIT_8BPP;	/* 0x17 */
+			e17_program_addrgen(e17, E17_TRINC_PACKED, e17->grmode);
+		}
+		e17_program_bt445(e17, hw->dotclock_hz);
 	} else {
 		/*
 		 * Inherit RMON's whole mode, including its address generator
@@ -993,7 +1045,7 @@ static int e17_probe(struct platform_device *pdev)
 		return ret;
 
 	/*
-	 * Vblank (opt-in, e17drm.vblank=1) is driven by drm's hrtimer (see
+	 * Vblank (opt-in, e17_drm.vblank=1) is driven by drm's hrtimer (see
 	 * e17_enable_vblank) and does not depend on the frame IRQ; init it before
 	 * drm_dev_register.  With it off, drm_dev_has_vblank() stays false so the
 	 * fbdev damage worker never waits on vblank -- the stable default.
