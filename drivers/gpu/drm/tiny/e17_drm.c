@@ -33,15 +33,18 @@
 #include <linux/aperture.h>
 #include <linux/delay.h>
 #include <linux/io.h>
+#include <linux/ktime.h>
 #include <linux/log2.h>
 #include <linux/math64.h>
 #include <linux/minmax.h>
+#include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
 #include <linux/pm.h>
 #include <linux/sizes.h>
+#include <linux/slab.h>
 
 #include <drm/clients/drm_client_setup.h>
 #include <drm/drm_atomic.h>
@@ -106,6 +109,32 @@ static bool e17_vblank;
 module_param_named(vblank, e17_vblank, bool, 0444);
 MODULE_PARM_DESC(vblank,
 	"Enable DRM vblank via hrtimer (default 0; not yet reliable on hardware)");
+
+/*
+ * VRAM mapping mode (performance).  m68k has no real ioremap_wc, so the default
+ * (ioremap_wc) degrades to cache-inhibited SERIALIZED access -- every store is a
+ * stalled, non-posted single bus cycle (~6-12 MB/s), so a full 800x600x8 frame
+ * costs 40-80 ms.  e17_drm.vram_wt=1 maps the scan-out buffer WRITE-THROUGH
+ * cacheable instead: posted single writes (~20-25 MB/s) and cached reads, ~2-4x
+ * faster blits.  Default OFF because sustained VRAM writes under dual-68040 +
+ * active scan-out are exactly the historical "bus hard-lock" territory
+ * (config.c) and this needs a real-hardware soak before it can be the default.
+ */
+static bool e17_vram_wt;
+module_param_named(vram_wt, e17_vram_wt, bool, 0444);
+MODULE_PARM_DESC(vram_wt,
+	"map VRAM write-through cacheable instead of cache-inhibited serialized "
+	"(faster blits; default 0 -- needs a hardware soak first)");
+
+/*
+ * At probe, micro-benchmark VRAM write bandwidth (memcpy_toio into the
+ * non-scanned-out top half of VRAM) and log MB/s, so the effect of vram_wt can
+ * be measured on real hardware.  Default off.
+ */
+static bool e17_vram_bench;
+module_param_named(vram_bench, e17_vram_bench, bool, 0444);
+MODULE_PARM_DESC(vram_bench,
+	"at probe, measure and log VRAM write bandwidth (default 0)");
 
 
 /*
@@ -1001,6 +1030,44 @@ static irqreturn_t e17_frame_isr(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+static void e17_iounmap(void *addr)
+{
+	iounmap((void __iomem *)addr);
+}
+
+/*
+ * Measure VRAM write bandwidth: memcpy_toio a buffer into the top half of VRAM
+ * (past the 480 KB scan-out area, so the console is untouched) and report MB/s.
+ * Lets vram_wt be compared on real hardware where the mapping mode actually
+ * matters (it is a no-op difference under QEMU).
+ */
+static void e17_vram_benchmark(struct e17_device *e17)
+{
+	size_t off = E17_VRAM_SIZE / 2, len = E17_VRAM_SIZE / 2;
+	unsigned int i, iters = 8;
+	ktime_t t0, t1;
+	u64 ns, bytes, mbps;
+	void *src;
+
+	src = kvmalloc(len, GFP_KERNEL);
+	if (!src)
+		return;
+	memset(src, 0xa5, len);
+
+	t0 = ktime_get();
+	for (i = 0; i < iters; i++)
+		memcpy_toio(e17->vram.vaddr_iomem + off, src, len);
+	t1 = ktime_get();
+	kvfree(src);
+
+	ns = ktime_to_ns(ktime_sub(t1, t0));
+	bytes = (u64)len * iters;
+	mbps = ns ? div64_u64(bytes * 1000ULL, ns) : 0;	/* bytes*1e9/ns/1e6 */
+	drm_info(&e17->dev, "VRAM write bench (%s): %llu KB in %llu us = %llu MB/s\n",
+		 e17_vram_wt ? "write-through" : "cache-inhibited",
+		 bytes >> 10, div_u64(ns, 1000), mbps);
+}
+
 static int e17_probe(struct platform_device *pdev)
 {
 	struct e17_device *e17;
@@ -1024,7 +1091,7 @@ static int e17_probe(struct platform_device *pdev)
 	if (IS_ERR(e17->ag))
 		return PTR_ERR(e17->ag);
 
-	/* reg 2: VRAM scan-out buffer (write-combining). */
+	/* reg 2: VRAM scan-out buffer. */
 	vram_res = platform_get_resource(pdev, IORESOURCE_MEM, 2);
 	if (!vram_res)
 		return -ENODEV;
@@ -1038,11 +1105,24 @@ static int e17_probe(struct platform_device *pdev)
 				     resource_size(vram_res), DRIVER_NAME))
 		return -EBUSY;
 
-	vram = devm_ioremap_wc(&pdev->dev, vram_res->start,
-			       resource_size(vram_res));
+	/*
+	 * Default cache-inhibited (ioremap_wc, which on m68k is serialized);
+	 * e17_drm.vram_wt=1 maps it write-through for faster blits.  Not devm
+	 * (there is no devm_ioremap_wt), so unmap via a devm action.
+	 */
+	vram = e17_vram_wt ? ioremap_wt(vram_res->start, resource_size(vram_res))
+			   : ioremap_wc(vram_res->start, resource_size(vram_res));
 	if (!vram)
 		return -ENOMEM;
+	ret = devm_add_action_or_reset(&pdev->dev, e17_iounmap, (void __force *)vram);
+	if (ret)
+		return ret;
 	iosys_map_set_vaddr_iomem(&e17->vram, vram);
+	drm_info(dev, "VRAM %pa mapped %s\n", &vram_res->start,
+		 e17_vram_wt ? "write-through" : "cache-inhibited");
+
+	if (e17_vram_bench)
+		e17_vram_benchmark(e17);
 
 	/* Probe the Bt445 by its ID register (must read 0x3a). */
 	{
