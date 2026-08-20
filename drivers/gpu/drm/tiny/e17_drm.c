@@ -188,6 +188,19 @@ MODULE_PARM_DESC(vblank,
 /* Plain linear 8bpp, non-interlaced, address-transfer enabled. */
 #define GRMODE_LINEAR_8BPP	(GRMODE_DISOVERL | GRMODE_ENTRA)
 
+/*
+ * The GRMODE value RMON leaves programmed and that we inherit by default:
+ * packed-line (SPLIT, TRINC in 512-byte units) 8bpp, pixel-delay set,
+ * address-transfer enabled -- 0x17, captured from RMON's mode-set.  We must
+ * re-assert exactly this (not bare LINEAR_8BPP=0x12) when unblanking the
+ * inherited mode: dropping SPLIT while TRINC is still 4 switches the address
+ * generator to synchronous transfer against a 512-byte stride and shears the
+ * picture.  The address generator is write-only, so track the live value in a
+ * shadow (e17_device.grmode) and toggle only ENTRA to blank/unblank.
+ */
+#define GRMODE_INHERIT_8BPP	(GRMODE_SPLIT | GRMODE_DISOVERL | \
+				 GRMODE_PIXDEL | GRMODE_ENTRA)
+
 #define E17_LM1882_NREGS	19	/* timing registers 0..18           */
 
 /* PLL reference (manual 3.4.7: "PLL reference clock is 25.175 MHz"). */
@@ -289,6 +302,7 @@ struct e17_device {
 	void __iomem *ag;	/* address+sync generator (0xfec48000) */
 	struct iosys_map vram;	/* scan-out buffer (0x0fc00000, iomem) */
 	unsigned int pitch;	/* current hardware line pitch (bytes) */
+	u8 grmode;		/* shadow of the write-only AG_GRMODE register */
 
 	struct drm_plane primary_plane;
 	struct drm_crtc crtc;
@@ -606,16 +620,27 @@ static void e17_crtc_atomic_enable(struct drm_crtc *crtc,
 		e17_program_bt445(e17, hw->dotclock_hz);
 		e17_program_lm1882(e17, hw->lm1882);
 		e17_program_addrgen(e17, e17->pitch);
+		e17->grmode = GRMODE_LINEAR_8BPP; /* what addrgen just wrote */
 	} else {
 		/*
 		 * Inherit RMON's whole mode, including its address generator
-		 * (scan-out start 0, its own line pitch, linear 8bpp).  Its
-		 * pitch is the visible width with no TRINC padding, so match the
-		 * blit to that.  Do NOT rewrite TRINC here: a 128-padded 896
-		 * against RMON's timing scans past each line's data and smears
-		 * the start of the next line into its tail on real hardware.
+		 * (scan-out start 0, its own line pitch/TRINC).  Its pitch is the
+		 * visible width, so match the blit to that.  Do NOT rewrite TRINC
+		 * here: a 128-padded 896 against RMON's timing scans past each
+		 * line's data and smears the next line into its tail on hardware.
+		 *
+		 * Re-assert the transfer-enable via the shadow (atomic_disable
+		 * clears ENTRA to blank).  Preserve the inherited mode bits --
+		 * RMON runs packed (SPLIT) 8bpp, so writing bare LINEAR_8BPP
+		 * (0x12) here would drop SPLIT against RMON's 512-byte stride and
+		 * shear the picture.  A disable/enable cycle happens on the
+		 * fbcon-restore modeset when a KMS client that set a mode exits;
+		 * without this the screen stays dark and the next client renders
+		 * to a disabled CRTC.
 		 */
 		e17->pitch = mode->hdisplay; /* == RMON's scan-out pitch (800) */
+		e17->grmode |= GRMODE_ENTRA;
+		writeb(e17->grmode, e17->ag + AG_GRMODE);
 	}
 
 	/* Load a sane default palette until fbcon/userspace sets its own. */
@@ -637,8 +662,13 @@ static void e17_crtc_atomic_disable(struct drm_crtc *crtc,
 	if (e17_vblank)
 		drm_crtc_vblank_off(crtc);
 
-	/* Blank: disable the address-transfer cycles (stops scan fetch). */
-	writeb(GRMODE_DISOVERL, e17->ag + AG_GRMODE);
+	/*
+	 * Blank by clearing only the transfer-enable (ENTRA) in the shadow; keep
+	 * the mode bits (SPLIT/PIXDEL) so the matching enable can restore the
+	 * exact inherited GRMODE rather than a bare 0x12 that would shear.
+	 */
+	e17->grmode &= ~GRMODE_ENTRA;
+	writeb(e17->grmode, e17->ag + AG_GRMODE);
 }
 
 static void e17_crtc_atomic_flush(struct drm_crtc *crtc,
@@ -808,6 +838,14 @@ static int e17_modeset_init(struct e17_device *e17)
 	struct drm_plane *primary = &e17->primary_plane;
 	unsigned int nformats = 0;
 	int ret;
+
+	/*
+	 * Track the write-only GRMODE.  Default to the value RMON leaves set
+	 * (packed 8bpp, scan-out enabled) so the first blank/unblank preserves
+	 * the inherited mode bits.  The modeset=1 path overwrites this when it
+	 * programs its own mode.
+	 */
+	e17->grmode = GRMODE_INHERIT_8BPP;
 
 	ret = drmm_mode_config_init(dev);
 	if (ret)
