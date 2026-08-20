@@ -136,6 +136,19 @@ module_param_named(vram_bench, e17_vram_bench, bool, 0444);
 MODULE_PARM_DESC(vram_bench,
 	"at probe, measure and log VRAM write bandwidth (default 0)");
 
+/*
+ * Use the 68040 move16 burst instruction for the shadow->VRAM blit instead of
+ * plain memcpy_toio.  move16 moves an aligned 16-byte block per op (burst write,
+ * ~40-53 MB/s per the manual vs ~20-25 MB/s for posted singles).  Only the
+ * full-width, matching-pitch, 16-byte-aligned case is contiguous and alignable
+ * (always true for the default packed C8 layout, pitch 800); everything else
+ * falls back to memcpy_toio.  Default off pending a hardware check.
+ */
+static bool e17_move16;
+module_param_named(move16, e17_move16, bool, 0444);
+MODULE_PARM_DESC(move16,
+	"blit shadow->VRAM with move16 bursts where aligned (default 0)");
+
 
 /*
  * ---------------------------------------------------------------------
@@ -604,6 +617,26 @@ static int e17_plane_atomic_check(struct drm_plane *plane,
 						   false, false);
 }
 
+/*
+ * Copy len bytes from system memory into VRAM using 68040 move16 bursts.
+ * Caller guarantees src, dst and len are all 16-byte aligned and len > 0.
+ */
+static void e17_move16_toio(void __iomem *dst, const void *src, size_t len)
+{
+	void *d = (void __force *)dst;
+	const void *s = src;
+	unsigned long n = len / 16;
+
+	asm volatile(".chip 68040\n"
+		     "1:\tmove16 %1@+,%0@+\n\t"
+		     ".chip 68k\n\t"
+		     "subq.l #1,%2\n\t"
+		     "jne 1b\n\t"
+		     : "+a" (d), "+a" (s), "+d" (n)
+		     :
+		     : "memory");
+}
+
 static void e17_plane_atomic_update(struct drm_plane *plane,
 				    struct drm_atomic_commit *state)
 {
@@ -637,6 +670,23 @@ static void e17_plane_atomic_update(struct drm_plane *plane,
 
 		if (!drm_rect_intersect(&dst_clip, &damage))
 			continue;
+
+		/*
+		 * move16 fast path: a full-width clip with matching, 16-aligned
+		 * pitch is a single contiguous 16-aligned run in both buffers
+		 * (true for the packed C8 layout), so burst it in one go.
+		 */
+		if (e17_move16 &&
+		    dst_clip.x1 == plane_state->dst.x1 &&
+		    dst_clip.x2 == plane_state->dst.x2 &&
+		    dst_pitch == fb->pitches[0] && !(dst_pitch & 15)) {
+			size_t off = (size_t)dst_clip.y1 * dst_pitch;
+			size_t len = (size_t)drm_rect_height(&dst_clip) * dst_pitch;
+
+			e17_move16_toio(e17->vram.vaddr_iomem + off,
+					shadow->data[0].vaddr + off, len);
+			continue;
+		}
 
 		iosys_map_incr(&dst,
 			       drm_fb_clip_offset(dst_pitch, fb->format, &dst_clip));
