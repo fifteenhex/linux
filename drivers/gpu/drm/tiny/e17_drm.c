@@ -74,28 +74,21 @@
 #define DRIVER_MINOR	0
 
 /*
- * TEMPORARY: reprogram the analog video timing (Bt445 PLL + LM1882 sync)
- * from scratch on mode-set.  Off by default because those values currently
- * desync the monitor on real hardware; we instead inherit the firmware's
- * (RMON) known-good mode.  Enable with e17_drm.modeset=1 while fixing the
- * timing maths.
- */
-static bool e17_modeset;
-module_param_named(modeset, e17_modeset, bool, 0444);
-MODULE_PARM_DESC(modeset,
-	"Reprogram video PLL/sync timing from scratch (default 0: keep firmware mode)");
-
-/*
- * With modeset=1, use the linear/panning address-generator layout (TRINC-padded
- * pitch, SPLIT clear) instead of RMON's packed-line layout.  Default 0 (packed,
- * matching RMON) -- packed keeps the pitch == visible width, halves the VRAM
- * footprint and is the only layout that leaves room to double-buffer.  The
- * linear path is retained for experiments only.
+ * The driver programs the analog video timing (Bt445 PLL + LM1882 sync
+ * generator + address generator) from scratch on every mode-set: it no longer
+ * depends on the mode RMON left set up.  See e17_crtc_atomic_enable() for the
+ * PLL-before-LM1882-restart ordering that keeps this stable on real hardware.
+ *
+ * e17_drm.linear_pitch=1 selects the linear/panning address-generator layout
+ * (TRINC-padded pitch, SPLIT clear) instead of the default packed-line layout.
+ * Packed keeps the pitch == visible width, halves the VRAM footprint and is the
+ * only layout that leaves room to double-buffer; the linear path is for
+ * experiments only.
  */
 static bool e17_linear_pitch;
 module_param_named(linear_pitch, e17_linear_pitch, bool, 0444);
 MODULE_PARM_DESC(linear_pitch,
-	"modeset=1: use linear TRINC-padded pitch instead of RMON's packed layout (default 0)");
+	"use linear TRINC-padded pitch instead of the packed (RMON-parity) layout (default 0)");
 
 /*
  * DRM vblank.  Default OFF.  When enabled we init vblank and drive it from drm's
@@ -655,71 +648,38 @@ static void e17_crtc_atomic_enable(struct drm_crtc *crtc,
 	const struct e17_mode *hw = e17_find_mode(mode);
 
 	/*
-	 * HACK (temporary): the from-scratch analog-timing programming below
-	 * (Bt445 pixel-clock PLL + LM1882 sync generator) currently desyncs
-	 * the monitor ("no signal") on real hardware - the PLL/timing values
-	 * still need work.  RMON leaves a known-good 800x600 mode set up when
-	 * video is fitted, so by default we KEEP that timing.  Pass
-	 * e17_drm.modeset=1 to exercise the real mode-set path once its timing
-	 * maths is fixed.  TODO: fix the PLL/LM1882 programming and make full
-	 * modeset the default.
+	 * Full mode-set from scratch (no longer inherit RMON's).  ORDER IS
+	 * CRITICAL: the LM1882 sync generator is clocked by VIDCLK, which the
+	 * Bt445 PLL derives from the pixel clock (manual 3.4.7).  So program the
+	 * Bt445 (PLL + format) FIRST, let the PLL relock, then issue the LM1882's
+	 * Vectored Restart LAST -- the LM1882 datasheet requires the restart to be
+	 * the final reprogramming step so the counters start at pixel 1 on a clock
+	 * that will not move again.
+	 *
+	 * RMON uses the literal opposite order but only survives it at cold boot,
+	 * where VIDCLK does not exist until RMON programs the PLL -- so RMON's
+	 * LM1882 also gets its first clock under the final, stable clock.  On a
+	 * live board (RMON's PLL already locked) resuming the LM1882 and THEN
+	 * relocking the PLL under it leaves the cursor/frame comparator -- wired to
+	 * LIRQ4 -- mislatched: a level-5 frame-IRQ storm that hard-locks the board
+	 * (watchdog reset), even though the sync comparators recover a good picture.
+	 *
+	 * Default to RMON's packed-line layout (pitch == visible width, TRINC=4/
+	 * 512-byte burst, GRMODE 0x17); the linear/panning layout (896 pitch,
+	 * GRMODE 0x12) is retained behind e17_drm.linear_pitch.
 	 */
-	if (e17_modeset) {
-		/*
-		 * Full mode-set.  ORDER IS CRITICAL: the LM1882 sync generator is
-		 * clocked by VIDCLK, which the Bt445 PLL derives from the pixel
-		 * clock (manual 3.4.7).  So program the Bt445 (PLL + format)
-		 * FIRST, let the PLL relock, then issue the LM1882's Vectored
-		 * Restart LAST -- the LM1882 datasheet requires the restart to be
-		 * the final reprogramming step so the counters start at pixel 1 on
-		 * a clock that will not move again.
-		 *
-		 * RMON uses the literal opposite order but only survives it at
-		 * cold boot, where VIDCLK does not exist until RMON programs the
-		 * PLL -- so RMON's LM1882 also gets its first clock under the
-		 * final, stable clock.  On a live board (RMON's PLL already
-		 * locked) resuming the LM1882 and THEN relocking the PLL under it
-		 * leaves the cursor/frame comparator -- wired to LIRQ4 -- mislatched:
-		 * a level-5 frame-IRQ storm that hard-locks the board (watchdog
-		 * reset), even though the sync comparators recover a good picture.
-		 *
-		 * Default to RMON's packed-line layout (pitch == visible width,
-		 * TRINC=4/512-byte burst, GRMODE 0x17); the linear/panning layout
-		 * (896 pitch, GRMODE 0x12) is retained behind e17_drm.linear_pitch.
-		 */
-		e17_program_bt445(e17, hw->dotclock_hz);
-		udelay(E17_PLL_LOCK_US);	/* VIDCLK must be stable before the LM1882 restart */
-		if (e17_linear_pitch) {
-			e17->pitch = e17_pitch(mode->hdisplay, 1); /* 896 */
-			e17->grmode = GRMODE_LINEAR_8BPP;
-			e17_program_addrgen(e17, e17->pitch / 128, e17->grmode);
-		} else {
-			e17->pitch = mode->hdisplay;		/* packed: 800 */
-			e17->grmode = GRMODE_INHERIT_8BPP;	/* 0x17 */
-			e17_program_addrgen(e17, E17_TRINC_PACKED, e17->grmode);
-		}
-		e17_program_lm1882(e17, hw->lm1882);	/* Vectored Restart LAST, on stable VIDCLK */
+	e17_program_bt445(e17, hw->dotclock_hz);
+	udelay(E17_PLL_LOCK_US);	/* VIDCLK must be stable before the LM1882 restart */
+	if (e17_linear_pitch) {
+		e17->pitch = e17_pitch(mode->hdisplay, 1); /* 896 */
+		e17->grmode = GRMODE_LINEAR_8BPP;
+		e17_program_addrgen(e17, e17->pitch / 128, e17->grmode);
 	} else {
-		/*
-		 * Inherit RMON's whole mode, including its address generator
-		 * (scan-out start 0, its own line pitch/TRINC).  Its pitch is the
-		 * visible width, so match the blit to that.  Do NOT rewrite TRINC
-		 * here: a 128-padded 896 against RMON's timing scans past each
-		 * line's data and smears the next line into its tail on hardware.
-		 *
-		 * Re-assert the transfer-enable via the shadow (atomic_disable
-		 * clears ENTRA to blank).  Preserve the inherited mode bits --
-		 * RMON runs packed (SPLIT) 8bpp, so writing bare LINEAR_8BPP
-		 * (0x12) here would drop SPLIT against RMON's 512-byte stride and
-		 * shear the picture.  A disable/enable cycle happens on the
-		 * fbcon-restore modeset when a KMS client that set a mode exits;
-		 * without this the screen stays dark and the next client renders
-		 * to a disabled CRTC.
-		 */
-		e17->pitch = mode->hdisplay; /* == RMON's scan-out pitch (800) */
-		e17->grmode |= GRMODE_ENTRA;
-		writeb(e17->grmode, e17->ag + AG_GRMODE);
+		e17->pitch = mode->hdisplay;		/* packed: 800 */
+		e17->grmode = GRMODE_INHERIT_8BPP;	/* 0x17 */
+		e17_program_addrgen(e17, E17_TRINC_PACKED, e17->grmode);
 	}
+	e17_program_lm1882(e17, hw->lm1882);	/* Vectored Restart LAST, on stable VIDCLK */
 
 	/* Load a sane default palette until fbcon/userspace sets its own. */
 	drm_crtc_fill_palette_8(crtc, e17_set_palette);
@@ -727,8 +687,8 @@ static void e17_crtc_atomic_enable(struct drm_crtc *crtc,
 	if (e17_vblank)
 		drm_crtc_vblank_on(crtc);	/* start vblank accounting (hrtimer) */
 
-	drm_dbg_kms(&e17->dev, "enabled %dx%d, pitch=%u (modeset=%d)\n",
-		    mode->hdisplay, mode->vdisplay, e17->pitch, e17_modeset);
+	drm_dbg_kms(&e17->dev, "enabled %dx%d, pitch=%u\n",
+		    mode->hdisplay, mode->vdisplay, e17->pitch);
 }
 
 static void e17_crtc_atomic_disable(struct drm_crtc *crtc,
