@@ -31,6 +31,7 @@
  */
 
 #include <linux/aperture.h>
+#include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/log2.h>
 #include <linux/math64.h>
@@ -226,6 +227,12 @@ MODULE_PARM_DESC(vblank,
 
 /* PLL reference (manual 3.4.7: "PLL reference clock is 25.175 MHz"). */
 #define E17_PLL_REF_HZ		25175000u
+/*
+ * Time to let the Bt445 pixel-clock PLL relock after reprogramming, before the
+ * LM1882 (whose VIDCLK is derived from it, manual 3.4.7) is restarted onto it.
+ * Generous; a mode-set is rare.  See e17_crtc_atomic_enable().
+ */
+#define E17_PLL_LOCK_US		2000u
 #define E17_PLL_VCO_MIN_HZ	75000000u	/* manual 3.4.7 */
 #define E17_PLL_VCO_MAX_HZ	150000000u	/* manual 3.4.7 */
 
@@ -324,6 +331,11 @@ struct e17_device {
 	struct iosys_map vram;	/* scan-out buffer (0x0fc00000, iomem) */
 	unsigned int pitch;	/* current hardware line pitch (bytes) */
 	u8 grmode;		/* shadow of the write-only AG_GRMODE register */
+
+	/* Frame-IRQ screaming-source guard (see e17_frame_isr). */
+	unsigned long frame_jiffy;
+	u32 frame_per_jiffy;
+	bool frame_stormed;
 
 	struct drm_plane primary_plane;
 	struct drm_crtc crtc;
@@ -654,15 +666,29 @@ static void e17_crtc_atomic_enable(struct drm_crtc *crtc,
 	 */
 	if (e17_modeset) {
 		/*
-		 * Full mode-set, in RMON's proven order: LM1882 sync generator
-		 * first (loaded + restarted + resumed), then the address
-		 * generator, then the Bt445 PLL/format ending with the pixel
-		 * pipeline enable.  Default to RMON's packed-line layout (pitch
-		 * == visible width, TRINC=4/512-byte burst, GRMODE 0x17); the
-		 * linear/panning layout (896 pitch, GRMODE 0x12) is retained
-		 * behind e17_drm.linear_pitch for experiments.
+		 * Full mode-set.  ORDER IS CRITICAL: the LM1882 sync generator is
+		 * clocked by VIDCLK, which the Bt445 PLL derives from the pixel
+		 * clock (manual 3.4.7).  So program the Bt445 (PLL + format)
+		 * FIRST, let the PLL relock, then issue the LM1882's Vectored
+		 * Restart LAST -- the LM1882 datasheet requires the restart to be
+		 * the final reprogramming step so the counters start at pixel 1 on
+		 * a clock that will not move again.
+		 *
+		 * RMON uses the literal opposite order but only survives it at
+		 * cold boot, where VIDCLK does not exist until RMON programs the
+		 * PLL -- so RMON's LM1882 also gets its first clock under the
+		 * final, stable clock.  On a live board (RMON's PLL already
+		 * locked) resuming the LM1882 and THEN relocking the PLL under it
+		 * leaves the cursor/frame comparator -- wired to LIRQ4 -- mislatched:
+		 * a level-5 frame-IRQ storm that hard-locks the board (watchdog
+		 * reset), even though the sync comparators recover a good picture.
+		 *
+		 * Default to RMON's packed-line layout (pitch == visible width,
+		 * TRINC=4/512-byte burst, GRMODE 0x17); the linear/panning layout
+		 * (896 pitch, GRMODE 0x12) is retained behind e17_drm.linear_pitch.
 		 */
-		e17_program_lm1882(e17, hw->lm1882);
+		e17_program_bt445(e17, hw->dotclock_hz);
+		udelay(E17_PLL_LOCK_US);	/* VIDCLK must be stable before the LM1882 restart */
 		if (e17_linear_pitch) {
 			e17->pitch = e17_pitch(mode->hdisplay, 1); /* 896 */
 			e17->grmode = GRMODE_LINEAR_8BPP;
@@ -672,7 +698,7 @@ static void e17_crtc_atomic_enable(struct drm_crtc *crtc,
 			e17->grmode = GRMODE_INHERIT_8BPP;	/* 0x17 */
 			e17_program_addrgen(e17, E17_TRINC_PACKED, e17->grmode);
 		}
-		e17_program_bt445(e17, hw->dotclock_hz);
+		e17_program_lm1882(e17, hw->lm1882);	/* Vectored Restart LAST, on stable VIDCLK */
 	} else {
 		/*
 		 * Inherit RMON's whole mode, including its address generator
@@ -979,10 +1005,37 @@ static struct drm_driver e17_drm_driver = {
  */
 static atomic_t e17_frame_count = ATOMIC_INIT(0);
 
+/*
+ * A runaway rate that no legitimate once-per-frame source can reach (>= this
+ * many in a single jiffy, i.e. ~400k/s at HZ=100).  A stuck LM1882 frame/cursor
+ * output that stays asserted would re-trigger this line -- which is a plain
+ * handle_simple_irq with no HW ack/mask -- as fast as the CPU can loop, hard-
+ * locking the board (only the watchdog recovers it).  Cap it defensively.
+ */
+#define E17_FRAME_STORM	4000
+
 static irqreturn_t e17_frame_isr(int irq, void *dev_id)
 {
-	int n = atomic_inc_return(&e17_frame_count);
+	struct e17_device *e17 = dev_id;
+	unsigned long now = jiffies;
+	int n;
 
+	/* Screaming-source guard: mask the line if it exceeds a sane per-jiffy rate. */
+	if (now != e17->frame_jiffy) {
+		e17->frame_jiffy = now;
+		e17->frame_per_jiffy = 0;
+	}
+	if (++e17->frame_per_jiffy >= E17_FRAME_STORM) {
+		disable_irq_nosync(irq);
+		e17->frame_stormed = true;
+		pr_warn_ratelimited(
+			"e17drm: frame IRQ %d storming (>=%u/jiffy) -- masking it; "
+			"the mode-set likely left the LM1882 frame output asserted\n",
+			irq, E17_FRAME_STORM);
+		return IRQ_HANDLED;
+	}
+
+	n = atomic_inc_return(&e17_frame_count);
 	if (n == 1)
 		pr_info("e17drm: frame interrupt is being delivered (IRQ %d)\n", irq);
 	return IRQ_HANDLED;
