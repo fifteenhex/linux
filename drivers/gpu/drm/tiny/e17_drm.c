@@ -111,6 +111,19 @@ MODULE_PARM_DESC(vblank,
 	"Enable DRM vblank via hrtimer (default 0; not yet reliable on hardware)");
 
 /*
+ * Request the LM1882 frame interrupt (VIC LIRQ4).  It is counting-only (vblank
+ * is off), so nothing depends on it -- but a mislatched LM1882 frame/cursor
+ * output can turn LIRQ4 (a plain handle_simple_irq with no HW ack) into a storm
+ * that hard-locks the board.  Default OFF while that is under suspicion; with it
+ * off the line is left masked and no frame interrupt is delivered.  Turn it back
+ * on with e17_drm.frame_irq=1 (also needed once vblank is wired to it).
+ */
+static bool e17_frame_irq;
+module_param_named(frame_irq, e17_frame_irq, bool, 0444);
+MODULE_PARM_DESC(frame_irq,
+	"request the LM1882 frame interrupt on LIRQ4 (counting-only; default 0)");
+
+/*
  * VRAM mapping mode (performance).  m68k has no real ioremap_wc, so the default
  * (ioremap_wc) degrades to cache-inhibited SERIALIZED access -- every store is a
  * stalled, non-posted single bus cycle (~6-12 MB/s), so a full 800x600x8 frame
@@ -1213,9 +1226,15 @@ static int e17_probe(struct platform_device *pdev)
 	 * HW manual Table 38 claims FR=0 routes to LIRQ4 and FR=1 disables, but the
 	 * board is the opposite (RMON leaves 0xfc / FR set and the frame IRQ fires,
 	 * confirmed on hardware) -- keep 0xfc, do not "fix" it to the manual.
+	 *
+	 * platform_get_irq_optional() maps LIRQ4, which masks LICR4 (irqchip
+	 * domain_map default), so when frame_irq is off we simply do not route or
+	 * request it: the line stays masked and no frame interrupt is delivered.
 	 */
 	irq = platform_get_irq_optional(pdev, 0);
-	if (irq > 0) {
+	if (!e17_frame_irq) {
+		drm_info(dev, "frame interrupt disabled (e17_drm.frame_irq=0)\n");
+	} else if (irq > 0) {
 		void __iomem *irqroute = devm_platform_ioremap_resource(pdev, 3);
 
 		if (!IS_ERR(irqroute))
