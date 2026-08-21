@@ -380,6 +380,15 @@ struct e17_device {
 	unsigned int pitch;	/* current hardware line pitch (bytes) */
 	u8 grmode;		/* shadow of the write-only AG_GRMODE register */
 
+	/*
+	 * The timing (PLL/LM1882/addrgen) currently programmed into the hardware.
+	 * atomic_enable reprograms it only when the requested mode differs, so the
+	 * costly from-scratch sequence (and its monitor re-lock) runs on a real
+	 * mode change, not on every DPMS-on / VT-switch / client-exit re-enable.
+	 */
+	struct drm_display_mode active_mode;
+	bool active_valid;
+
 	/* Frame-IRQ screaming-source guard (see e17_frame_isr). */
 	unsigned long frame_jiffy;
 	u32 frame_per_jiffy;
@@ -738,49 +747,70 @@ static void e17_crtc_atomic_enable(struct drm_crtc *crtc,
 		drm_atomic_get_new_crtc_state(state, crtc);
 	const struct drm_display_mode *mode = &crtc_state->adjusted_mode;
 	const struct e17_mode *hw = e17_find_mode(mode);
+	bool reprogram = !e17->active_valid ||
+			 e17->active_mode.hdisplay != mode->hdisplay ||
+			 e17->active_mode.vdisplay != mode->vdisplay ||
+			 e17->active_mode.clock    != mode->clock;
 
-	/*
-	 * Full mode-set from scratch (no longer inherit RMON's).  ORDER IS
-	 * CRITICAL: the LM1882 sync generator is clocked by VIDCLK, which the
-	 * Bt445 PLL derives from the pixel clock (manual 3.4.7).  So program the
-	 * Bt445 (PLL + format) FIRST, let the PLL relock, then issue the LM1882's
-	 * Vectored Restart LAST -- the LM1882 datasheet requires the restart to be
-	 * the final reprogramming step so the counters start at pixel 1 on a clock
-	 * that will not move again.
-	 *
-	 * RMON uses the literal opposite order but only survives it at cold boot,
-	 * where VIDCLK does not exist until RMON programs the PLL -- so RMON's
-	 * LM1882 also gets its first clock under the final, stable clock.  On a
-	 * live board (RMON's PLL already locked) resuming the LM1882 and THEN
-	 * relocking the PLL under it leaves the cursor/frame comparator -- wired to
-	 * LIRQ4 -- mislatched: a level-5 frame-IRQ storm that hard-locks the board
-	 * (watchdog reset), even though the sync comparators recover a good picture.
-	 *
-	 * Default to RMON's packed-line layout (pitch == visible width, TRINC=4/
-	 * 512-byte burst, GRMODE 0x17); the linear/panning layout (896 pitch,
-	 * GRMODE 0x12) is retained behind e17_drm.linear_pitch.
-	 */
-	e17_program_bt445(e17, hw->dotclock_hz);
-	udelay(E17_PLL_LOCK_US);	/* VIDCLK must be stable before the LM1882 restart */
-	if (e17_linear_pitch) {
-		e17->pitch = e17_pitch(mode->hdisplay, 1); /* 896 */
-		e17->grmode = GRMODE_LINEAR_8BPP;
-		e17_program_addrgen(e17, e17->pitch / 128, e17->grmode);
+	if (reprogram) {
+		/*
+		 * Full mode-set from scratch (no longer inherit RMON's).  ORDER IS
+		 * CRITICAL: the LM1882 sync generator is clocked by VIDCLK, which the
+		 * Bt445 PLL derives from the pixel clock (manual 3.4.7).  Program the
+		 * Bt445 (PLL + format) FIRST, let the PLL relock, then issue the
+		 * LM1882's Vectored Restart LAST -- the LM1882 datasheet requires the
+		 * restart to be the final reprogramming step so the counters start at
+		 * pixel 1 on a clock that will not move again.
+		 *
+		 * RMON uses the literal opposite order but only survives it at cold
+		 * boot, where VIDCLK does not exist until RMON programs the PLL -- so
+		 * RMON's LM1882 also gets its first clock under the final, stable
+		 * clock.  On a live board (RMON's PLL already locked) resuming the
+		 * LM1882 and THEN relocking the PLL under it leaves the cursor/frame
+		 * comparator (wired to LIRQ4) mislatched: a frame-IRQ storm that
+		 * hard-locks the board, even though the sync comparators recover a
+		 * good picture.
+		 *
+		 * Default to RMON's packed-line layout (pitch == visible width,
+		 * TRINC=4/512-byte burst, GRMODE 0x17); the linear/panning layout
+		 * (896 pitch, GRMODE 0x12) is retained behind e17_drm.linear_pitch.
+		 */
+		e17_program_bt445(e17, hw->dotclock_hz);
+		udelay(E17_PLL_LOCK_US);	/* VIDCLK must be stable before the LM1882 restart */
+		if (e17_linear_pitch) {
+			e17->pitch = e17_pitch(mode->hdisplay, 1); /* 896 */
+			e17->grmode = GRMODE_LINEAR_8BPP;
+			e17_program_addrgen(e17, e17->pitch / 128, e17->grmode);
+		} else {
+			e17->pitch = mode->hdisplay;		/* packed: 800 */
+			e17->grmode = GRMODE_INHERIT_8BPP;	/* 0x17 */
+			e17_program_addrgen(e17, E17_TRINC_PACKED, e17->grmode);
+		}
+		e17_program_lm1882(e17, hw->lm1882); /* Vectored Restart LAST, stable VIDCLK */
+
+		drm_mode_copy(&e17->active_mode, mode);
+		e17->active_valid = true;
+
+		/* Fresh mode: default palette until fbcon/userspace sets gamma. */
+		drm_crtc_fill_palette_8(crtc, e17_set_palette);
 	} else {
-		e17->pitch = mode->hdisplay;		/* packed: 800 */
-		e17->grmode = GRMODE_INHERIT_8BPP;	/* 0x17 */
-		e17_program_addrgen(e17, E17_TRINC_PACKED, e17->grmode);
+		/*
+		 * Same mode already programmed: the PLL/LM1882 timing and the palette
+		 * are intact across a DPMS-off / VT-switch / client-exit blank (only
+		 * atomic_disable's clearing of the transfer-enable took the picture
+		 * away).  Just re-assert scan-out -- no PLL relock, no LM1882 restart,
+		 * so no monitor re-lock and none of the reprogram's risk.
+		 */
+		e17->grmode |= GRMODE_ENTRA;
+		writeb(e17->grmode, e17->ag + AG_GRMODE);
 	}
-	e17_program_lm1882(e17, hw->lm1882);	/* Vectored Restart LAST, on stable VIDCLK */
-
-	/* Load a sane default palette until fbcon/userspace sets its own. */
-	drm_crtc_fill_palette_8(crtc, e17_set_palette);
 
 	if (e17_vblank)
 		drm_crtc_vblank_on(crtc);	/* start vblank accounting (hrtimer) */
 
-	drm_dbg_kms(&e17->dev, "enabled %dx%d, pitch=%u\n",
-		    mode->hdisplay, mode->vdisplay, e17->pitch);
+	drm_dbg_kms(&e17->dev, "enabled %dx%d, pitch=%u (%s)\n",
+		    mode->hdisplay, mode->vdisplay, e17->pitch,
+		    reprogram ? "reprogrammed" : "scan-out re-asserted");
 }
 
 static void e17_crtc_atomic_disable(struct drm_crtc *crtc,
@@ -970,12 +1000,11 @@ static int e17_modeset_init(struct e17_device *e17)
 	int ret;
 
 	/*
-	 * Track the write-only GRMODE.  Default to the value RMON leaves set
-	 * (packed 8bpp, scan-out enabled) so the first blank/unblank preserves
-	 * the inherited mode bits.  The modeset=1 path overwrites this when it
-	 * programs its own mode.
+	 * Track the write-only GRMODE.  Default to the packed 8bpp value with
+	 * scan-out enabled; atomic_enable overwrites it when it programs a mode.
 	 */
 	e17->grmode = GRMODE_INHERIT_8BPP;
+	e17->active_valid = false;	/* force a full program on the first enable */
 
 	ret = drmm_mode_config_init(dev);
 	if (ret)
@@ -1267,6 +1296,8 @@ static int e17_pm_suspend(struct device *dev)
 {
 	struct e17_device *e17 = dev_get_drvdata(dev);
 
+	/* Power-off loses the hardware timing; force a full reprogram on resume. */
+	e17->active_valid = false;
 	return drm_mode_config_helper_suspend(&e17->dev);
 }
 
