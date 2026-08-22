@@ -53,6 +53,16 @@
  */
 #define E17_VIC_NR_HWIRQ	48
 
+/*
+ * Screaming-source guard.  Every VIC input is dispatched via handle_simple_irq
+ * with no hardware ack/EOI, so a device whose handler cannot quench its (level-
+ * held) request re-vectors as fast as the CPU can loop and hard-locks the board.
+ * No legitimate source on this board reaches anywhere near this rate (~400k/s at
+ * HZ=100), so if a LICR line exceeds it in one jiffy, mask that line and warn --
+ * the board survives and the culprit LIRQ is named.
+ */
+#define E17_VIC_STORM		4000
+
 struct e17_vic {
 	void __iomem		*base;
 	struct irq_domain	*domain;
@@ -60,6 +70,9 @@ struct e17_vic {
 	u8			licr[E17_VIC_NR_HWIRQ];	/* gating LIRQ per hwirq */
 	u8			unmasked[E17_VIC_NR_LIRQ]; /* LICR value to unmask */
 	u8			en_count[E17_VIC_NR_LIRQ]; /* # unmasked children  */
+	unsigned long		storm_jiffy[E17_VIC_NR_LIRQ];
+	u32			storm_count[E17_VIC_NR_LIRQ];
+	bool			stormed[E17_VIC_NR_LIRQ];
 };
 
 static struct e17_vic e17_vic;
@@ -113,6 +126,35 @@ static struct irq_chip e17_vic_chip = {
 static void e17_vic_cascade(struct irq_desc *desc)
 {
 	irq_hw_number_t phw = irqd_to_hwirq(irq_desc_get_irq_data(desc));
+	unsigned int hw = phw - IRQ_USER;
+	unsigned int lirq = (hw < E17_VIC_NR_HWIRQ) ? e17_vic.licr[hw] : 0;
+	unsigned long now = jiffies;
+
+	/*
+	 * Screaming-source guard (see E17_VIC_STORM): if a line's LICR fires an
+	 * impossible number of times in one jiffy, its device's handler is not
+	 * quenching a level-held request -- mask the LICR so the CPU escapes the
+	 * storm instead of hard-locking, and report which line.  Kept masked until
+	 * a driver re-enables it (its device is misbehaving anyway).
+	 */
+	if (lirq >= 1 && lirq < E17_VIC_NR_LIRQ) {
+		if (now != e17_vic.storm_jiffy[lirq]) {
+			e17_vic.storm_jiffy[lirq] = now;
+			e17_vic.storm_count[lirq] = 0;
+		}
+		if (++e17_vic.storm_count[lirq] >= E17_VIC_STORM) {
+			unsigned long flags;
+
+			raw_spin_lock_irqsave(&e17_vic.lock, flags);
+			writeb(E17_VIC_LICR_MASK, e17_vic.base + E17_VIC_LICR(lirq));
+			e17_vic.en_count[lirq] = 0;
+			e17_vic.stormed[lirq] = true;
+			raw_spin_unlock_irqrestore(&e17_vic.lock, flags);
+			pr_warn_ratelimited("e17-vic068a: LIRQ%u storming (>=%u/jiffy) -- masked; its device's ISR is not clearing the source\n",
+					    lirq, E17_VIC_STORM);
+			return;
+		}
+	}
 
 	/*
 	 * No chained_irq_enter()/exit() here: the parent is an m68k user vector
@@ -122,7 +164,7 @@ static void e17_vic_cascade(struct irq_desc *desc)
 	 * level (and chained_irq_enter() would call a NULL chip->irq_mask).
 	 * Dispatch straight into the VIC domain.
 	 */
-	generic_handle_domain_irq(e17_vic.domain, phw - IRQ_USER);
+	generic_handle_domain_irq(e17_vic.domain, hw);
 }
 
 static int e17_vic_domain_map(struct irq_domain *dom, unsigned int virq,
