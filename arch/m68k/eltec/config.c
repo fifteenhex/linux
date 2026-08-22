@@ -49,6 +49,39 @@
 #define E17_POST(code)	(*(volatile u8 *)0xfec30000 = (code) & 0x0f)
 
 /*
+ * Watchdog-reset breadcrumb in the battery-backed M48T02 NVRAM (offset 0x600 --
+ * past RMON's 0x000-0x5ff system area, below the clock registers), so it survives
+ * the reset pulse and the next boot can tell what wedged.  HB0/HB1 are the
+ * CPU0/CPU1 tick heartbeats; HB1_SNAP is CPU1's heartbeat captured at CPU0's last
+ * tick.  After a watchdog reset: HB1 far ahead of HB1_SNAP => CPU1 kept ticking
+ * while CPU0 was dead (a CPU0-only IRQs-off / level-6 stall); HB1 ~= HB1_SNAP =>
+ * both CPUs froze together (a whole-bus hang).  The NVRAM is in the cache-
+ * inhibited I/O window, so each byte write is posted immediately.
+ */
+#define E17_BC		((volatile u8 *)0xfec20600)
+#define E17_BC_MAGIC	0
+#define E17_BC_HB0	1
+#define E17_BC_HB1	2
+#define E17_BC_HB1_SNAP	3
+#define E17_BC_VALID	0xe1
+
+static u8 e17_bc_prev[4];
+static bool e17_bc_prev_valid;
+
+/* Pre-reset breadcrumb, for the watchdog driver to print on a card-reset boot. */
+bool e17_breadcrumb_prev(u8 out[4])
+{
+	if (!e17_bc_prev_valid)
+		return false;
+	out[0] = e17_bc_prev[0];
+	out[1] = e17_bc_prev[1];
+	out[2] = e17_bc_prev[2];
+	out[3] = e17_bc_prev[3];
+	return true;
+}
+EXPORT_SYMBOL_GPL(e17_breadcrumb_prev);
+
+/*
  * Cirrus CD2401 serial controller at 0xfec64000, channel 0 = the RMON
  * console (Serial Port 1).  The real chip only transmits from its
  * interrupt-service context - a bare TDR write is ignored - so a byte is
@@ -544,6 +577,10 @@ static irqreturn_t e17_timer_int(int irq, void *dev_id)
 {
 	/* acknowledge: clear CT3's interrupt-pending (it auto-reloads) */
 	e17_cio_wr(Z8536_CT3CS, Z8536_CMD_CLR_IPUS);
+
+	/* Breadcrumb: CPU0 tick alive; snapshot CPU1's heartbeat as of now. */
+	E17_BC[E17_BC_HB1_SNAP] = E17_BC[E17_BC_HB1];
+	E17_BC[E17_BC_HB0]++;
 	/*
 	 * NB: do NOT read the 0xfec50000 watchdog/ack block here.  The hardware
 	 * IACK re-arms the tick; that read is not needed, and per the HW manual
@@ -587,6 +624,8 @@ static irqreturn_t e17_ap_tick(int irq, void *dev_id)
 	 * with the tick below.
 	 */
 	writeb(E17_SICF_IACK_VIC, (void __iomem *)E17_CPU2CON);	/* ack VIC-clock */
+
+	E17_BC[E17_BC_HB1]++;			/* breadcrumb: CPU1 tick alive */
 
 	/*
 	 * Storm rate-limiter.  A healthy VIC-clock fires at HZ, i.e. about once per
@@ -708,6 +747,21 @@ void __init config_eltec_e17(void)
 
 	if (!vme_brdtype)
 		vme_brdtype = VME_TYPE_E17;
+
+	/*
+	 * Snapshot the pre-reset breadcrumb (the M48T02 NVRAM is directly usable
+	 * this early), then reset it for this boot.  Must run before the ticks start
+	 * updating the heartbeats.
+	 */
+	e17_bc_prev[0] = E17_BC[E17_BC_MAGIC];
+	e17_bc_prev[1] = E17_BC[E17_BC_HB0];
+	e17_bc_prev[2] = E17_BC[E17_BC_HB1];
+	e17_bc_prev[3] = E17_BC[E17_BC_HB1_SNAP];
+	e17_bc_prev_valid = (e17_bc_prev[0] == E17_BC_VALID);
+	E17_BC[E17_BC_HB0] = 0;
+	E17_BC[E17_BC_HB1] = 0;
+	E17_BC[E17_BC_HB1_SNAP] = 0;
+	E17_BC[E17_BC_MAGIC] = E17_BC_VALID;
 
 	/*
 	 * Do NOT register the VGA framebuffer as the boot console under SMP: its

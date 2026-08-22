@@ -35,6 +35,9 @@
 #define E17_WDT_PA7_PHYS	0xfec30002
 #define E17_WDT_PA7		0x80
 
+/* Pre-reset diagnostic breadcrumb (arch/m68k/eltec/config.c). */
+bool e17_breadcrumb_prev(u8 out[4]);
+
 /*
  * Hardware time-out (jumper J1401: 100 ms or 1.6 s).  The framework pings at
  * max_hw_heartbeat_ms/2, so this must not exceed the real hardware period.
@@ -184,8 +187,29 @@ static int e17_wdt_probe(struct platform_device *pdev)
 	 * CIO driver mapping the same chip.
 	 */
 	pa7 = devm_ioremap(dev, E17_WDT_PA7_PHYS, 1);
-	if (pa7 && !(readb(pa7) & E17_WDT_PA7))
+	if (pa7 && !(readb(pa7) & E17_WDT_PA7)) {
+		u8 bc[4];
+
 		w->wdd.bootstatus |= WDIOF_CARDRESET;
+
+		/*
+		 * Pre-reset breadcrumb (arch/m68k/eltec/config.c).  bc[1]=CPU0 tick
+		 * heartbeat, bc[2]=CPU1 tick heartbeat, bc[3]=CPU1's heartbeat at CPU0's
+		 * last tick.  If CPU1 advanced well past that snapshot, CPU1 kept ticking
+		 * while CPU0 was dead -> a CPU0-only IRQs-off / level-6 stall; if not,
+		 * both froze together -> a whole-bus hang.
+		 */
+		if (e17_breadcrumb_prev(bc)) {
+			unsigned int cpu1_after = (u8)(bc[2] - bc[3]);
+
+			dev_warn(dev,
+				 "watchdog reset: breadcrumb CPU0 hb=%u, CPU1 hb=%u (snap %u); CPU1 ticked %u more -> %s\n",
+				 bc[1], bc[2], bc[3], cpu1_after,
+				 cpu1_after > 4 ?
+				 "CPU0-only stall (IRQs-off/level-6), bus alive" :
+				 "whole-bus hang (both CPUs froze)");
+		}
+	}
 
 	/*
 	 * On by default: mark it running so the framework arms it (via .ping) and
