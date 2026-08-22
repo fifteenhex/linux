@@ -121,6 +121,8 @@ struct e17_cd2401_port {
 	int tx_irq;		/* transmit vector (txirq only) */
 	int modem_irq;		/* modem vector (txirq only; catch-all handler) */
 	bool tx_idle;		/* transmitter drained (for a truthful tx_empty) */
+	bool console_wedged;	/* chip didn't respond during this console record */
+	u32 console_wedges;	/* count of records that hit the wedge (diagnostic) */
 };
 
 static struct e17_cd2401_port *e17_cd2401_ports[E17_CD2401_MAX_PORTS];
@@ -140,10 +142,20 @@ static void e17_cd2401_rx_chars(struct uart_port *port);
 /*
  * Wait (bounded) for the CD2401 to assert its VIC line: LICR6 STATE is the raw
  * pin, active low, readable regardless of the mask.  Returns true if asserted.
+ *
+ * A healthy chip asserts within microseconds of IER.TxD being set, so this bound
+ * is ~10-20 ms of uncached LICR6 reads on the 25 MHz local bus -- ample slack for
+ * a working chip, but critically NOT the old ~100-200 ms: the console spins here
+ * with interrupts hard-off, and the CD2401 TX is known to intermittently stop
+ * re-asserting, so a long per-character timeout multiplied across a printk record
+ * was seconds of IRQs-off -> a watchdog reset.  The console path additionally
+ * gives up on the whole record after the first timeout (see e17_cd2401_putchar).
  */
+#define CD2401_STATE_POLL	20000
+
 static bool e17_cd2401_wait_asserted(struct e17_cd2401_port *up)
 {
-	int timeout = 200000;
+	int timeout = CD2401_STATE_POLL;
 
 	while ((readb(up->vic + E17_VIC_LICR6) & E17_VIC_LICR_STATE) && --timeout)
 		cpu_relax();
@@ -157,9 +169,10 @@ static bool e17_cd2401_wait_asserted(struct e17_cd2401_port *up)
  * (TX_IPL) to enter tx service, write the byte and end with TEOIR.  The CD2401
  * is masked at the VIC for the duration so the CPU never vectors on it.
  */
-static void e17_cd2401_tx_one_polled(struct e17_cd2401_port *up, u8 ch)
+static bool e17_cd2401_tx_one_polled(struct e17_cd2401_port *up, u8 ch)
 {
 	struct uart_port *port = &up->port;
+	bool sent = false;
 	u8 ier, licr;
 
 	licr = readb(up->vic + E17_VIC_LICR6);
@@ -179,10 +192,12 @@ static void e17_cd2401_tx_one_polled(struct e17_cd2401_port *up, u8 ch)
 		readb(up->iack + CD2401_TX_IPL);	/* IACK -> enter tx service */
 		cd_write(port, CD2401_DR, ch);
 		cd_write(port, CD2401_TEOIR, 0);
+		sent = true;
 	}
 	cd_write(port, CD2401_IER, ier);	/* restore (tx irq off) */
 
 	writeb(licr, up->vic + E17_VIC_LICR6);	/* restore VIC routing (STATE is RO) */
+	return sent;
 }
 
 /*
@@ -200,7 +215,7 @@ static void e17_cd2401_tx_one_polled(struct e17_cd2401_port *up, u8 ch)
  * REOIR) and retry, or dismiss a modem event.  A STATE-poll timeout drops the
  * byte rather than IACK with nothing posted.
  */
-static void e17_cd2401_tx_one_irq(struct e17_cd2401_port *up, u8 ch)
+static bool e17_cd2401_tx_one_irq(struct e17_cd2401_port *up, u8 ch)
 {
 	struct uart_port *port = &up->port;
 	bool sent = false;
@@ -249,14 +264,15 @@ static void e17_cd2401_tx_one_irq(struct e17_cd2401_port *up, u8 ch)
 
 	cd_write(port, CD2401_IER, ier);	/* restore tty's IER intent */
 	writeb(licr, up->vic + E17_VIC_LICR6);	/* restore VIC routing */
+	return sent;
 }
 
-static void e17_cd2401_tx_one(struct e17_cd2401_port *up, u8 ch)
+/* Returns true if the byte was handed to the chip, false if it did not respond. */
+static bool e17_cd2401_tx_one(struct e17_cd2401_port *up, u8 ch)
 {
 	if (txirq)
-		e17_cd2401_tx_one_irq(up, ch);
-	else
-		e17_cd2401_tx_one_polled(up, ch);
+		return e17_cd2401_tx_one_irq(up, ch);
+	return e17_cd2401_tx_one_polled(up, ch);
 }
 
 static void e17_cd2401_putchar(struct uart_port *port, unsigned char ch)
@@ -264,7 +280,20 @@ static void e17_cd2401_putchar(struct uart_port *port, unsigned char ch)
 	struct e17_cd2401_port *up =
 		container_of(port, struct e17_cd2401_port, port);
 
-	e17_cd2401_tx_one(up, ch);
+	/*
+	 * Console records run with the port lock held and interrupts OFF for the
+	 * whole string.  If the CD2401 has stopped responding, give up on the rest
+	 * of THIS record after the first failure rather than paying the (bounded)
+	 * STATE-poll timeout for every remaining character -- that per-char sum was
+	 * the multi-second IRQs-off window that tripped the watchdog.  The flag is
+	 * cleared at the start of each record (e17_cd2401_console_write).
+	 */
+	if (up->console_wedged)
+		return;
+	if (!e17_cd2401_tx_one(up, ch)) {
+		up->console_wedged = true;
+		up->console_wedges++;
+	}
 }
 
 /*
@@ -658,6 +687,7 @@ static void e17_cd2401_console_write(struct console *co, const char *s,
 		return;
 	port = &up->port;
 
+	up->console_wedged = false;	/* fresh chance for this record */
 	uart_port_lock_irqsave(port, &flags);
 	uart_console_write(port, s, count, e17_cd2401_putchar);
 	uart_port_unlock_irqrestore(port, flags);
