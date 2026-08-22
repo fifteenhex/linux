@@ -22,8 +22,10 @@
  * self-recovery we want when poking at fragile interrupt paths.
  */
 #include <linux/delay.h>
+#include <linux/hrtimer.h>
 #include <linux/io.h>
 #include <linux/irqflags.h>
+#include <linux/ktime.h>
 #include <linux/module.h>
 #include <linux/mod_devicetable.h>
 #include <linux/platform_device.h>
@@ -68,6 +70,26 @@ MODULE_PARM_DESC(arm_on_boot,
 	"/dev/watchdog (needs CONFIG_WATCHDOG_HANDLE_BOOT_ENABLED; default y -- "
 	"set 0 if J1401 is on the 100 ms setting)");
 
+/*
+ * Pet the hardware directly from a hard-IRQ hrtimer (which, on this
+ * clockevent-less board, runs straight from the periodic tick), in addition to
+ * the watchdog core's SCHED_FIFO ping kthread.  The kthread hop makes the core's
+ * petting depend on the kthread being scheduled, which a non-preemptible
+ * CPU-bound stretch (e.g. around the init handoff) can delay past the 1.6 s
+ * period and reset a perfectly healthy board.  The hard-IRQ pet has no such
+ * dependency: as long as the tick runs the watchdog is fed, so it only fires
+ * when the tick itself dies -- a CPU0-wedged / interrupts-off-forever hang,
+ * exactly the catastrophic case that needs a reset.  (Trade-off: it no longer
+ * enforces userspace liveness across /dev/watchdog; acceptable here, where the
+ * watchdog exists for kernel-hang self-recovery.)  Set 0 to rely solely on the
+ * core's kthread petting.
+ */
+static bool hardpet = true;
+module_param(hardpet, bool, 0444);
+MODULE_PARM_DESC(hardpet,
+	"pet the watchdog from a tick-driven hard-IRQ timer, not just the core's "
+	"kthread (default y; survives kthread starvation)");
+
 static bool selftest;
 module_param(selftest, bool, 0444);
 MODULE_PARM_DESC(selftest,
@@ -77,6 +99,8 @@ MODULE_PARM_DESC(selftest,
 struct e17_wdt {
 	struct watchdog_device	wdd;
 	void __iomem		*trigger;	/* $FEC5.0000: any write pets */
+	struct hrtimer		hardpet_timer;	/* tick-driven hard-IRQ petter */
+	ktime_t			hardpet_interval;
 };
 
 static int e17_wdt_ping(struct watchdog_device *wdd)
@@ -85,6 +109,23 @@ static int e17_wdt_ping(struct watchdog_device *wdd)
 
 	writeb(0, w->trigger);
 	return 0;
+}
+
+/* Hard-IRQ (tick-driven) pet: independent of the core's ping kthread. */
+static enum hrtimer_restart e17_wdt_hardpet(struct hrtimer *t)
+{
+	struct e17_wdt *w = container_of(t, struct e17_wdt, hardpet_timer);
+
+	writeb(0, w->trigger);
+	hrtimer_forward_now(t, w->hardpet_interval);
+	return HRTIMER_RESTART;
+}
+
+static void e17_wdt_hardpet_cancel(void *data)
+{
+	struct e17_wdt *w = data;
+
+	hrtimer_cancel(&w->hardpet_timer);
 }
 
 static int e17_wdt_start(struct watchdog_device *wdd)
@@ -163,6 +204,26 @@ static int e17_wdt_probe(struct platform_device *pdev)
 	dev_info(dev, "registered (hw time-out %u ms%s)\n", hw_margin_ms,
 		 (w->wdd.bootstatus & WDIOF_CARDRESET) ?
 		 ", last reset was watchdog" : "");
+
+	/*
+	 * Tick-driven hard-IRQ petter (see hardpet).  Arm the hardware now and pet
+	 * it every quarter-period from a REL_HARD hrtimer, which on this
+	 * clockevent-less board is serviced from the periodic tick in hard-IRQ
+	 * context -- so petting no longer depends on the core's SCHED_FIFO kthread
+	 * being scheduled.  Only started when the watchdog is armed at boot.
+	 */
+	if (arm_on_boot && hardpet) {
+		writeb(0, w->trigger);		/* arm + first pet */
+		w->hardpet_interval = ms_to_ktime(max(hw_margin_ms / 4, 1u));
+		hrtimer_setup(&w->hardpet_timer, e17_wdt_hardpet, CLOCK_MONOTONIC,
+			      HRTIMER_MODE_REL_HARD);
+		hrtimer_start(&w->hardpet_timer, w->hardpet_interval,
+			      HRTIMER_MODE_REL_HARD);
+		ret = devm_add_action_or_reset(dev, e17_wdt_hardpet_cancel, w);
+		if (ret)
+			return ret;
+		dev_info(dev, "hard-IRQ petting every %u ms\n", hw_margin_ms / 4);
+	}
 
 	/*
 	 * Optional self-test (e17_wdt.selftest=1): arm the watchdog, then hang with
