@@ -138,9 +138,20 @@ static void e17_cio_wr(struct e17_cio *c, u8 reg, u8 val)
 
 /* --- clocksource: linked CT1/CT2 32-bit down counter, read up-counting ----- */
 
+/*
+ * Bound on the torn-read retry.  A genuine torn read settles in one retry; this
+ * loop runs under a raw spinlock with interrupts OFF on every timekeeping read,
+ * so if the CT2 latch ever fails to agree (a Z8536 latch hiccup) an unbounded
+ * loop would spin forever with IRQs off -- the tick would stop and the watchdog
+ * would reset the board.  Cap it: a once-off possibly-torn value (a ~26 ms clock
+ * blip) is vastly preferable to a hang.
+ */
+#define E17_CIO_TORN_MAX	8
+
 static u64 e17_cio_cs_read(struct clocksource *cs)
 {
 	struct e17_cio *c = container_of(cs, struct e17_cio, cs);
+	unsigned int retry = E17_CIO_TORN_MAX;
 	unsigned long flags;
 	u8 m1, l1, m2, l2, m2b, l2b;
 
@@ -161,8 +172,12 @@ static u64 e17_cio_cs_read(struct clocksource *cs)
 		e17_cio_wr(c, Z8536_CT2_CMDSTAT, Z8536_CT_RCC | Z8536_CT_GCB);
 		m2b = e17_cio_rd(c, Z8536_CT2_VAL_MSB);
 		l2b = e17_cio_rd(c, Z8536_CT2_VAL_LSB);
-	} while (m2b != m2 || l2b != l2);
+	} while ((m2b != m2 || l2b != l2) && --retry);
 	raw_spin_unlock_irqrestore(&c->lock, flags);
+
+	if (unlikely(!retry))
+		pr_warn_ratelimited("e17-cio: clocksource torn read did not settle in %d tries\n",
+				    E17_CIO_TORN_MAX);
 
 	/* The counters count down; invert so the clocksource counts up. */
 	return ~(((u32)m2 << 24) | ((u32)l2 << 16) | ((u32)m1 << 8) | l1);
