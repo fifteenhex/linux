@@ -32,6 +32,7 @@
 
 #include <linux/aperture.h>
 #include <linux/delay.h>
+#include <linux/e17_breadcrumb.h>
 #include <linux/io.h>
 #include <linux/ktime.h>
 #include <linux/log2.h>
@@ -685,6 +686,7 @@ static void e17_plane_atomic_update(struct drm_plane *plane,
 	if (!drm_dev_enter(&e17->dev, &idx))
 		goto out_end_access;
 
+	e17_breadcrumb(E17_BC_PH_DRM_BLIT);	/* VRAM writes: whole-bus-hang suspect */
 	drm_atomic_helper_damage_iter_init(&iter, old_state, plane_state);
 	drm_atomic_for_each_plane_damage(&iter, &damage) {
 		struct iosys_map dst = e17->vram;
@@ -714,6 +716,7 @@ static void e17_plane_atomic_update(struct drm_plane *plane,
 			       drm_fb_clip_offset(dst_pitch, fb->format, &dst_clip));
 		drm_fb_memcpy(&dst, &dst_pitch, shadow->data, fb, &dst_clip);
 	}
+	e17_breadcrumb(E17_BC_PH_NONE);
 
 	drm_dev_exit(idx);
 out_end_access:

@@ -24,6 +24,7 @@
  */
 
 #include <linux/console.h>
+#include <linux/e17_breadcrumb.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
@@ -189,7 +190,9 @@ static bool e17_cd2401_tx_one_polled(struct e17_cd2401_port *up, u8 ch)
 	 * the STATE poll timed out, drop the character rather than wedge.
 	 */
 	if (e17_cd2401_wait_asserted(up)) {
+		e17_breadcrumb(E17_BC_PH_CD_IACK);	/* no-DTACK here = whole-bus hang */
 		readb(up->iack + CD2401_TX_IPL);	/* IACK -> enter tx service */
+		e17_breadcrumb(E17_BC_PH_NONE);
 		cd_write(port, CD2401_DR, ch);
 		cd_write(port, CD2401_TEOIR, 0);
 		sent = true;
@@ -245,7 +248,9 @@ static bool e17_cd2401_tx_one_irq(struct e17_cd2401_port *up, u8 ch)
 		if (!e17_cd2401_wait_asserted(up))
 			break;				/* nothing posted: do not IACK */
 
+		e17_breadcrumb(E17_BC_PH_CD_IACK);	/* no-DTACK here = whole-bus hang */
 		ack = readb(up->iack + CD2401_SVC_IPL);	/* enter service context */
+		e17_breadcrumb(E17_BC_PH_NONE);
 		type = ack & 0x3;
 		if (type == 0x2) {			/* transmit */
 			cd_write(port, CD2401_DR, ch);
@@ -328,6 +333,7 @@ static void e17_cd2401_rx_chars(struct uart_port *port)
 	 * clear) the receive status first -- an overrun latches a receive
 	 * exception until RISR is read, else the chip re-interrupts forever.
 	 */
+	e17_breadcrumb(E17_BC_PH_CD_RX);
 	cd_read(port, CD2401_RISRH);
 	cd_read(port, CD2401_RISRL);
 	cnt = cd_read(port, CD2401_RFOC);
@@ -340,6 +346,7 @@ static void e17_cd2401_rx_chars(struct uart_port *port)
 	}
 
 	cd_write(port, CD2401_REOIR, 0);	/* end of receive interrupt */
+	e17_breadcrumb(E17_BC_PH_NONE);
 
 	tty_flip_buffer_push(&port->state->port);
 }
@@ -376,6 +383,7 @@ static irqreturn_t e17_cd2401_tx_interrupt(int irq, void *data)
 	u8 ier, ch;
 
 	uart_port_lock_irqsave(port, &flags);
+	e17_breadcrumb(E17_BC_PH_CD_TX);
 
 	ier = cd_read(port, CD2401_IER);
 
@@ -409,6 +417,7 @@ static irqreturn_t e17_cd2401_tx_interrupt(int irq, void *data)
 	}
 
 	cd_write(port, CD2401_TEOIR, sent ? 0 : CD2401_TEOIR_NOTRANS);
+	e17_breadcrumb(E17_BC_PH_NONE);
 
 	if (kfifo_len(&tport->xmit_fifo) < WAKEUP_CHARS)
 		uart_write_wakeup(port);

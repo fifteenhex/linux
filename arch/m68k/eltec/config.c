@@ -28,6 +28,7 @@
 #include <asm/irq.h>
 #include <asm/traps.h>
 #include <linux/font.h>		/* font_vga_8x8 for the framebuffer boot console */
+#include <linux/e17_breadcrumb.h>
 #ifdef CONFIG_SMP
 #include <asm/smp_e17.h>
 #endif
@@ -63,23 +64,36 @@
 #define E17_BC_HB0	1
 #define E17_BC_HB1	2
 #define E17_BC_HB1_SNAP	3
-#define E17_BC_VALID	0xe1
+#define E17_BC_PHASE	4	/* which suspect bus region CPU0 is in */
+#define E17_BC_VALID	0xe1	/* E17_BC_LEN comes from <linux/e17_breadcrumb.h> */
 
-static u8 e17_bc_prev[4];
+static u8 e17_bc_prev[E17_BC_LEN];
 static bool e17_bc_prev_valid;
 
 /* Pre-reset breadcrumb, for the watchdog driver to print on a card-reset boot. */
-bool e17_breadcrumb_prev(u8 out[4])
+bool e17_breadcrumb_prev(u8 out[E17_BC_LEN])
 {
+	int i;
+
 	if (!e17_bc_prev_valid)
 		return false;
-	out[0] = e17_bc_prev[0];
-	out[1] = e17_bc_prev[1];
-	out[2] = e17_bc_prev[2];
-	out[3] = e17_bc_prev[3];
+	for (i = 0; i < E17_BC_LEN; i++)
+		out[i] = e17_bc_prev[i];
 	return true;
 }
 EXPORT_SYMBOL_GPL(e17_breadcrumb_prev);
+
+/*
+ * Mark which suspect bus region CPU0 is executing.  On a whole-bus hang the
+ * hanging access never completes, so the PHASE written on entry to that region is
+ * the last value latched -- naming the culprit after the reset.  Set a code on
+ * entry, E17_BC_PHASE_NONE on exit.
+ */
+void e17_breadcrumb(u8 phase)
+{
+	E17_BC[E17_BC_PHASE] = phase;
+}
+EXPORT_SYMBOL_GPL(e17_breadcrumb);
 
 /*
  * Cirrus CD2401 serial controller at 0xfec64000, channel 0 = the RMON
@@ -753,15 +767,18 @@ void __init config_eltec_e17(void)
 	 * this early), then reset it for this boot.  Must run before the ticks start
 	 * updating the heartbeats.
 	 */
-	e17_bc_prev[0] = E17_BC[E17_BC_MAGIC];
-	e17_bc_prev[1] = E17_BC[E17_BC_HB0];
-	e17_bc_prev[2] = E17_BC[E17_BC_HB1];
-	e17_bc_prev[3] = E17_BC[E17_BC_HB1_SNAP];
-	e17_bc_prev_valid = (e17_bc_prev[0] == E17_BC_VALID);
-	E17_BC[E17_BC_HB0] = 0;
-	E17_BC[E17_BC_HB1] = 0;
-	E17_BC[E17_BC_HB1_SNAP] = 0;
-	E17_BC[E17_BC_MAGIC] = E17_BC_VALID;
+	{
+		int i;
+
+		for (i = 0; i < E17_BC_LEN; i++)
+			e17_bc_prev[i] = E17_BC[i];
+		e17_bc_prev_valid = (e17_bc_prev[E17_BC_MAGIC] == E17_BC_VALID);
+		E17_BC[E17_BC_HB0] = 0;
+		E17_BC[E17_BC_HB1] = 0;
+		E17_BC[E17_BC_HB1_SNAP] = 0;
+		E17_BC[E17_BC_PHASE] = 0;
+		E17_BC[E17_BC_MAGIC] = E17_BC_VALID;
+	}
 
 	/*
 	 * Do NOT register the VGA framebuffer as the boot console under SMP: its

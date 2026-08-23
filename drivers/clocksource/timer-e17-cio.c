@@ -38,6 +38,7 @@
  * not wired up yet -- so a clocksource (no IRQ needed) is all we register here.
  */
 #include <linux/clocksource.h>
+#include <linux/e17_breadcrumb.h>
 #include <linux/io.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
@@ -162,6 +163,7 @@ static u64 e17_cio_cs_read(struct clocksource *cs)
 	 * low half wrapped between them (a torn read is off by 0x10000) -- retry.
 	 */
 	raw_spin_lock_irqsave(&c->lock, flags);
+	e17_breadcrumb(E17_BC_PH_CIO_CS);	/* Z8536 CIO bus reads: no-DTACK = whole-bus hang */
 	do {
 		e17_cio_wr(c, Z8536_CT2_CMDSTAT, Z8536_CT_RCC | Z8536_CT_GCB);
 		m2 = e17_cio_rd(c, Z8536_CT2_VAL_MSB);
@@ -173,6 +175,7 @@ static u64 e17_cio_cs_read(struct clocksource *cs)
 		m2b = e17_cio_rd(c, Z8536_CT2_VAL_MSB);
 		l2b = e17_cio_rd(c, Z8536_CT2_VAL_LSB);
 	} while ((m2b != m2 || l2b != l2) && --retry);
+	e17_breadcrumb(E17_BC_PH_NONE);
 	raw_spin_unlock_irqrestore(&c->lock, flags);
 
 	if (unlikely(!retry))

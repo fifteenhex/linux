@@ -22,6 +22,7 @@
  * self-recovery we want when poking at fragile interrupt paths.
  */
 #include <linux/delay.h>
+#include <linux/e17_breadcrumb.h>
 #include <linux/hrtimer.h>
 #include <linux/io.h>
 #include <linux/irqflags.h>
@@ -34,9 +35,6 @@
 /* System CIO port A, bit 7: 0 = the last reset was a watchdog reset. */
 #define E17_WDT_PA7_PHYS	0xfec30002
 #define E17_WDT_PA7		0x80
-
-/* Pre-reset diagnostic breadcrumb (arch/m68k/eltec/config.c). */
-bool e17_breadcrumb_prev(u8 out[4]);
 
 /*
  * Hardware time-out (jumper J1401: 100 ms or 1.6 s).  The framework pings at
@@ -155,6 +153,21 @@ static const struct watchdog_info e17_wdt_info = {
 			  WDIOF_MAGICCLOSE | WDIOF_CARDRESET,
 };
 
+static const char *e17_wdt_phase_name(u8 p)
+{
+	switch (p) {
+	case E17_BC_PH_NONE:		return "none/idle";
+	case E17_BC_PH_DRM_BLIT:	return "DRM VRAM blit";
+	case E17_BC_PH_CD_CONSOLE:	return "CD2401 console write";
+	case E17_BC_PH_CD_IACK:		return "CD2401 IACK window";
+	case E17_BC_PH_CD_DISABLE:	return "CD2401 stop_tx/shutdown";
+	case E17_BC_PH_CD_RX:		return "CD2401 rx interrupt";
+	case E17_BC_PH_CD_TX:		return "CD2401 tx interrupt";
+	case E17_BC_PH_CIO_CS:		return "CIO clocksource read";
+	default:			return "unmarked";
+	}
+}
+
 static int e17_wdt_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -188,7 +201,7 @@ static int e17_wdt_probe(struct platform_device *pdev)
 	 */
 	pa7 = devm_ioremap(dev, E17_WDT_PA7_PHYS, 1);
 	if (pa7 && !(readb(pa7) & E17_WDT_PA7)) {
-		u8 bc[4];
+		u8 bc[E17_BC_LEN];
 
 		w->wdd.bootstatus |= WDIOF_CARDRESET;
 
@@ -203,11 +216,12 @@ static int e17_wdt_probe(struct platform_device *pdev)
 			unsigned int cpu1_after = (u8)(bc[2] - bc[3]);
 
 			dev_warn(dev,
-				 "watchdog reset: breadcrumb CPU0 hb=%u, CPU1 hb=%u (snap %u); CPU1 ticked %u more -> %s\n",
+				 "watchdog reset: breadcrumb CPU0 hb=%u, CPU1 hb=%u (snap %u); CPU1 ticked %u more -> %s; last region 0x%02x (%s)\n",
 				 bc[1], bc[2], bc[3], cpu1_after,
 				 cpu1_after > 4 ?
 				 "CPU0-only stall (IRQs-off/level-6), bus alive" :
-				 "whole-bus hang (both CPUs froze)");
+				 "whole-bus hang (both CPUs froze)",
+				 bc[4], e17_wdt_phase_name(bc[4]));
 		}
 	}
 
