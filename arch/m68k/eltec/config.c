@@ -26,6 +26,7 @@
 #include <asm/setup.h>
 #include <asm/machdep.h>
 #include <asm/irq.h>
+#include <asm/irq_regs.h>
 #include <asm/traps.h>
 #include <linux/font.h>		/* font_vga_8x8 for the framebuffer boot console */
 #include <linux/e17_breadcrumb.h>
@@ -65,6 +66,7 @@
 #define E17_BC_HB1	2
 #define E17_BC_HB1_SNAP	3
 #define E17_BC_PHASE	4	/* which suspect bus region CPU0 is in */
+#define E17_BC_PC	5	/* CPU0 interrupted PC at the last tick (4 bytes, BE) */
 #define E17_BC_VALID	0xe1	/* E17_BC_LEN comes from <linux/e17_breadcrumb.h> */
 
 static u8 e17_bc_prev[E17_BC_LEN];
@@ -595,6 +597,20 @@ static irqreturn_t e17_timer_int(int irq, void *dev_id)
 	/* Breadcrumb: CPU0 tick alive; snapshot CPU1's heartbeat as of now. */
 	E17_BC[E17_BC_HB1_SNAP] = E17_BC[E17_BC_HB1];
 	E17_BC[E17_BC_HB0]++;
+	/*
+	 * Record CPU0's interrupted PC (big-endian).  A whole-bus hang freezes
+	 * between ticks, so the last PC latched here is within one tick (~10 ms) of
+	 * the hanging access -- look it up in System.map to name the code.
+	 */
+	{
+		struct pt_regs *regs = get_irq_regs();
+		u32 pc = regs ? (u32)regs->pc : 0;
+
+		E17_BC[E17_BC_PC + 0] = pc >> 24;
+		E17_BC[E17_BC_PC + 1] = pc >> 16;
+		E17_BC[E17_BC_PC + 2] = pc >> 8;
+		E17_BC[E17_BC_PC + 3] = pc;
+	}
 	/*
 	 * NB: do NOT read the 0xfec50000 watchdog/ack block here.  The hardware
 	 * IACK re-arms the tick; that read is not needed, and per the HW manual

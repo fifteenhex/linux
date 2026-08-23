@@ -214,6 +214,8 @@ static int e17_wdt_probe(struct platform_device *pdev)
 		 */
 		if (e17_breadcrumb_prev(bc)) {
 			unsigned int cpu1_after = (u8)(bc[2] - bc[3]);
+			u32 pc = ((u32)bc[5] << 24) | ((u32)bc[6] << 16) |
+				 ((u32)bc[7] << 8) | bc[8];
 
 			dev_warn(dev,
 				 "watchdog reset: breadcrumb CPU0 hb=%u, CPU1 hb=%u (snap %u); CPU1 ticked %u more -> %s; last region 0x%02x (%s)\n",
@@ -222,6 +224,8 @@ static int e17_wdt_probe(struct platform_device *pdev)
 				 "CPU0-only stall (IRQs-off/level-6), bus alive" :
 				 "whole-bus hang (both CPUs froze)",
 				 bc[4], e17_wdt_phase_name(bc[4]));
+			dev_warn(dev, "  CPU0 last-tick PC 0x%08x (%pS)\n",
+				 pc, (void *)(unsigned long)pc);
 		}
 	}
 

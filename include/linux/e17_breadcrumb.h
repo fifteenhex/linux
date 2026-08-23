@@ -13,7 +13,7 @@
 
 #include <linux/types.h>
 
-#define E17_BC_LEN		5	/* MAGIC, HB0, HB1, HB1_SNAP, PHASE */
+#define E17_BC_LEN		9	/* MAGIC, HB0, HB1, HB1_SNAP, PHASE, PC[4] */
 
 /* PHASE codes (0 = not in any marked region). */
 #define E17_BC_PH_NONE		0x00
