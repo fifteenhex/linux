@@ -664,7 +664,7 @@ static irqreturn_t e17_timer_int(int irq, void *dev_id)
 static irqreturn_t e17_ap_tick(int irq, void *dev_id)
 {
 	static unsigned long last_jiffies;
-	static unsigned int fires_this_jiffy, storm_jiffies;
+	static unsigned int fires_this_jiffy, storm_jiffies, vicirq_stuck, peak_fpj;
 
 	if (smp_processor_id() == 0)		/* only the secondary owns this tick */
 		return IRQ_NONE;
@@ -674,6 +674,15 @@ static irqreturn_t e17_ap_tick(int irq, void *dev_id)
 	 * with the tick below.
 	 */
 	writeb(E17_SICF_IACK_VIC, (void __iomem *)E17_CPU2CON);	/* ack VIC-clock */
+
+	/*
+	 * Mechanism probe: if VICIRQ is STILL set right after the ack, the ack is
+	 * not de-asserting a level-held source (ack-refire) -- vs a source that
+	 * clears but re-arms too fast (rate mis-program).  Counted and reported in
+	 * the disable message below, so we learn which without needing a reset.
+	 */
+	if (readb((void __iomem *)E17_CPU2CON) & E17_CPU2CON_VICIRQ)
+		vicirq_stuck++;
 
 	E17_BC[E17_BC_HB1]++;			/* breadcrumb: CPU1 tick alive */
 
@@ -691,12 +700,16 @@ static irqreturn_t e17_ap_tick(int irq, void *dev_id)
 	 * transient -- the sustained-run gate avoids that.
 	 */
 	if (jiffies != last_jiffies) {
+		if (fires_this_jiffy > peak_fpj)
+			peak_fpj = fires_this_jiffy;	/* worst fires-per-jiffy so far */
 		if (fires_this_jiffy > 8) {
 			if (++storm_jiffies >= E17_APTICK_STORM_JIFFIES) {
 				writeb(E17_SICF_VICCLK_DIS,
 				       (void __iomem *)E17_CPU2CON);
-				pr_warn_ratelimited("E17 SMP: AP VIC-clock stormed %u jiffies -- DISABLED (AP tick lost, board stays alive)\n",
-						    storm_jiffies);
+				pr_warn_ratelimited("E17 SMP: AP VIC-clock stormed %u jiffies, peak ~%u fires/jiffy, VICIRQ-still-set-after-ack x%u -> %s -- DISABLED (AP tick lost, board stays alive)\n",
+						    storm_jiffies, peak_fpj, vicirq_stuck,
+						    vicirq_stuck ? "ack does not clear a level-held source (fix VIC-timer mode/ack)"
+								 : "source clears but re-arms too fast (fix SSCR0 rate divider)");
 				storm_jiffies = 0;
 			}
 		} else {
@@ -767,6 +780,14 @@ static void __init eltec_e17_sched_init(void)
 	 * (This mirrors RMON's proven arm sequence.)
 	 */
 	e17_vic[E17_VIC_LIVBR] = 0x40;			/* vector base -> 66 on LIRQ2 */
+	/*
+	 * Log the power-on SSCR0 (RMON's, from its working VxWorks-BSP tick) before
+	 * we touch it -- its frequency field is the correct divider if the AP
+	 * VIC-clock storm turns out to be a rate mis-program (see e17_ap_tick).  The
+	 * blind |= 0xc0 below only force-sets bits 7,6, which may pick the wrong rate.
+	 */
+	pr_info("E17: power-on VIC SSCR0 = 0x%02x (RMON's value, before enable)\n",
+		e17_vic[E17_VIC_SSCR0]);
 	e17_vic[E17_VIC_SSCR0] |= 0xc0;			/* enable tick path */
 	e17_vic[E17_VIC_LICR2] =
 		E17_VIC_LICR2_SENSE | E17_VIC_LICR_LEVEL(6);	/* unmask, level 6 */
