@@ -13,7 +13,7 @@
 
 #include <linux/types.h>
 
-#define E17_BC_LEN		9	/* MAGIC, HB0, HB1, HB1_SNAP, PHASE, PC[4] */
+#define E17_BC_LEN		11	/* MAGIC,HB0,HB1,HB1_SNAP,PHASE,PC[4],IRQERR,BADVEC */
 
 /* PHASE codes (0 = not in any marked region). */
 #define E17_BC_PH_NONE		0x00
@@ -27,9 +27,11 @@
 
 #if IS_ENABLED(CONFIG_ELTEC_E17)
 void e17_breadcrumb(u8 phase);
+void e17_breadcrumb_badvec(u8 vec);	/* last unexpected/spurious vector */
 bool e17_breadcrumb_prev(u8 out[E17_BC_LEN]);
 #else
 static inline void e17_breadcrumb(u8 phase) { }
+static inline void e17_breadcrumb_badvec(u8 vec) { }
 static inline bool e17_breadcrumb_prev(u8 out[E17_BC_LEN]) { return false; }
 #endif
 

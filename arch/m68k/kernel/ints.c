@@ -10,6 +10,7 @@
 #include <linux/types.h>
 #include <linux/sched.h>
 #include <linux/interrupt.h>
+#include <linux/e17_breadcrumb.h>
 #include <linux/errno.h>
 #include <linux/init.h>
 #include <linux/irq.h>
@@ -201,5 +202,6 @@ EXPORT_SYMBOL(irq_canonicalize);
 asmlinkage void handle_badint(struct pt_regs *regs)
 {
 	atomic_inc(&irq_err_count);
+	e17_breadcrumb_badvec(regs->vector);	/* survives a watchdog reset (e17) */
 	pr_warn("unexpected interrupt from %u\n", regs->vector);
 }

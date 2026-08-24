@@ -224,8 +224,8 @@ static int e17_wdt_probe(struct platform_device *pdev)
 				 "CPU0-only stall (IRQs-off/level-6), bus alive" :
 				 "whole-bus hang (both CPUs froze)",
 				 bc[4], e17_wdt_phase_name(bc[4]));
-			dev_warn(dev, "  CPU0 last-tick PC 0x%08x (%pS)\n",
-				 pc, (void *)(unsigned long)pc);
+			dev_warn(dev, "  CPU0 last-tick PC 0x%08x (%pS); irq_err_count(lo)=%u, last bad vector=%u\n",
+				 pc, (void *)(unsigned long)pc, bc[9], bc[10]);
 		}
 	}
 

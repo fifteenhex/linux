@@ -67,6 +67,8 @@
 #define E17_BC_HB1_SNAP	3
 #define E17_BC_PHASE	4	/* which suspect bus region CPU0 is in */
 #define E17_BC_PC	5	/* CPU0 interrupted PC at the last tick (4 bytes, BE) */
+#define E17_BC_IRQERR	9	/* irq_err_count low byte (spurious/bad IACKs) */
+#define E17_BC_BADVEC	10	/* last unexpected vector (handle_badint)      */
 #define E17_BC_VALID	0xe1	/* E17_BC_LEN comes from <linux/e17_breadcrumb.h> */
 
 static u8 e17_bc_prev[E17_BC_LEN];
@@ -96,6 +98,13 @@ void e17_breadcrumb(u8 phase)
 	E17_BC[E17_BC_PHASE] = phase;
 }
 EXPORT_SYMBOL_GPL(e17_breadcrumb);
+
+/* Record the last unexpected/spurious vector (from handle_badint). */
+void e17_breadcrumb_badvec(u8 vec)
+{
+	E17_BC[E17_BC_BADVEC] = vec;
+}
+EXPORT_SYMBOL_GPL(e17_breadcrumb_badvec);
 
 /*
  * Cirrus CD2401 serial controller at 0xfec64000, channel 0 = the RMON
@@ -611,6 +620,13 @@ static irqreturn_t e17_timer_int(int irq, void *dev_id)
 		E17_BC[E17_BC_PC + 2] = pc >> 8;
 		E17_BC[E17_BC_PC + 3] = pc;
 	}
+	/*
+	 * Spurious/bad-IACK count.  A no-DTACK level-5 IACK that the board's bus
+	 * logic converts to a spurious interrupt bumps irq_err_count (handle_badint);
+	 * a value climbing in the ticks before a reset is the smoking gun that the
+	 * hang is the CD2401/LIRQ6 IACK -- and that it is the *recoverable* variant.
+	 */
+	E17_BC[E17_BC_IRQERR] = atomic_read(&irq_err_count);
 	/*
 	 * NB: do NOT read the 0xfec50000 watchdog/ack block here.  The hardware
 	 * IACK re-arms the tick; that read is not needed, and per the HW manual
