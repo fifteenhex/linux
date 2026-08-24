@@ -658,9 +658,13 @@ static irqreturn_t e17_timer_int(int irq, void *dev_id)
  * legacy_timer_tick(0): do the PER-CPU work (update_process_times, RCU, profile)
  * but NOT do_timer() -- the boot CPU owns global jiffies.
  */
+/* Consecutive storming jiffies before we give up and disable the VIC-clock. */
+#define E17_APTICK_STORM_JIFFIES	50	/* ~0.5 s of sustained storm */
+
 static irqreturn_t e17_ap_tick(int irq, void *dev_id)
 {
-	static unsigned long last_jiffies, fires_this_jiffy;
+	static unsigned long last_jiffies;
+	static unsigned int fires_this_jiffy, storm_jiffies;
 
 	if (smp_processor_id() == 0)		/* only the secondary owns this tick */
 		return IRQ_NONE;
@@ -674,16 +678,30 @@ static irqreturn_t e17_ap_tick(int irq, void *dev_id)
 	E17_BC[E17_BC_HB1]++;			/* breadcrumb: CPU1 tick alive */
 
 	/*
-	 * Storm rate-limiter.  A healthy VIC-clock fires at HZ, i.e. about once per
-	 * jiffy (global jiffies is advanced by CPU0's tick, independent of the AP).
-	 * If this handler somehow fires many times within a SINGLE jiffy, just SKIP
-	 * the per-CPU timer work for the excess -- do NOT disable the clock.  The
-	 * old code permanently disabled the VIC-clock here, which turned any
-	 * transient burst (or, before cache coherency was fixed, a stale read of
-	 * jiffies that made it look frozen) into a dead secondary tick forever.
-	 * We still ack every interrupt (above), so the source cannot storm the CPU.
+	 * Storm handling.  A healthy VIC-clock fires at HZ (~once per jiffy; global
+	 * jiffies is advanced by CPU0's tick, independent of the AP).  Rate-limiting
+	 * alone -- skip the per-CPU timer *work* for the excess -- is not enough for
+	 * a *sustained* storm: CPU1 still takes and acks every fire, so it is 100%
+	 * consumed and its threads (rcu_sched) starve -> an RCU stall and eventually
+	 * a reset (observed on hardware).  So: rate-limit a transient burst, but if
+	 * the storm persists for E17_APTICK_STORM_JIFFIES, DISABLE the VIC-clock.
+	 * Losing the AP tick (CPU0 still owns global jiffies; CPU1 reports RCU
+	 * quiescence via context switches) beats starving CPU1 to death.  The old
+	 * code disabled on the very first burst, which killed the tick on any
+	 * transient -- the sustained-run gate avoids that.
 	 */
 	if (jiffies != last_jiffies) {
+		if (fires_this_jiffy > 8) {
+			if (++storm_jiffies >= E17_APTICK_STORM_JIFFIES) {
+				writeb(E17_SICF_VICCLK_DIS,
+				       (void __iomem *)E17_CPU2CON);
+				pr_warn_ratelimited("E17 SMP: AP VIC-clock stormed %u jiffies -- DISABLED (AP tick lost, board stays alive)\n",
+						    storm_jiffies);
+				storm_jiffies = 0;
+			}
+		} else {
+			storm_jiffies = 0;
+		}
 		last_jiffies = jiffies;
 		fires_this_jiffy = 0;
 	} else if (++fires_this_jiffy > 8) {
