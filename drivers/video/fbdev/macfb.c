@@ -679,6 +679,10 @@ static int __init macfb_init(void)
 			strscpy(macfb_fix.id, "Jet");
 			macfb_setpalette = jet_setpalette;
 			break;
+		case NUBUS_DRHW_RDIUS_PC24XP:
+		case NUBUS_DRHW_RDIUS_PC24XP_V1:
+			strscpy(macfb_fix.id, "Radius 24Xp");
+			break;
 		default:
 			strscpy(macfb_fix.id, "Generic NuBus");
 			break;
