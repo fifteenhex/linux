@@ -502,6 +502,149 @@ static const struct fb_ops macfb_ops = {
 	.fb_setcolreg	= macfb_setcolreg,
 };
 
+/*
+ * Radius PrecisionColor 24Xp acceleration.
+ *
+ * The card exposes a VRAM block-transfer engine through a second aperture
+ * one slot-quadrant above the framebuffer (slot offset 0x400000; aperture
+ * offset X operates on VRAM offset X).  The engine is a 128-byte data ring
+ * between VRAM and VRAM with an input cursor advanced by aperture reads and
+ * an output cursor advanced by aperture writes (both mod 128):
+ *
+ *   - A read appends the naturally-aligned power-of-two span selected by the
+ *     access's low address bits [span = 2 * 2^(trailing ones of (addr | 1)),
+ *     base = addr & ~(span-1)] from VRAM[base] into the ring.
+ *   - A 32-bit write of 0x40000000 | N stores N ring bytes (from the output
+ *     cursor, wrapping mod 128) to VRAM[offset].
+ *   - A 32-bit write of 8 loads the 8 bytes at VRAM[offset] tiled across the
+ *     whole ring and resets both cursors -- the pattern-replicate used by
+ *     fills.
+ *
+ * We drive fills with the replicate + store commands and copies with span
+ * reads feeding store commands (the ring is a FIFO, so src == dst mod 4 and
+ * 4-byte alignment are sufficient; anything else falls back to software).
+ * Text (imageblit) and the XOR text cursor stay on the cfb_* CPU paths.
+ */
+#define RADIUS_BLIT_OFF		0x400000	/* engine aperture, slot-relative */
+#define RADIUS_BLIT_LEN		0x400000
+#define RADIUS_SCRATCH_OFF	0x3FF800	/* reserved top of VRAM: 8B pattern */
+
+/* DrHW of the 24Xp video sResource: 0x3EB in ROM v1.32, 0x406 in ROM v2.0 */
+#define NUBUS_DRHW_RADIUS_24XP		0x0406
+#define NUBUS_DRHW_RADIUS_24XP_V1	0x03EB
+
+static u8 __iomem *radius_blit;		/* the 0x400000 engine aperture */
+static u8 __iomem *radius_scratch;	/* 8-byte fill pattern staging (VRAM) */
+
+/* Append n bytes (multiple of 4) starting at the 4-aligned VRAM offset base
+ * into the ring, using the largest naturally-aligned span at each step. */
+static void radius_ring_append(u32 base, u32 n)
+{
+	u32 p = 0;
+
+	while (p < n) {
+		u32 addr = base + p;
+		u32 rem = n - p;
+		u32 span = 4, cand;
+
+		for (cand = 8; cand <= 64; cand <<= 1)
+			if (!(addr & (cand - 1)) && cand <= rem)
+				span = cand;
+		/* a byte read at base + span/2 - 2 selects exactly this span */
+		nubus_readb(radius_blit + addr + (span >> 1) - 2);
+		p += span;
+	}
+}
+
+/* Store n ring bytes to VRAM offset off (engine command word). */
+static inline void radius_ring_store(u32 off, u32 n)
+{
+	nubus_writel(0x40000000 | n, radius_blit + off);
+}
+
+static void radius_fillrect(struct fb_info *info, const struct fb_fillrect *r)
+{
+	u32 bpp = info->var.bits_per_pixel >> 3;
+	u32 ll = info->fix.line_length;
+	u32 wbytes, y, fg, i;
+
+	/* only solid ROP_COPY fills of the truecolour modes we accelerate */
+	if (r->rop != ROP_COPY || (bpp != 2 && bpp != 4)) {
+		cfb_fillrect(info, r);
+		return;
+	}
+	if (info->fix.visual == FB_VISUAL_TRUECOLOR ||
+	    info->fix.visual == FB_VISUAL_DIRECTCOLOR)
+		fg = ((u32 *)info->pseudo_palette)[r->color];
+	else
+		fg = r->color;
+
+	/* stage an 8-byte pattern in VRAM, then tile it across the ring */
+	if (bpp == 2)
+		for (i = 0; i < 4; i++)
+			nubus_writew(fg, radius_scratch + 2 * i);
+	else
+		for (i = 0; i < 2; i++)
+			nubus_writel(fg, radius_scratch + 4 * i);
+	nubus_writel(8, radius_blit + RADIUS_SCRATCH_OFF);	/* replicate + reset */
+
+	wbytes = r->width * bpp;
+	for (y = 0; y < r->height; y++)
+		radius_ring_store((r->dy + y) * ll + r->dx * bpp, wbytes);
+}
+
+static void radius_copyarea(struct fb_info *info, const struct fb_copyarea *a)
+{
+	u32 bpp = info->var.bits_per_pixel >> 3;
+	u32 ll = info->fix.line_length;
+	u32 wbytes = a->width * bpp;
+	u32 i;
+	long row, rstep, rstart;
+
+	/* The ring FIFO needs src == dst (mod 4) and 4-byte-aligned runs. */
+	if ((bpp != 2 && bpp != 4) || (ll & 3) || (wbytes & 3) ||
+	    ((a->sx * bpp) & 3) || ((a->dx * bpp) & 3) ||
+	    /* horizontally overlapping in-place moves need right-to-left */
+	    (a->sy == a->dy && a->dx > a->sx && a->dx < a->sx + a->width)) {
+		cfb_copyarea(info, a);
+		return;
+	}
+
+	/* walk rows away from the overlap so a source row is read before the
+	 * transfer overwrites it */
+	if (a->dy > a->sy) {
+		rstart = a->height - 1;
+		rstep = -1;
+	} else {
+		rstart = 0;
+		rstep = 1;
+	}
+
+	for (i = 0, row = rstart; i < a->height; i++, row += rstep) {
+		u32 s = (a->sy + row) * ll + a->sx * bpp;
+		u32 d = (a->dy + row) * ll + a->dx * bpp;
+		u32 off = 0;
+
+		while (off < wbytes) {
+			u32 blk = min_t(u32, 128, wbytes - off);
+
+			radius_ring_append(s + off, blk);
+			radius_ring_store(d + off, blk);
+			off += blk;
+		}
+	}
+}
+
+static const struct fb_ops radius_ops = {
+	.owner		= THIS_MODULE,
+	__FB_DEFAULT_IOMEM_OPS_RDWR,
+	.fb_setcolreg	= macfb_setcolreg,
+	.fb_fillrect	= radius_fillrect,
+	.fb_copyarea	= radius_copyarea,
+	.fb_imageblit	= cfb_imageblit,
+	__FB_DEFAULT_IOMEM_OPS_MMAP,
+};
+
 static void __init macfb_setup(char *options)
 {
 	char *this_opt;
@@ -533,6 +676,10 @@ static void __init iounmap_macfb(void)
 		iounmap(civic_cmap_regs);
 	if (csc_cmap_regs)
 		iounmap(csc_cmap_regs);
+	if (radius_blit)
+		iounmap(radius_blit);
+	if (radius_scratch)
+		iounmap(radius_scratch);
 }
 
 static int __init macfb_init(void)
@@ -682,6 +829,22 @@ static int __init macfb_init(void)
 		case NUBUS_DRHW_RDIUS_PC24XP:
 		case NUBUS_DRHW_RDIUS_PC24XP_V1:
 			strscpy(macfb_fix.id, "Radius 24Xp");
+			/*
+			 * Map the block-transfer engine aperture and the VRAM
+			 * pattern-staging area; if either fails we simply fall
+			 * back to the generic (software) framebuffer path.
+			 */
+			radius_blit = ioremap(base + RADIUS_BLIT_OFF,
+					      RADIUS_BLIT_LEN);
+			radius_scratch = ioremap(base + RADIUS_SCRATCH_OFF, 8);
+			if (!radius_blit || !radius_scratch) {
+				if (radius_blit)
+					iounmap(radius_blit);
+				if (radius_scratch)
+					iounmap(radius_scratch);
+				radius_blit = NULL;
+				radius_scratch = NULL;
+			}
 			break;
 		default:
 			strscpy(macfb_fix.id, "Generic NuBus");
@@ -874,7 +1037,19 @@ static int __init macfb_init(void)
 			break;
 		}
 
-	fb_info.fbops		= &macfb_ops;
+	/* accelerate through the engine aperture when it mapped, else software */
+	if (radius_blit) {
+		fb_info.fbops = &radius_ops;
+		/*
+		 * Advertise the fill/copy engine.  fbcon only scrolls via
+		 * fb_copyarea (SCROLL_MOVE) when HWACCEL_COPYAREA is set; we
+		 * leave IMAGEBLIT off (glyphs stay on the cfb CPU path), which
+		 * also keeps fbcon preferring the hardware copy for scrolls.
+		 */
+		fb_info.flags = FBINFO_HWACCEL_COPYAREA | FBINFO_HWACCEL_FILLRECT;
+	} else {
+		fb_info.fbops = &macfb_ops;
+	}
 	fb_info.var		= macfb_defined;
 	fb_info.fix		= macfb_fix;
 	fb_info.pseudo_palette	= pseudo_palette;
