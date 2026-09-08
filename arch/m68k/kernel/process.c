@@ -37,6 +37,9 @@
 #include <asm/traps.h>
 #include <asm/machdep.h>
 #include <asm/setup.h>
+#ifdef CONFIG_SMP
+#include <asm/smp_e17.h>
+#endif
 
 #include "process.h"
 
@@ -45,6 +48,31 @@ asmlinkage void ret_from_kernel_thread(void);
 
 void arch_cpu_idle(void)
 {
+#ifdef CONFIG_SMP
+	/*
+	 * E17 SMP: with CONFIG_E17_SMP_HW_IPI both doorbells are real, hardware-
+	 * confirmed IRQs -- the CPU2CON mailbox (pri->sec, level 6) and the VIC
+	 * ICMS module switch (sec->pri, IRQ_USER).  Idle then just halts on stop
+	 * like every other m68k: a pending IPI is latched (MIPEND / the ICFSR
+	 * switch bit) and taken the instant stop drops the IPL, and IPIs run through
+	 * the normal interrupt-entry path so RCU idle bookkeeping stays correct.
+	 *
+	 * Without HW_IPI there is no doorbell IRQ, so fall back to the poll-only
+	 * baseline: drain the pending bitmap here and busy-spin instead of halting.
+	 * The spin is REGISTER-ONLY (no memory/bus access) so the AP does not
+	 * saturate the shared local bus between polls -- a poll loop touching
+	 * DRAM/I/O every iteration starves CPU0's VRAM/console and the video
+	 * scanout (hard bus lock).  IPI latency stays in the low microseconds.
+	 */
+	if (MACH_IS_E17 && !IS_ENABLED(CONFIG_E17_SMP_HW_IPI)) {
+		unsigned int d = 8192;
+
+		e17_ipi_poll();
+		raw_local_irq_enable();
+		asm volatile("1: subql #1,%0 ; jne 1b" : "+d"(d) : : "cc");
+		return;
+	}
+#endif
 #if defined(MACH_ATARI_ONLY)
 	/* block out HSYNC on the atari (falcon) */
 	__asm__("stop #0x2200" : : : "cc");

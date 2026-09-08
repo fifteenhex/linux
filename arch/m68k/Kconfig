@@ -43,6 +43,7 @@ config M68K
 	select OLD_SIGSUSPEND3
 	select UACCESS_MEMCPY if !MMU
 	select ZONE_DMA
+	select HOTPLUG_CORE_SYNC_DEAD if HOTPLUG_CPU
 
 config CPU_BIG_ENDIAN
 	def_bool y
@@ -120,6 +121,49 @@ source "arch/m68k/Kconfig.bus"
 endmenu
 
 menu "Kernel Features"
+
+config SMP
+	bool "Symmetric multi-processing support"
+	depends on MMU && (M68040 || M68060) && !COLDFIRE && !SUN3
+	select GENERIC_SMP_IDLE_THREAD
+	# SMP needs native cas atomics / ticket spinlocks.
+	select RMW_INSNS
+	# generic-y spinlock.h pulls in the asm-generic qrwlock, whose slowpaths
+	# (queued_{read,write}_lock_slowpath) only build under this symbol.
+	select ARCH_USE_QUEUED_RWLOCKS
+	# NB: do NOT select GENERIC_IRQ_MULTI_HANDLER.  m68k dispatches interrupts
+	# through the per-CPU 680x0 vector table (m68k_setup_{auto,user}_interrupt
+	# -> do_IRQ); it never registers a single root handle_arch_irq().  Selecting
+	# the multi-handler routes IRQs to a NULL handle_arch_irq and the first timer
+	# tick after init_IRQ hangs the boot.  Each CPU has its own VBR, so per-CPU
+	# IRQ delivery already works without it.
+	help
+	  Support for multiple 68040/68060 CPUs.  This is the generic m68k SMP
+	  core; each board must also provide the bring-up glue (secondary release,
+	  the IPI doorbells, a per-CPU tick and cache/bus coherency) -- see the
+	  reference implementation in arch/m68k/eltec/smp_e17.c and the porting
+	  guide in arch/m68k/SMP-PORTING.rst.
+
+	  If your m68k machine has a single CPU, or you have not written the board
+	  bring-up glue yet, say N.  If unsure, say N.
+
+config NR_CPUS
+	int "Maximum number of CPUs" if SMP
+	depends on SMP
+	default "2"
+	help
+	  The maximum number of CPUs the kernel can support.  Set this to the
+	  number of CPU sockets fitted to your board.
+
+config HOTPLUG_CPU
+	bool "Support for hot-pluggable CPUs"
+	depends on SMP
+	select GENERIC_IRQ_MIGRATION
+	help
+	  Allow secondary CPUs to be brought online/offline at runtime via
+	  /sys/devices/system/cpu/cpuN/online.  Very useful for bring-up: boot
+	  with "maxcpus=1" to a shell, then online CPU1 with the console and dmesg
+	  available.  If unsure, say Y.
 
 endmenu
 

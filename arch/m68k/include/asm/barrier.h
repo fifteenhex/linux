@@ -15,6 +15,15 @@
  */
 #define cpu_relax()	barrier()
 
+/*
+ * m68k has no explicit memory-barrier instruction, so asm-generic's mb()/
+ * smp_mb() reduce to a compiler barrier().  That is sufficient on the E17's
+ * dual '040: memory is mapped write-through and the '040 completes bus accesses
+ * in program order, and the SMP RMW primitives use the bus-locking cas/casl
+ * instructions -- i.e. the coherence model is effectively TSO, so a compiler
+ * barrier is all the ordering the generated code needs.
+ */
+
 #endif /* __ASSEMBLY__ */
 
 #include <asm-generic/barrier.h>

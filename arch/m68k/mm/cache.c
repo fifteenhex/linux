@@ -10,6 +10,7 @@
 #include <linux/module.h>
 #include <asm/cacheflush.h>
 #include <asm/traps.h>
+#include <asm/smp.h>
 
 
 static unsigned long virt_to_phys_slow(unsigned long vaddr)
@@ -93,6 +94,14 @@ void flush_icache_range(unsigned long address, unsigned long endaddr)
 	set_fc(SUPER_DATA);
 	flush_icache_user_range(address, endaddr);
 	set_fc(USER_DATA);
+#ifdef CONFIG_SMP
+	/*
+	 * The '040 cpush/cinva above is LOCAL only and the I-cache is not snooped,
+	 * so another CPU can hold stale I-lines for code just modified/loaded here
+	 * (module load, kprobes, BPF).  Drop them everywhere.
+	 */
+	smp_flush_icache_all();
+#endif
 }
 EXPORT_SYMBOL(flush_icache_range);
 
@@ -123,5 +132,9 @@ void flush_icache_user_page(struct vm_area_struct *vma, struct page *page,
 			      : "=&d" (tmp)
 			      : "di" (FLUSH_I));
 	}
+#ifdef CONFIG_SMP
+	/* user code page made coherent locally -- invalidate the other CPUs' I$ */
+	smp_flush_icache_all();
+#endif
 }
 

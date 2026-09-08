@@ -23,3 +23,7 @@ obj-$(CONFIG_UBOOT)		+= uboot.o
 
 obj-$(CONFIG_EARLY_PRINTK)	+= early_printk.o
 
+# Generic m68k SMP core (board bring-up glue lives under the platform dir, e.g.
+# arch/m68k/eltec/smp_e17.c).  futex.o is the real cross-CPU-atomic user futex.
+obj-$(CONFIG_SMP)		+= smp.o smp_secondary.o futex.o
+
