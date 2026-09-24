@@ -118,6 +118,30 @@ static void __init sun3_bootmem_alloc(unsigned long memory_start,
 	high_memory = (void *)memory_end;
 	availmem = memory_start;
 
+	/*
+	 * memblock_free_all() clamps the pages it releases into the buddy
+	 * allocator to [min_low_pfn, max_low_pfn); without these set the
+	 * whole of RAM stays reserved and the first slab allocation fails.
+	 */
+	min_low_pfn = __pa(memory_start) >> PAGE_SHIFT;
+	max_low_pfn = max_pfn;
+
+	/*
+	 * Register physical RAM with memblock and reserve the kernel image
+	 * (and the embedded initramfs) below memory_start.  The generic
+	 * m68k_setup_node() no longer does this, and sun3's paging_init()
+	 * allocates its page tables straight out of memblock, so without
+	 * this memblock is empty and paging_init() panics.
+	 */
+	memblock_add(0, __pa(memory_end));
+	memblock_reserve(0, __pa(memory_start));
+	/*
+	 * paging_init() runs while only the low RAM the PROM handed us is
+	 * mapped, so its page-table allocations must come from just above
+	 * the kernel (bottom-up) rather than the unmapped top of RAM.
+	 */
+	memblock_set_bottom_up(true);
+
 	m68k_setup_node(0);
 }
 
