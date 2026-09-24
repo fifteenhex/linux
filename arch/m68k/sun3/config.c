@@ -145,10 +145,32 @@ static void __init sun3_bootmem_alloc(unsigned long memory_start,
 	m68k_setup_node(0);
 }
 
+/* Early boot console over the resident PROM's polled character output. */
+static void sun3_early_console_write(struct console *con, const char *s,
+				     unsigned int n)
+{
+	while (n-- > 0) {
+		if (*s == '\n')
+			prom_putchar('\r');
+		prom_putchar(*s++);
+	}
+}
+
+static struct console sun3_early_console = {
+	.name  = "sun3prom",
+	.write = sun3_early_console_write,
+	.flags = CON_PRINTBUFFER | CON_BOOT,
+	.index = -1,
+};
 
 void __init config_sun3(void)
 {
 	unsigned long memory_start, memory_end;
+
+	if (!sun3_early_console.data) {
+		sun3_early_console.data = &sun3_early_console;
+		register_console(&sun3_early_console);
+	}
 
 	pr_info("ARCH: SUN3\n");
 	idprom_init();
