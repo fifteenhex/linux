@@ -624,7 +624,7 @@ static int msc313_urdma_probe(struct platform_device *pdev)
 
 	INIT_LIST_HEAD(&urdma->dma_device.channels);
 
-	irq = irq_of_parse_and_map(dev->of_node, i);
+	irq = irq_of_parse_and_map(dev->of_node, 0);
 	if (!irq)
 		return -EINVAL;
 	ret = devm_request_irq(dev, irq, msc313_urdma_irq, IRQF_SHARED, dev_name(dev), urdma);
