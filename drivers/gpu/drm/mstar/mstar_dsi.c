@@ -573,10 +573,23 @@ static irqreturn_t mstar_dsi_irq(int irq, void *dev_id)
 	status = readl(dsi->regs + DSI_INTSTA) & flag;
 
 	if (status) {
+		/*
+		 * Inherited from the MediaTek driver, where the engine drops
+		 * BUSY once the read is acked. Here BUSY can stay set for as
+		 * long as the video pipeline streams (U-Boot leaves it
+		 * running), and an unbounded wait for it in hard interrupt
+		 * context hangs the CPU with interrupts off, silently, until
+		 * the watchdog fires. Ack a few times, then move on.
+		 */
+		int tries = 1000;
+
 		do {
 			mstar_dsi_mask(dsi, DSI_RACK, RACK, RACK);
 			tmp = readl(dsi->regs + DSI_INTSTA);
-		} while (tmp & DSI_BUSY);
+		} while ((tmp & DSI_BUSY) && --tries);
+		if (!tries)
+			dev_warn_ratelimited(dsi->host.dev,
+					     "DSI stayed busy, status 0x%x\n", tmp);
 
 		mstar_dsi_mask(dsi, DSI_INTSTA, status, 0);
 		mstar_dsi_irq_data_set(dsi, status);
