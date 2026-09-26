@@ -442,7 +442,14 @@ static const struct regmap_config mstar_ge_regmap_config = {
 	 */
 	.volatile_reg = mstar_ge_volatile_reg,
 	.max_register = 0x200,
-	.cache_type = REGCACHE_RBTREE,
+	/*
+	 * The interrupt handler reads and writes registers through this
+	 * regmap, so it must be a spinlock (fast_io), not the default mutex,
+	 * and the cache must not allocate under that lock: a flat cache is
+	 * allocated once at init, the rbtree cache allocates on first write.
+	 */
+	.fast_io = true,
+	.cache_type = REGCACHE_FLAT,
 };
 
 struct mstar_ge_dma_buf {
