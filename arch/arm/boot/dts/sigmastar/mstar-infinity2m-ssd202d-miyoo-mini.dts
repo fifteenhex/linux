@@ -211,9 +211,18 @@
  * 640x480 primary already needs ~2.4 MiB, and the DRM/KMS stack needs another
  * scan-out buffer to compensate for the upside-down panel (see DirectFB2's
  * drmkms layer). Give it comfortable headroom.
+ *
+ * 16 MiB turned out to be too tight as well once the launcher (a DirectFB
+ * master holding its UI surfaces in dumb buffers, ~8-9 MiB across many small
+ * allocations) and a full-screen game (another primary surface plus the
+ * rotated scan-out buffer) run at the same time: with the pool fragmented by
+ * the launcher's small buffers, the game's ~600 KiB contiguous scan-out
+ * allocations failed with ENOMEM and its frames never reached the display.
+ * 32 MiB leaves a large contiguous reserve while still keeping 3/4 of the
+ * 128 MiB of RAM for the system.
  */
 &cma {
-	size = <0x1000000>; /* 16 MiB */
+	size = <0x2000000>; /* 32 MiB */
 };
 
 &pm_uart {

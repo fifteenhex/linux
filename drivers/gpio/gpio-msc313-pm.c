@@ -257,6 +257,9 @@ static int msc313e_pm_gpio_direction_output(struct gpio_chip *chip, unsigned int
 	return 0;
 }
 
+/* The parent PM sleep intc only has 32 lines (see irq-msc313-pm-intc.c). */
+#define PM_INTC_NUM_IRQ	32
+
 static int msc313e_pm_gpio_child_to_parent_hwirq(struct gpio_chip *chip,
 					     unsigned int child,
 					     unsigned int child_type,
@@ -270,6 +273,18 @@ static int msc313e_pm_gpio_child_to_parent_hwirq(struct gpio_chip *chip,
 	 */
 	*parent_type = child_type;
 	*parent = (priv->info->offsets[child] >> 2) + 2;
+
+	/*
+	 * The register offset to parent line formula only holds for the
+	 * low registers: for SD_CDZ (offset 0x11c) it computes line 73,
+	 * which is beyond the 32 status bits the PM sleep intc has, so
+	 * whatever line that pad really uses (if any) is unknown. Refuse
+	 * the translation instead of asking the parent domain for a bogus
+	 * line; consumers (e.g. the SD card-detect) then cleanly fall back
+	 * to polling the pin.
+	 */
+	if (*parent >= PM_INTC_NUM_IRQ)
+		return -EINVAL;
 
 	return 0;
 }

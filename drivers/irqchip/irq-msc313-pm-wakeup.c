@@ -64,18 +64,26 @@ static irqreturn_t msc313_pm_wakeup_intc_chainedhandler(int irq, void *data)
 {
 	struct irq_domain *domain = data;
 	struct msc313_sleep_intc *intc = domain->host_data;
+	irqreturn_t ret = IRQ_NONE;
 	unsigned int hwirq, status;
 
 	regmap_field_read(intc->status, &status);
-	printk("wakeupint %x\n", status);
 
+	/*
+	 * This line is shared (and level triggered), so only claim the
+	 * interrupt if we actually dispatched a mapped irq for one of our
+	 * status bits. Claiming unconditionally would defeat the spurious
+	 * interrupt detector and turn a stray, uncleared status bit into an
+	 * interrupt storm that hard locks the machine.
+	 */
 	while (status) {
 		hwirq = __ffs(status);
-		generic_handle_domain_irq(domain, hwirq);
+		if (!generic_handle_domain_irq(domain, hwirq))
+			ret = IRQ_HANDLED;
 		status &= ~BIT(hwirq);
 	}
 
-	return IRQ_HANDLED;
+	return ret;
 }
 
 static int msc313_pm_wakeup_intc_domain_map(struct irq_domain *domain,
@@ -129,8 +137,12 @@ static int __init msc313_pm_wakeup_intc_of_init(struct device_node *node,
 		goto out_free;
 	}
 
-	request_irq(irq, msc313_pm_wakeup_intc_chainedhandler, IRQF_SHARED,
+	ret = request_irq(irq, msc313_pm_wakeup_intc_chainedhandler, IRQF_SHARED,
 				"pmsleep", domain);
+	if (ret) {
+		irq_domain_remove(domain);
+		goto out_free;
+	}
 
 	return 0;
 

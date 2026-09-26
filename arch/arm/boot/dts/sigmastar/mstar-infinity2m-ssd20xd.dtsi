@@ -85,4 +85,12 @@
 
 &sdio {
 	cd-gpios = <&gpio_pm SSD20XD_PM_SD_CDZ GPIO_ACTIVE_LOW>;
+	/*
+	 * The SD_CDZ pad has no usable interrupt: the PM GPIO block sits
+	 * behind the 32-line PM sleep intc and there is no known valid
+	 * parent line for SD_CDZ (the offset-based mapping computes line
+	 * 73), so requesting a card-detect interrupt can never work. Poll
+	 * the CD GPIO instead of trying to wire up an interrupt for it.
+	 */
+	broken-cd;
 };

@@ -70,6 +70,7 @@ static irqreturn_t msc313_sleep_intc_chainedhandler(int irq, void *data)
 {
 	struct irq_domain *domain = data;
 	struct msc313_sleep_intc *intc = domain->host_data;
+	irqreturn_t ret = IRQ_NONE;
 	u32 status;
 	unsigned int hwirq, tmp;
 
@@ -78,13 +79,26 @@ static irqreturn_t msc313_sleep_intc_chainedhandler(int irq, void *data)
 	regmap_read(intc->pmsleep, MSTAR_PMSLEEP_INTSTATUS, &tmp);
 	status |= tmp;
 
+	/*
+	 * The sources behind the PMSLEEP status bits can only be cleared at
+	 * the source itself (e.g. the PM GPIO irq clear bits); this
+	 * controller has no ack or mask registers of its own and the parent
+	 * line is level triggered. If a status bit is set but nothing is
+	 * mapped for it (or the mapped irq has no action) there is no way to
+	 * quiesce it here, so we must not claim it: returning IRQ_HANDLED
+	 * unconditionally turns any stray status bit into an endless
+	 * interrupt storm that hard locks the machine. Returning IRQ_NONE
+	 * instead lets the spurious interrupt detector disable the line
+	 * ("nobody cared") and the system carries on.
+	 */
 	while (status) {
 		hwirq = __ffs(status);
-		generic_handle_domain_irq(intc->domain, hwirq);
+		if (!generic_handle_domain_irq(intc->domain, hwirq))
+			ret = IRQ_HANDLED;
 		status &= ~BIT(hwirq);
 	}
 
-	return IRQ_HANDLED;
+	return ret;
 }
 
 static int msc313_pm_intc_probe(struct platform_device *pdev)
