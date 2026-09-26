@@ -948,9 +948,17 @@ static const struct dw8250_platform_data dw8250_ultrarisc_dp1000_data = {
 	.quirks = DW_UART_QUIRK_CPR_VALUE,
 };
 
+/*
+ * The baud clock must never be gated while the port is in use: a single
+ * register access while the clkgen gate for the UART is closed hangs the
+ * RIU bus for good. dw8250_set_termios() gates it around the reclock, and
+ * the console write or the interrupt handler on the other CPU can land in
+ * that window, so leave the clock as the clock driver set it up and only
+ * program the divisor.
+ */
 static const struct dw8250_platform_data dw8250_mstar_msc313_data = {
 	.usr_reg = MSC313_UART_USR,
-	.quirks = DW_UART_QUIRK_IS_MSTAR_MSC313,
+	.quirks = DW_UART_QUIRK_IS_MSTAR_MSC313 | DW_UART_QUIRK_SKIP_SET_RATE,
 };
 
 static const struct of_device_id dw8250_of_match[] = {
