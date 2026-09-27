@@ -222,7 +222,7 @@
  * 128 MiB of RAM for the system.
  */
 &cma {
-	size = <0x2000000>; /* 32 MiB */
+	size = <0x4000000>; /* 64 MiB: a 720p decode needs about 40 MiB of it */
 };
 
 &pm_uart {
