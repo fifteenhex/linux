@@ -409,6 +409,25 @@ int wave5_vpu_dec_get_bitstream_buffer(struct vpu_instance *inst, dma_addr_t *pr
 	return 0;
 }
 
+int wave5_vpu_dec_update_vlc_buffer(struct vpu_instance *inst)
+{
+	struct vpu_device *vpu_dev = inst->dev;
+	int ret;
+
+	if (!inst->codec_info)
+		return -EINVAL;
+
+	ret = mutex_lock_interruptible(&vpu_dev->hw_lock);
+	if (ret)
+		return ret;
+
+	ret = wave5_vpu_dec_grow_vlc_buffer(inst);
+
+	mutex_unlock(&vpu_dev->hw_lock);
+
+	return ret;
+}
+
 int wave5_vpu_dec_update_bitstream_buffer(struct vpu_instance *inst, size_t size)
 {
 	struct dec_info *p_dec_info;

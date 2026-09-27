@@ -339,6 +339,8 @@ static void setup_wave5_interrupts(struct vpu_device *vpu_dev)
 		reg_val |= BIT(INT_WAVE5_INIT_SEQ);
 		reg_val |= BIT(INT_WAVE5_DEC_PIC);
 		reg_val |= BIT(INT_WAVE5_BSBUF_EMPTY);
+		if (vpu_dev->product_code == WAVE511_CODE)
+			reg_val |= BIT(INT_WAVE511_VLC_BUF_FULL);
 	}
 
 	return vpu_write_reg(vpu_dev, W5_VPU_VINT_ENABLE, reg_val);
@@ -841,13 +843,11 @@ int wave5_vpu_dec_register_framebuffer(struct vpu_instance *inst, struct frame_b
 
 	/*
 	 * The WAVE511 firmware takes the VLC buffer of a picture with every
-	 * DEC_PIC command instead of a task buffer at SET_FB time; it does
-	 * not report a size, so size it from the picture.
+	 * DEC_PIC command instead of a task buffer at SET_FB time.
 	 */
 	if (map_type >= COMPRESSED_FRAME_MAP && inst->dev->product_code == WAVE511_CODE &&
 	    !p_dec_info->vb_vlc.size) {
-		p_dec_info->vb_vlc.size = ALIGN(max(init_info->pic_width * init_info->pic_height,
-						    WAVE511_MIN_VLC_BUF_SIZE), SZ_4K);
+		p_dec_info->vb_vlc.size = WAVE511_VLC_BUF_SIZE;
 		ret = wave5_vdi_allocate_dma_memory(inst->dev, &p_dec_info->vb_vlc);
 		if (ret) {
 			p_dec_info->vb_vlc.size = 0;
@@ -1100,6 +1100,52 @@ int wave5_vpu_decode(struct vpu_instance *inst, u32 *fail_res)
 
 	if (ret)
 		return ret;
+
+	return 0;
+}
+
+/*
+ * The picture in flight overflowed its VLC buffer. Ask the firmware how much
+ * it wants, give it that (at least twice what it had) and it carries on with
+ * the picture; the old buffer is not needed any more.
+ */
+int wave5_vpu_dec_grow_vlc_buffer(struct vpu_instance *inst)
+{
+	struct dec_info *p_dec_info = &inst->codec_info->dec_info;
+	struct vpu_buf old = p_dec_info->vb_vlc;
+	struct vpu_buf vb = {};
+	u32 wanted;
+	int ret;
+
+	ret = wave5_send_query(inst->dev, inst, W511_GET_VLC_INFO);
+	if (ret)
+		return ret;
+	wanted = vpu_read_reg(inst->dev, W511_RET_VLC_BUF_SIZE);
+
+	vb.size = ALIGN(max(wanted, 2 * (u32)old.size), SZ_4K);
+	if (vb.size > WAVE511_MAX_VLC_BUF_SIZE) {
+		if (wanted > WAVE511_MAX_VLC_BUF_SIZE || old.size >= WAVE511_MAX_VLC_BUF_SIZE)
+			return -ENOMEM;
+		vb.size = WAVE511_MAX_VLC_BUF_SIZE;
+	}
+	ret = wave5_vdi_allocate_dma_memory(inst->dev, &vb);
+	if (ret)
+		return ret;
+
+	vpu_write_reg(inst->dev, W511_CMD_VLC_BUF_ADDR, vb.daddr);
+	vpu_write_reg(inst->dev, W511_CMD_VLC_BUF_SIZE, vb.size);
+	ret = send_firmware_command(inst, W511_UPDATE_VLC_BUF, false, NULL, NULL);
+	if (!ret && !vpu_read_reg(inst->dev, W5_RET_SUCCESS))
+		ret = -EIO;
+	if (ret) {
+		wave5_vdi_free_dma_memory(inst->dev, &vb);
+		return ret;
+	}
+
+	dev_dbg(inst->dev->dev, "%s: VLC buffer %zu -> %zu bytes (firmware asked for %u)\n",
+		__func__, old.size, vb.size, wanted);
+	p_dec_info->vb_vlc = vb;
+	wave5_vdi_free_dma_memory(inst->dev, &old);
 
 	return 0;
 }

@@ -289,6 +289,7 @@ enum wave5_interrupt_bit {
 	INT_WAVE5_DEC_PIC = 8,
 	INT_WAVE5_ENC_PIC = 8,
 	INT_WAVE5_ENC_SET_PARAM = 9,
+	INT_WAVE511_VLC_BUF_FULL = 11,
 	INT_WAVE5_DEC_QUERY = 14,
 	INT_WAVE5_BSBUF_EMPTY = 15,
 	INT_WAVE5_BSBUF_FULL = 15,
@@ -887,6 +888,7 @@ int wave5_vpu_dec_give_command(struct vpu_instance *inst, enum codec_command cmd
 int wave5_vpu_dec_get_bitstream_buffer(struct vpu_instance *inst, dma_addr_t *prd_ptr,
 				       dma_addr_t *pwr_ptr, size_t *size);
 int wave5_vpu_dec_update_bitstream_buffer(struct vpu_instance *inst, size_t size);
+int wave5_vpu_dec_update_vlc_buffer(struct vpu_instance *inst);
 int wave5_vpu_dec_clr_disp_flag(struct vpu_instance *inst, int index);
 int wave5_vpu_dec_set_disp_flag(struct vpu_instance *inst, int index);
 

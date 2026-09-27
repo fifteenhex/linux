@@ -56,6 +56,7 @@ static void wave5_vpu_handle_irq(void *dev_id)
 {
 	u32 seq_done;
 	u32 cmd_done;
+	u32 vlc_full = 0;
 	u32 irq_reason;
 	u32 irq_subreason;
 	struct vpu_instance *inst, *tmp;
@@ -66,6 +67,8 @@ static void wave5_vpu_handle_irq(void *dev_id)
 	irq_reason = wave5_vdi_read_register(dev, W5_VPU_VINT_REASON);
 	seq_done = wave5_vdi_read_register(dev, W5_RET_SEQ_DONE_INSTANCE_INFO);
 	cmd_done = wave5_vdi_read_register(dev, W5_RET_QUEUE_CMD_DONE_INST);
+	if (irq_reason & BIT(INT_WAVE511_VLC_BUF_FULL) && dev->product_code == WAVE511_CODE)
+		vlc_full = wave5_vdi_read_register(dev, W511_RET_VLC_FULL_INSTANCE_INFO);
 	wave5_vdi_write_register(dev, W5_VPU_VINT_REASON_CLR, irq_reason);
 	wave5_vdi_write_register(dev, W5_VPU_VINT_CLEAR, 0x1);
 
@@ -86,6 +89,13 @@ static void wave5_vpu_handle_irq(void *dev_id)
 							 seq_done);
 				complete(&inst->irq_done);
 			}
+		}
+
+		if (vlc_full & BIT(inst->id)) {
+			vlc_full &= ~BIT(inst->id);
+			wave5_vdi_write_register(dev, W511_RET_VLC_FULL_INSTANCE_INFO, vlc_full);
+			val = BIT(INT_WAVE511_VLC_BUF_FULL);
+			kfifo_in(&inst->irq_status, &val, sizeof(int));
 		}
 
 		if (irq_reason & BIT(INT_WAVE5_DEC_PIC) ||
@@ -152,6 +162,20 @@ static irqreturn_t wave5_vpu_irq(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+static void wave5_vpu_dispatch_irq(struct vpu_instance *inst, int irq_status)
+{
+	int ret;
+
+	if (irq_status == BIT(INT_WAVE511_VLC_BUF_FULL)) {
+		ret = wave5_vpu_dec_update_vlc_buffer(inst);
+		if (ret)
+			dev_err(inst->dev->dev, "Growing the VLC buffer, fail: %d\n", ret);
+		return;
+	}
+
+	inst->ops->finish_process(inst);
+}
+
 static irqreturn_t wave5_vpu_irq_thread(int irq, void *dev_id)
 {
 	struct vpu_device *dev = dev_id;
@@ -165,7 +189,7 @@ static irqreturn_t wave5_vpu_irq_thread(int irq, void *dev_id)
 			if (!ret)
 				break;
 
-			inst->ops->finish_process(inst);
+			wave5_vpu_dispatch_irq(inst, irq_status);
 		}
 	}
 	mutex_unlock(&dev->irq_lock);
@@ -212,7 +236,7 @@ static int irq_thread(void *data)
 				if (!ret)
 					break;
 
-				inst->ops->finish_process(inst);
+				wave5_vpu_dispatch_irq(inst, irq_status);
 			}
 		}
 		mutex_unlock(&dev->irq_lock);

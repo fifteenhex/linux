@@ -84,6 +84,7 @@ int wave5_vpu_dec_init_seq(struct vpu_instance *inst);
 int wave5_vpu_dec_get_seq_info(struct vpu_instance *inst, struct dec_initial_info *info);
 
 int wave5_vpu_decode(struct vpu_instance *inst, u32 *fail_res);
+int wave5_vpu_dec_grow_vlc_buffer(struct vpu_instance *inst);
 
 int wave5_vpu_dec_get_result(struct vpu_instance *inst, struct dec_output_info *result);
 

@@ -19,6 +19,7 @@ enum W5_VPU_COMMAND {
 	W5_SET_FB		= 0x0080,
 	W5_DEC_ENC_PIC		= 0x0100,       /* queuing command */
 	W5_ENC_SET_PARAM	= 0x0200,	/* queuing command */
+	W511_UPDATE_VLC_BUF	= 0x0800,	/* WAVE511: a bigger VLC buffer for the picture in flight */
 	W5_QUERY		= 0x4000,
 	W5_UPDATE_BS		= 0x8000,
 	W5_MAX_VPU_COMD		= 0x10000,
@@ -34,6 +35,7 @@ enum query_opt {
 	GET_BS_WR_PTR		= 6,		/* for encoder */
 	GET_SRC_BUF_FLAG	= 7,		/* for encoder */
 	SET_BS_RD_PTR		= 8,		/* for decoder */
+	W511_GET_VLC_INFO	= 8,		/* WAVE511: the VLC buffer a picture needs */
 	GET_DEBUG_INFO		= 0x61,
 };
 
@@ -197,6 +199,18 @@ enum query_opt {
 #define W511_CMD_DEC_OUT_STRIDE                 (W5_REG_BASE + 0x0164)
 #define W511_CMD_DEC_VLC_BUF_SIZE               (W5_REG_BASE + 0x0168)
 #define W511_CMD_DEC_VLC_BUF_ADDR               (W5_REG_BASE + 0x016C)
+
+/*
+ * WAVE511 - the VLC buffer given with DEC_PIC ran out: the firmware raises
+ * INT_WAVE511_VLC_BUF_FULL with the instance in RET_VLC_FULL_INSTANCE_INFO,
+ * reports the size it needs to GET_VLC_INFO, and carries on once
+ * UPDATE_VLC_BUF hands it a bigger buffer.
+ */
+#define W511_RET_VLC_FULL_INSTANCE_INFO         (W5_REG_BASE + 0x01F0)
+#define W511_RET_VLC_BUF_ADDR                   (W5_REG_BASE + 0x011C)
+#define W511_RET_VLC_BUF_SIZE                   (W5_REG_BASE + 0x0120)
+#define W511_CMD_VLC_BUF_ADDR                   (W5_REG_BASE + 0x011C)
+#define W511_CMD_VLC_BUF_SIZE                   (W5_REG_BASE + 0x0120)
 
 #define W5_RET_SEQ_DONE_INSTANCE_INFO           (W5_REG_BASE + 0x01FC)
 

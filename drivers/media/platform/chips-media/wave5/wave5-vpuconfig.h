@@ -93,13 +93,19 @@
 /*
  * WAVE511 as integrated by SigmaStar, with its "chagall" firmware: the
  * vendor driver's buffer geometry. The firmware takes one WAVE515-style
- * task buffer, and a VLC buffer per picture whose size it does not report.
+ * task buffer, and a VLC buffer with every picture.
  */
 #define WAVE511_MAX_CODE_BUF_SIZE	(512 * 1024)
 #define WAVE511_TEMPBUF_SIZE		0x62800
 #define WAVE511_COMMAND_QUEUE_DEPTH	1
 #define WAVE511_ONE_TASKBUF_SIZE	0x328000
-#define WAVE511_MIN_VLC_BUF_SIZE	(256 * 1024)
+/*
+ * The VLC buffer handed over with every DEC_PIC. The vendor driver gives it
+ * 256 KiB whatever the picture size; a size of 1 MiB or more makes the
+ * firmware run wild, so stay well below that.
+ */
+#define WAVE511_VLC_BUF_SIZE		(256 * 1024)
+#define WAVE511_MAX_VLC_BUF_SIZE	(512 * 1024)
 #define WAVE511_SIZE_COMMON		(WAVE511_MAX_CODE_BUF_SIZE + WAVE511_TEMPBUF_SIZE + \
 					 WAVE511_COMMAND_QUEUE_DEPTH * WAVE511_ONE_TASKBUF_SIZE)
 
