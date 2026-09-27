@@ -520,8 +520,6 @@ static void wave5_vpu_dec_finish_decode(struct vpu_instance *inst)
 
 	if (wave5_dec_host_reorders(inst)) {
 		struct vb2_v4l2_buffer *out = inst->out_buf;
-		bool seq_end = false;
-		unsigned long flags;
 
 		inst->out_buf = NULL;
 		if (out && dec_info.index_frame_decoded >= 0) {
@@ -541,21 +539,13 @@ static void wave5_vpu_dec_finish_decode(struct vpu_instance *inst)
 		}
 
 		/*
-		 * The firmware never reports the end of the sequence: once it is
-		 * draining and has decoded the last picture, a decode that
-		 * produces nothing is the end.
+		 * The display index is 0 for every picture, but once the stream
+		 * has been flagged as ended the firmware answers the decode
+		 * that finds nothing left with the sequence-end value.
 		 */
-		spin_lock_irqsave(&inst->state_spinlock, flags);
-		if (dec_info.index_frame_decoded < 0 && wave5_is_draining_or_eos(inst) &&
-		    (!m2m_ctx->last_src_buf || wave5_last_src_buffer_consumed(m2m_ctx)))
-			seq_end = true;
-		spin_unlock_irqrestore(&inst->state_spinlock, flags);
-
-		if (seq_end || dec_info.sequence_changed) {
+		if (dec_info.index_frame_display == DISPLAY_IDX_FLAG_SEQ_END ||
+		    dec_info.sequence_changed)
 			wave5_dec_reorder_flush(inst, 0, VB2_BUF_STATE_DONE);
-			if (seq_end)
-				dec_info.index_frame_display = DISPLAY_IDX_FLAG_SEQ_END;
-		}
 	} else if (dec_info.index_frame_decoded >= 0) {
 		/* Remove decoded buffer from the ready queue now that it has been
 		 * decoded.
