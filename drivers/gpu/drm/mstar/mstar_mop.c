@@ -2,6 +2,7 @@
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_fourcc.h>
 #include <drm/drm_plane.h>
+#include <linux/clk.h>
 #include <linux/component.h>
 #include <linux/module.h>
 #include <linux/of_device.h>
@@ -227,6 +228,14 @@ static int mstar_mop_probe(struct platform_device *pdev)
 	regmap = devm_regmap_init_mmio(dev, base, &mstar_mop_regmap_config);
 	if (IS_ERR(regmap))
 		return PTR_ERR(regmap);
+
+	/* CLK_mop (the mopg has it; the mops shares it) */
+	{
+		struct clk *clk = devm_clk_get_optional_enabled(dev, NULL);
+
+		if (IS_ERR(clk))
+			return dev_err_probe(dev, PTR_ERR(clk), "Failed to get the MOP clock\n");
+	}
 
 	mop->swrst = devm_regmap_field_alloc(dev, regmap, swrst_field);
 	mop->gw_hsize = devm_regmap_field_alloc(dev, regmap, gw_hsize_field);

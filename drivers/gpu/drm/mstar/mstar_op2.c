@@ -27,7 +27,6 @@
 #define REG_HFDE_END		0x60
 #define REG_VFDE_START		0x64
 #define REG_VFDE_END		0x68
-//#define REG_FRAME_COLOR		0x6c
 #define REG_HDE_START		0x70
 #define REG_HDE_END		0x74
 #define REG_VDE_START		0x78
@@ -89,6 +88,8 @@ struct mstar_op2 {
 	struct regmap_field *output_mode;
 	struct regmap_field *swap_b, *swap_g, *swap_r;
 	struct regmap_field *swap_ml;
+	struct regmap_field *tgen_run;
+	struct regmap *regmap;
 };
 
 #define crtc_to_op2(crtc) container_of(crtc, struct mstar_op2, drm_crtc)
@@ -174,6 +175,41 @@ static const struct drm_crtc_funcs mstar_op2_crtc_funcs = {
 /* MIPI/DSI output nudges the active H window earlier by this many dot clocks. */
 #define OP2_MIPI_HDE_OFFSET	58
 
+#define REG_FRAME_COLOR		0x6c	/* bit15 force enable, [14:0] RGB555 */
+#define REG_WIN_BGCOLOR		0x80	/* [14:0] RGB555 window background */
+#define REG_OUT_118		0x118
+#define REG_OUT_11C		0x11c
+#define REG_DITHER_CTRL		0x1d8	/* bit0 dither enable */
+
+/*
+ * The colour-processing / output stage the vendor's composite config
+ * routines write before the raster timing: frame-colour and background
+ * presets, the colour matrix control and the 0x118/0x11c setup, dither off,
+ * then the timing generator is started and the presets are latched again.
+ * Not individually bit-decoded in the spec; dropping it blanks the output.
+ * Replayed in the vendor's order.
+ */
+static void mstar_op2_output_stage(struct mstar_op2 *op2)
+{
+	regmap_write(op2->regmap, REG_FRAME_COLOR, 0x4010);
+	regmap_write(op2->regmap, REG_WIN_BGCOLOR, 0x4010);
+	regmap_write(op2->regmap, REG_WIN_BGCOLOR, 0xc010);
+
+	regmap_write(op2->regmap, REG_COLOR_MATRIX_CTRL, 0x000b);
+	regmap_write(op2->regmap, REG_COLOR_MATRIX_CTRL, 0x010b);
+	regmap_write(op2->regmap, REG_OUT_118, 0x0080);
+	regmap_write(op2->regmap, REG_OUT_118, 0x8080);
+	regmap_write(op2->regmap, REG_OUT_11C, 0x0080);
+
+	regmap_write(op2->regmap, REG_DITHER_CTRL, 0);
+
+	regmap_field_write(op2->tgen_run, 1);
+
+	regmap_write(op2->regmap, REG_FRAME_COLOR, 0x4010);
+	regmap_write(op2->regmap, REG_WIN_BGCOLOR, 0xc010);
+	regmap_write(op2->regmap, REG_WIN_BGCOLOR, 0x4010);
+}
+
 static void mstar_op2_mode_set_nofb(struct drm_crtc *crtc)
 {
 	struct mstar_op2 *op2 = crtc_to_op2(crtc);
@@ -204,6 +240,8 @@ static void mstar_op2_mode_set_nofb(struct drm_crtc *crtc)
 
 	dev_info(op2->dev, "set mode: %dx%d htt %d vtt %d hstart %d vstart %d\n",
 		 hact, vact, mode->htotal, mode->vtotal, hstart, vstart);
+
+	mstar_op2_output_stage(op2);
 
 	/* totals: HTT is total-1, VTT is the raw total */
 	regmap_field_write(op2->htt, mode->htotal - 1);
@@ -306,9 +344,14 @@ static int mstar_op2_bind(struct device *dev, struct device *master,
 	return ret;
 
 dsi_hdmi:
-	/* */
-	printk("%s:%d - %d\n", __func__, __LINE__, ret);
 	op2->drm_crtc.port = of_graph_get_port_by_id(dev->of_node, output);
+
+	/* port 1 is the DSI host: the displaytop has to route the DISP there */
+	if (output == 1) {
+		struct mstar_drv *drv = drm->dev_private;
+
+		drv->output_dsi = true;
+	}
 
 	return 0;
 }
@@ -373,6 +416,8 @@ static int mstar_op2_probe(struct platform_device *pdev)
 	op2->swap_r = devm_regmap_field_alloc(dev, regmap, output_swap_r);
 	op2->output_mode = devm_regmap_field_alloc(dev, regmap, output_mode_field);
 	op2->swap_ml = devm_regmap_field_alloc(dev, regmap, output_swap_ml_field);
+	op2->tgen_run = devm_regmap_field_alloc(dev, regmap, tgenexthsen_field);
+	op2->regmap = regmap;
 
 	ret = of_property_read_variable_u8_array(dev->of_node, "mstar,op2-channelswap",
 			chanswap, 1, ARRAY_SIZE(chanswap));

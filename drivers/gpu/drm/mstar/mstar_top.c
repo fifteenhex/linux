@@ -25,12 +25,49 @@
 static const struct reg_field reset_field = REG_FIELD(REG_CTRL, 8, 8);
 static const struct reg_field irq_vsync_pos_flag_field = REG_FIELD(0x8, 3, 3);
 static const struct reg_field irq_vsync_pos_mask_field = REG_FIELD(0xc, 3, 3);
-/* doesn't seem to do anything */
-static const struct reg_field fifo_rst_field = REG_FIELD(REG_FIFORST, 8, 8);
+static const struct reg_field fifo_rst_field = REG_FIELD(REG_FIFORST, 0, 0);
 
 static const struct reg_field macesrc_field = REG_FIELD(REG_MACESRC, 0, 0);
 
-//static const struct reg_field disp2dsi_field = REG_FIELD(REG_DSI, 0, 0);
+static const struct reg_field disp2dsi_field = REG_FIELD(REG_DSI, 0, 0);
+
+/*
+ * The display "front" stage (0x1f224c00; the spec calls the bank the HDMI-TX
+ * atop). The stock firmware writes exactly these registers before it brings
+ * the D-PHY and DSI up, nothing else in the bank; without them the DSI path
+ * stays dark. Replayed verbatim from an MMIO trace of the vendor u-boot.
+ */
+static const struct {
+	u16 off;
+	u16 val;
+} mstar_top_front_init[] = {
+	{ 0x064, 0x000a }, { 0x064, 0x110a }, { 0x068, 0x0004 },
+	{ 0x0e0, 0x000a }, { 0x268, 0x0005 }, { 0x270, 0x004c },
+};
+
+/*
+ * Route the finished DISP output into the MIPI-DSI host, sourcing the panel
+ * from the mixed plane output rather than the pattern generator, with the
+ * PNL formatter and the output FIFO reset in between - the vendor's
+ * bring-up order for the displaytop. Called from the top's bind once the
+ * op2 has said the output is DSI.
+ */
+void mstar_top_route_to_dsi(struct mstar_top *top)
+{
+	int i;
+
+	if (top->front)
+		for (i = 0; i < ARRAY_SIZE(mstar_top_front_init); i++)
+			writew(mstar_top_front_init[i].val,
+			       top->front + mstar_top_front_init[i].off);
+
+	regmap_field_write(top->mace_src, 1);
+	regmap_field_force_write(top->reset, 1);
+	regmap_field_force_write(top->fifo_rst, 1);
+	regmap_field_force_write(top->fifo_rst, 0);
+	regmap_field_force_write(top->reset, 0);
+	regmap_field_write(top->disp_to_dsi, 1);
+}
 
 static const struct regmap_config mstar_top_regmap_config = {
 	.reg_bits = 16,
@@ -73,6 +110,10 @@ static int mstar_top_bind(struct device *dev, struct device *master,
 
 	top->drm_device = drm_device;
 	drv->top = top;
+
+	/* the op2 binds before the top (ports order), so it already knows */
+	if (drv->output_dsi)
+		mstar_top_route_to_dsi(top);
 
 	return 0;
 }
@@ -139,6 +180,21 @@ static int mstar_top_probe(struct platform_device *pdev)
 	top->vsync_pos_mask = devm_regmap_field_alloc(dev, regmap, irq_vsync_pos_mask_field);
 	if (IS_ERR(top->vsync_pos_mask))
 		return PTR_ERR(top->vsync_pos_mask);
+	top->mace_src = devm_regmap_field_alloc(dev, regmap, macesrc_field);
+	if (IS_ERR(top->mace_src))
+		return PTR_ERR(top->mace_src);
+	top->fifo_rst = devm_regmap_field_alloc(dev, regmap, fifo_rst_field);
+	if (IS_ERR(top->fifo_rst))
+		return PTR_ERR(top->fifo_rst);
+	top->disp_to_dsi = devm_regmap_field_alloc(dev, regmap, disp2dsi_field);
+	if (IS_ERR(top->disp_to_dsi))
+		return PTR_ERR(top->disp_to_dsi);
+
+	/* the front stage bank is optional in the device tree */
+	top->front = devm_platform_ioremap_resource_byname(pdev, "front");
+	if (IS_ERR(top->front))
+		top->front = NULL;
+	dev_dbg(dev, "front bank %s\n", top->front ? "mapped" : "absent");
 
 	regmap_field_force_write(top->reset, 1);
 	mdelay(10);

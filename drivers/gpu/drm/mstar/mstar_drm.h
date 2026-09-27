@@ -8,6 +8,7 @@ struct mstar_top;
 struct mstar_drv {
 	struct device *dev;
 	struct mstar_top* top;
+	bool output_dsi;	/* set by the op2 when its output goes to the DSI host */
 };
 
 #endif /* _MSTAR_DRM_H_ */
