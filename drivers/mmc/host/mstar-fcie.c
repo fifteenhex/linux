@@ -269,7 +269,7 @@ static int mstar_fcie_readrsp(struct msc313_fcie *fcie, u8 cmd, u32* rsp, int le
 				 * error interrupt was not firing.
 				 */
 				if(hasopcode && (value & 0xff) != cmd)
-					return EILSEQ;
+					return -EILSEQ;
 
 				/* always strip the first byte. */
 				continue;
@@ -317,10 +317,14 @@ static int mstar_fcie_start_transfer_and_wait(struct msc313_fcie *fcie,
 	fcie->data_done = false;
 	fcie->busy_done = false;
 
-	/* enable interrupts */
-	regmap_write(fcie->regmap, REG_INTMASK, data ? INT_DATA_END : 0 |
-						cmd ? INT_CMD_END : 0   |
-						busy ? INT_BUSY_END : 0 |
+	/*
+	 * enable interrupts, the error interrupt is always wanted,
+	 * without it a failed data transfer only ends when the
+	 * timeout below expires.
+	 */
+	regmap_write(fcie->regmap, REG_INTMASK, (data ? INT_DATA_END : 0) |
+						(cmd ? INT_CMD_END : 0) |
+						(busy ? INT_BUSY_END : 0) |
 						INT_ERR);
 
 	regmap_field_read(fcie->job_start, &job_start);
@@ -344,7 +348,7 @@ static int mstar_fcie_start_transfer_and_wait(struct msc313_fcie *fcie,
 		regmap_write(fcie->regmap, REG_INT, ~0);
 		if (poll_timeout) {
 			dev_warn(fcie->dev, "timeout while polling\n");
-			return 1;
+			return -ETIMEDOUT;
 		}
 	}
 	else {
@@ -397,7 +401,7 @@ static int mstar_fcie_start_transfer_and_wait(struct msc313_fcie *fcie,
 	 * a false CRC error etc. Only timeouts are handled here.
 	 */
 	if (fcie->error && *status == 0)
-		return 1;
+		return -ETIMEDOUT;
 
 	return 0;
 
@@ -556,12 +560,12 @@ static void msc313_fcie_build_adma(struct msc313_fcie *fcie, struct scatterlist 
 static void mstar_fcie_request(struct mmc_host *mmc, struct mmc_request *mrq)
 {
 	struct msc313_fcie *fcie = mmc_priv(mmc);
-	int rspsz, i, count, dir_data, blks, ret;
+	int rspsz, count, dir_data, blks, ret;
 	struct mmc_command *cmd = mrq->cmd;
 	struct mmc_command *sbc = mrq->sbc;
 	struct mmc_data *data = mrq->data;
-	bool dataread, sbcdone, useadma, busydet;
-	unsigned int status, cardbusy;
+	bool dataread, sbcdone = false, useadma, busydet;
+	unsigned int status;
 	u32 dmaaddr, dmalen, tfrlen;
 
 	/* If there is just a command, send it and return */
@@ -633,9 +637,9 @@ static void mstar_fcie_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		dmaaddr = dma_map_single(fcie->dev, &fcie->descs, sizeof(fcie->descs), DMA_TO_DEVICE);
 		ret = dma_mapping_error(fcie->dev, dmaaddr);
 		if (ret) {
-			printk("dma map fail\n");
+			dev_err(fcie->dev, "failed to map the ADMA descriptors\n");
 			data->error = ret;
-			goto tfr_err;
+			goto unmap_err;
 		}
 		dmalen = 0x10;
 		blks = 1;
@@ -670,9 +674,9 @@ static void mstar_fcie_request(struct mmc_host *mmc, struct mmc_request *mrq)
 			true, busydet, data->timeout_ns, &status);
 	if (ret) {
 		data->error = ret;
-		dev_err(fcie->dev, "data %s error; cmd: 0x%02x arg: 0x%08x, blk_sz: %d, blk_cnt %d .. %d:%d\n",
-				dataread ? "read" : "write", cmd->opcode, cmd->arg, data->blksz, blks, i, count);
-		goto tfr_err;
+		dev_err(fcie->dev, "data %s error; cmd: 0x%02x arg: 0x%08x, blk_sz: %d, blk_cnt %d, segs %d\n",
+				dataread ? "read" : "write", cmd->opcode, cmd->arg, data->blksz, blks, count);
+		goto unmap_err;
 	}
 	/*
 	 * the first block will have also triggered sending the cmd
@@ -682,7 +686,7 @@ static void mstar_fcie_request(struct mmc_host *mmc, struct mmc_request *mrq)
 	if (dataread) {
 		ret = mstar_fcie_request_capturecmdresult(fcie, mrq->cmd, status, rspsz);
 		if (ret && ret != -EBUSY)
-			goto tfr_err;
+			goto unmap_err;
 	}
 
 	{
@@ -723,9 +727,14 @@ static void mstar_fcie_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		dma_unmap_single(fcie->dev, dmaaddr, sizeof(fcie->descs), DMA_TO_DEVICE);
 	dma_unmap_sg(fcie->dev, data->sg, data->sg_len, dir_data);
 
-done:
 	mmc_request_done(mmc, mrq);
 	return;
+
+unmap_err:
+	if (useadma && !dma_mapping_error(fcie->dev, dmaaddr))
+		dma_unmap_single(fcie->dev, dmaaddr, sizeof(fcie->descs), DMA_TO_DEVICE);
+	dma_unmap_sg(fcie->dev, data->sg, data->sg_len, dir_data);
+	goto tfr_err;
 
 drv_err:
 	mrq->cmd->error = -EINVAL;
