@@ -312,3 +312,7 @@
 &dphy {
 	mstar,lane-map = /bits/ 8 <2 4 3 1 0>;
 };
+
+&vpu {
+	status = "okay";
+};

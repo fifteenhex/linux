@@ -363,13 +363,21 @@
 		nvmem-cell-names = "hs-rterm", "lp-rterm";
 	};
 
+	/*
+	 * Chips&Media WAVE511 video decoder: a plain 32-bit register window
+	 * at 0x344800 (PRODUCT_NAME reads "WAVE" there), running up to the
+	 * DSI host at 0x345200. The product number register at 0x1044 is
+	 * beyond it, which is why the driver is told the product code.
+	 */
 	vpu: video-codec@344800 {
-		compatible = "sstar,ssd20xd-vdec";
-		reg = <0x344800 0x800>;
+		compatible = "sstar,ssd20xd-vdec", "cnm,wave511";
+		reg = <0x344800 0xa00>, <0x226e00 0x200>;
+		reg-names = "vpu", "wrapper";
 		clocks = <&clkgen MSC313_CLKGEN_DEGLITCHES SSD20XD_CLKGEN_DEC_PCLK 0>,
 			<&clkgen MSC313_CLKGEN_DEGLITCHES SSD20XD_CLKGEN_DEC_ACLK 0>,
 			<&clkgen MSC313_CLKGEN_DEGLITCHES SSD20XD_CLKGEN_DEC_BCLK 0>,
 			<&clkgen MSC313_CLKGEN_DEGLITCHES SSD20XD_CLKGEN_DEC_CCLK 0>;
+		clock-names = "apb", "axi", "bpu", "vce";
 		interrupts-extended = <&intc_irq GIC_SPI 21 IRQ_TYPE_LEVEL_HIGH>;
 		interconnects = <&miu 0>;
 		interconnect-names = "dma-mem";
