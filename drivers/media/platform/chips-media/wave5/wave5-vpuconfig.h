@@ -84,6 +84,24 @@
 
 #define WAVE521_SIZE_COMMON		(WAVE521_MAX_CODE_BUF_SIZE + WAVE5_TEMPBUF_SIZE)
 #define WAVE515_ONE_TASKBUF_SIZE	(8 * 1024 * 1024)
+/*
+ * The WAVE511's firmware speaks the WAVE515 host interface (task buffers,
+ * command-done reporting, bitstream options), not the 521's.
+ */
+#define PRODUCT_CODE_515_STYLE(c) ((c) == WAVE515_CODE || (c) == WAVE511_CODE)
+
+/*
+ * WAVE511 as integrated by SigmaStar, with its "chagall" firmware: the
+ * vendor driver's buffer geometry. The firmware takes one WAVE515-style
+ * task buffer.
+ */
+#define WAVE511_MAX_CODE_BUF_SIZE	(512 * 1024)
+#define WAVE511_TEMPBUF_SIZE		0x62800
+#define WAVE511_COMMAND_QUEUE_DEPTH	1
+#define WAVE511_ONE_TASKBUF_SIZE	0x328000
+#define WAVE511_SIZE_COMMON		(WAVE511_MAX_CODE_BUF_SIZE + WAVE511_TEMPBUF_SIZE + \
+					 WAVE511_COMMAND_QUEUE_DEPTH * WAVE511_ONE_TASKBUF_SIZE)
+
 #define WAVE515_SIZE_COMMON		(WAVE515_MAX_CODE_BUF_SIZE + WAVE5_TEMPBUF_SIZE + \
 					 WAVE515_COMMAND_QUEUE_DEPTH * WAVE515_ONE_TASKBUF_SIZE)
 

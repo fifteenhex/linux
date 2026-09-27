@@ -24,15 +24,26 @@ static int wave5_initialize_vpu(struct device *dev, u8 *code, size_t size)
 	if (ret)
 		return ret;
 
-	if (wave5_vpu_is_init(vpu_dev)) {
+	/*
+	 * Registers of a WAVE511 that has never been booted read back as
+	 * noise, so a non-zero program counter says nothing there.
+	 */
+	if (vpu_dev->product_code != WAVE511_CODE && wave5_vpu_is_init(vpu_dev)) {
 		wave5_vpu_re_init(dev, (void *)code, size);
 		ret = -EBUSY;
 		goto err_out;
 	}
 
-	ret = wave5_vpu_reset(dev, SW_RESET_ON_BOOT);
-	if (ret)
-		goto err_out;
+	/*
+	 * The WAVE511's FIO port does not answer before the core has booted,
+	 * so the pre-boot reset (which waits on the bus through it) cannot
+	 * work there; the vendor driver never does one before the first init.
+	 */
+	if (vpu_dev->product_code != WAVE511_CODE) {
+		ret = wave5_vpu_reset(dev, SW_RESET_ON_BOOT);
+		if (ret)
+			goto err_out;
+	}
 
 	ret = wave5_vpu_init(dev, (void *)code, size);
 

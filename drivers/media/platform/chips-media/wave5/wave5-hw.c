@@ -202,12 +202,13 @@ unsigned int wave5_vpu_get_product_id(struct vpu_device *vpu_dev)
 	switch (val) {
 	case WAVE515_CODE:
 		return PRODUCT_ID_515;
+	case WAVE511_CODE:	/* its firmware follows the 515 host interface */
+		return PRODUCT_ID_515;
 	case WAVE521C_CODE:
 		return PRODUCT_ID_521;
 	case WAVE521_CODE:
 	case WAVE521C_DUAL_CODE:
 	case WAVE521E1_CODE:
-	case WAVE511_CODE:
 	case WAVE517_CODE:
 	case WAVE537_CODE:
 		dev_err(vpu_dev->dev, "Unsupported product id (%x)\n", val);
@@ -272,6 +273,13 @@ static int wave5_vpu_firmware_command_queue_error_check(struct vpu_device *dev, 
 	return 0;
 }
 
+static u32 wave5_read_queue_status(struct vpu_device *vpu_dev)
+{
+	if (vpu_dev->product_code == WAVE511_CODE)
+		return vpu_read_reg(vpu_dev, W511_RET_QUEUE_STATUS);
+	return vpu_read_reg(vpu_dev, W5_RET_QUEUE_STATUS);
+}
+
 static int send_firmware_command(struct vpu_instance *inst, u32 cmd, bool check_success,
 				 u32 *queue_status, u32 *fail_result)
 {
@@ -286,7 +294,7 @@ static int send_firmware_command(struct vpu_instance *inst, u32 cmd, bool check_
 	}
 
 	if (queue_status)
-		*queue_status = vpu_read_reg(inst->dev, W5_RET_QUEUE_STATUS);
+		*queue_status = wave5_read_queue_status(inst->dev);
 
 	/* In some cases we want to send multiple commands before checking
 	 * whether they are queued properly
@@ -365,7 +373,7 @@ static int setup_wave5_properties(struct device *dev)
 	hw_config_def1 = vpu_read_reg(vpu_dev, W5_RET_STD_DEF1);
 	hw_config_feature = vpu_read_reg(vpu_dev, W5_RET_CONF_FEATURE);
 
-	if (vpu_dev->product_code == WAVE515_CODE) {
+	if (PRODUCT_CODE_515_STYLE(vpu_dev->product_code)) {
 		p_attr->support_hevc10bit_dec = FIELD_GET(W515_FEATURE_HEVC10BIT_DEC,
 							  hw_config_feature);
 		p_attr->support_decoders = FIELD_GET(W515_FEATURE_HEVC_DECODER,
@@ -393,6 +401,19 @@ static int setup_wave5_properties(struct device *dev)
 							   hw_config_def0);
 	}
 
+	/*
+	 * This firmware's STD_DEF words are not laid out like the 521's (it
+	 * reports no decoders and an encoder), and the WAVE511 is a known
+	 * quantity: an AVC/HEVC decoder with nothing else.
+	 */
+	if (vpu_dev->product_code == WAVE511_CODE) {
+		p_attr->support_decoders = BIT(STD_AVC) | BIT(STD_HEVC);
+		p_attr->support_encoders = 0;
+		p_attr->support_backbone = true;
+		p_attr->support_vcpu_backbone = false;
+		p_attr->support_vcore_backbone = false;
+	}
+
 	setup_wave5_interrupts(vpu_dev);
 
 	return 0;
@@ -418,7 +439,15 @@ int wave5_vpu_get_version(struct vpu_device *vpu_dev, u32 *revision)
 
 static void remap_page(struct vpu_device *vpu_dev, dma_addr_t code_base, u32 index)
 {
-	vpu_write_reg(vpu_dev, W5_VPU_REMAP_CTRL, REMAP_CTRL_REGISTER_VALUE(index));
+	u32 ctrl = REMAP_CTRL_REGISTER_VALUE(index);
+
+	/* the WAVE511 firmware fits one 512 KiB page: the vendor maps only that */
+	if (vpu_dev->product_code == WAVE511_CODE) {
+		if (index)
+			return;
+		ctrl = BIT(31) | BIT(11) | ((WAVE511_MAX_CODE_BUF_SIZE >> 12) & 0x1ff);
+	}
+	vpu_write_reg(vpu_dev, W5_VPU_REMAP_CTRL, ctrl);
 	vpu_write_reg(vpu_dev, W5_VPU_REMAP_VADDR, index * W5_REMAP_MAX_SIZE);
 	vpu_write_reg(vpu_dev, W5_VPU_REMAP_PADDR, code_base + index * W5_REMAP_MAX_SIZE);
 }
@@ -436,7 +465,9 @@ int wave5_vpu_init(struct device *dev, u8 *fw, size_t size)
 
 	code_base = common_vb->daddr;
 
-	if (vpu_dev->product_code == WAVE515_CODE)
+	if (vpu_dev->product_code == WAVE511_CODE)
+		code_size = WAVE511_MAX_CODE_BUF_SIZE;
+	else if (vpu_dev->product_code == WAVE515_CODE)
 		code_size = WAVE515_MAX_CODE_BUF_SIZE;
 	else
 		code_size = WAVE521_MAX_CODE_BUF_SIZE;
@@ -447,7 +478,8 @@ int wave5_vpu_init(struct device *dev, u8 *fw, size_t size)
 		return -EINVAL;
 
 	temp_base = code_base + code_size;
-	temp_size = WAVE5_TEMPBUF_SIZE;
+	temp_size = vpu_dev->product_code == WAVE511_CODE ?
+		    WAVE511_TEMPBUF_SIZE : WAVE5_TEMPBUF_SIZE;
 
 	ret = wave5_vdi_write_memory(vpu_dev, common_vb, 0, fw, size);
 	if (ret < 0) {
@@ -475,14 +507,16 @@ int wave5_vpu_init(struct device *dev, u8 *fw, size_t size)
 	/* These register must be reset explicitly */
 	vpu_write_reg(vpu_dev, W5_HW_OPTION, 0);
 
-	if (vpu_dev->product_code != WAVE515_CODE) {
+	if (!PRODUCT_CODE_515_STYLE(vpu_dev->product_code)) {
 		wave5_fio_writel(vpu_dev, W5_BACKBONE_PROC_EXT_ADDR, 0);
 		wave5_fio_writel(vpu_dev, W5_BACKBONE_AXI_PARAM, 0);
 		vpu_write_reg(vpu_dev, W5_SEC_AXI_PARAM, 0);
 	}
 
+	/* the WAVE511 has none of the 52x backbone/AXI programming */
 	reg_val = vpu_read_reg(vpu_dev, W5_VPU_RET_VPU_CONFIG0);
-	if (FIELD_GET(W521_FEATURE_BACKBONE, reg_val)) {
+	if (vpu_dev->product_code != WAVE511_CODE &&
+	    FIELD_GET(W521_FEATURE_BACKBONE, reg_val)) {
 		reg_val = ((WAVE5_PROC_AXI_ID << 28) |
 			   (WAVE5_PRP_AXI_ID << 24) |
 			   (WAVE5_FBD_Y_AXI_ID << 20) |
@@ -494,15 +528,23 @@ int wave5_vpu_init(struct device *dev, u8 *fw, size_t size)
 		wave5_fio_writel(vpu_dev, W5_BACKBONE_PROG_AXI_ID, reg_val);
 	}
 
-	if (vpu_dev->product_code == WAVE515_CODE) {
+	if (PRODUCT_CODE_515_STYLE(vpu_dev->product_code)) {
+		u32 depth = WAVE515_COMMAND_QUEUE_DEPTH, tbsize = WAVE515_ONE_TASKBUF_SIZE;
 		dma_addr_t task_buf_base;
 
-		vpu_write_reg(vpu_dev, W5_CMD_INIT_NUM_TASK_BUF, WAVE515_COMMAND_QUEUE_DEPTH);
-		vpu_write_reg(vpu_dev, W5_CMD_INIT_TASK_BUF_SIZE, WAVE515_ONE_TASKBUF_SIZE);
+		if (vpu_dev->product_code == WAVE511_CODE) {
+			depth = WAVE511_COMMAND_QUEUE_DEPTH;
+			tbsize = WAVE511_ONE_TASKBUF_SIZE;
+			/* the vendor driver writes this before INIT_VPU */
+			vpu_write_reg(vpu_dev, W5_CMD_ADDR_SEC_AXI, 0xffff);
+		}
 
-		for (i = 0; i < WAVE515_COMMAND_QUEUE_DEPTH; i++) {
+		vpu_write_reg(vpu_dev, W5_CMD_INIT_NUM_TASK_BUF, depth);
+		vpu_write_reg(vpu_dev, W5_CMD_INIT_TASK_BUF_SIZE, tbsize);
+
+		for (i = 0; i < depth; i++) {
 			task_buf_base = temp_base + temp_size +
-					(i * WAVE515_ONE_TASKBUF_SIZE);
+					(i * tbsize);
 			vpu_write_reg(vpu_dev,
 				      W5_CMD_INIT_ADDR_TASK_BUF0 + (i * 4),
 				      task_buf_base);
@@ -561,7 +603,7 @@ int wave5_vpu_build_up_dec_param(struct vpu_instance *inst,
 	if (ret)
 		return ret;
 
-	if (inst->dev->product_code != WAVE515_CODE)
+	if (!PRODUCT_CODE_515_STYLE(inst->dev->product_code))
 		vpu_write_reg(inst->dev, W5_CMD_DEC_VCORE_INFO, 1);
 
 	wave5_vdi_clear_memory(inst->dev, &p_dec_info->vb_work);
@@ -569,7 +611,7 @@ int wave5_vpu_build_up_dec_param(struct vpu_instance *inst,
 	vpu_write_reg(inst->dev, W5_ADDR_WORK_BASE, p_dec_info->vb_work.daddr);
 	vpu_write_reg(inst->dev, W5_WORK_SIZE, p_dec_info->vb_work.size);
 
-	if (inst->dev->product_code != WAVE515_CODE) {
+	if (!PRODUCT_CODE_515_STYLE(inst->dev->product_code)) {
 		vpu_write_reg(inst->dev, W5_CMD_ADDR_SEC_AXI, vpu_dev->sram_buf.daddr);
 		vpu_write_reg(inst->dev, W5_CMD_SEC_AXI_SIZE, vpu_dev->sram_buf.size);
 	}
@@ -580,7 +622,7 @@ int wave5_vpu_build_up_dec_param(struct vpu_instance *inst,
 	/* NOTE: SDMA reads MSB first */
 	vpu_write_reg(inst->dev, W5_CMD_BS_PARAM, BITSTREAM_ENDIANNESS_BIG_ENDIAN);
 
-	if (inst->dev->product_code != WAVE515_CODE) {
+	if (!PRODUCT_CODE_515_STYLE(inst->dev->product_code)) {
 		/* This register must be reset explicitly */
 		vpu_write_reg(inst->dev, W5_CMD_EXT_ADDR, 0);
 		vpu_write_reg(inst->dev, W5_CMD_NUM_CQ_DEPTH_M1,
@@ -649,7 +691,7 @@ int wave5_vpu_dec_init_seq(struct vpu_instance *inst)
 	bs_option = get_bitstream_options(p_dec_info);
 
 	/* Without RD_PTR_VALID_FLAG Wave515 ignores RD_PTR value */
-	if (inst->dev->product_code == WAVE515_CODE)
+	if (PRODUCT_CODE_515_STYLE(inst->dev->product_code))
 		bs_option |= BSOPTION_RD_PTR_VALID_FLAG;
 
 	vpu_write_reg(inst->dev, W5_BS_OPTION, bs_option);
@@ -718,7 +760,7 @@ static void wave5_get_dec_seq_result(struct vpu_instance *inst, struct dec_initi
 		info->profile = FIELD_GET(SEQ_PARAM_PROFILE_MASK, reg_val);
 	}
 
-	if (inst->dev->product_code != WAVE515_CODE) {
+	if (!PRODUCT_CODE_515_STYLE(inst->dev->product_code)) {
 		info->vlc_buf_size = vpu_read_reg(inst->dev, W5_RET_VLC_BUF_SIZE);
 		info->param_buf_size = vpu_read_reg(inst->dev, W5_RET_PARAM_BUF_SIZE);
 		p_dec_info->vlc_buf_size = info->vlc_buf_size;
@@ -741,7 +783,7 @@ int wave5_vpu_dec_get_seq_info(struct vpu_instance *inst, struct dec_initial_inf
 	if (ret)
 		return ret;
 
-	reg_val = vpu_read_reg(inst->dev, W5_RET_QUEUE_STATUS);
+	reg_val = wave5_read_queue_status(inst->dev);
 
 	p_dec_info->instance_queue_count = (reg_val >> 16) & 0xff;
 	p_dec_info->report_queue_count = (reg_val & QUEUE_REPORT_MASK);
@@ -825,7 +867,7 @@ int wave5_vpu_dec_register_framebuffer(struct vpu_instance *inst, struct frame_b
 
 		pic_size = (init_info->pic_width << 16) | (init_info->pic_height);
 
-		if (inst->dev->product_code != WAVE515_CODE) {
+		if (!PRODUCT_CODE_515_STYLE(inst->dev->product_code)) {
 			vb_buf.size = (p_dec_info->vlc_buf_size * VLC_BUF_NUM) +
 				(p_dec_info->param_buf_size * WAVE521_COMMAND_QUEUE_DEPTH);
 			vb_buf.daddr = 0;
@@ -941,7 +983,7 @@ static u32 wave5_vpu_dec_validate_sec_axi(struct vpu_instance *inst)
 	 * TODO: calculate bit_size, ip_size, lf_size from width and bitdepth
 	 * for Wave521.
 	 */
-	if (inst->dev->product_code == WAVE515_CODE) {
+	if (PRODUCT_CODE_515_STYLE(inst->dev->product_code)) {
 		bit_size = DIV_ROUND_UP(width, 16) * 5 * 8;
 		ip_size = ALIGN(width, 16) * 2 * bitdepth / 8;
 		lf_size = ALIGN(width, 16) * 10 * bitdepth / 8;
@@ -1021,7 +1063,7 @@ int wave5_vpu_dec_get_result(struct vpu_instance *inst, struct dec_output_info *
 	if (ret)
 		return ret;
 
-	reg_val = vpu_read_reg(inst->dev, W5_RET_QUEUE_STATUS);
+	reg_val = wave5_read_queue_status(inst->dev);
 
 	p_dec_info->instance_queue_count = (reg_val >> 16) & 0xff;
 	p_dec_info->report_queue_count = (reg_val & QUEUE_REPORT_MASK);
@@ -1124,7 +1166,9 @@ int wave5_vpu_re_init(struct device *dev, u8 *fw, size_t size)
 
 	code_base = common_vb->daddr;
 
-	if (vpu_dev->product_code == WAVE515_CODE)
+	if (vpu_dev->product_code == WAVE511_CODE)
+		code_size = WAVE511_MAX_CODE_BUF_SIZE;
+	else if (vpu_dev->product_code == WAVE515_CODE)
 		code_size = WAVE515_MAX_CODE_BUF_SIZE;
 	else
 		code_size = WAVE521_MAX_CODE_BUF_SIZE;
@@ -1135,7 +1179,8 @@ int wave5_vpu_re_init(struct device *dev, u8 *fw, size_t size)
 		return -EINVAL;
 
 	temp_base = code_base + code_size;
-	temp_size = WAVE5_TEMPBUF_SIZE;
+	temp_size = vpu_dev->product_code == WAVE511_CODE ?
+		    WAVE511_TEMPBUF_SIZE : WAVE5_TEMPBUF_SIZE;
 
 	old_code_base = vpu_read_reg(vpu_dev, W5_VPU_REMAP_PADDR);
 
@@ -1169,14 +1214,15 @@ int wave5_vpu_re_init(struct device *dev, u8 *fw, size_t size)
 		/* These register must be reset explicitly */
 		vpu_write_reg(vpu_dev, W5_HW_OPTION, 0);
 
-		if (vpu_dev->product_code != WAVE515_CODE) {
+		if (!PRODUCT_CODE_515_STYLE(vpu_dev->product_code)) {
 			wave5_fio_writel(vpu_dev, W5_BACKBONE_PROC_EXT_ADDR, 0);
 			wave5_fio_writel(vpu_dev, W5_BACKBONE_AXI_PARAM, 0);
 			vpu_write_reg(vpu_dev, W5_SEC_AXI_PARAM, 0);
 		}
 
 		reg_val = vpu_read_reg(vpu_dev, W5_VPU_RET_VPU_CONFIG0);
-		if (FIELD_GET(W521_FEATURE_BACKBONE, reg_val)) {
+		if (vpu_dev->product_code != WAVE511_CODE &&
+		    FIELD_GET(W521_FEATURE_BACKBONE, reg_val)) {
 			reg_val = ((WAVE5_PROC_AXI_ID << 28) |
 					(WAVE5_PRP_AXI_ID << 24) |
 					(WAVE5_FBD_Y_AXI_ID << 20) |
@@ -1188,18 +1234,26 @@ int wave5_vpu_re_init(struct device *dev, u8 *fw, size_t size)
 			wave5_fio_writel(vpu_dev, W5_BACKBONE_PROG_AXI_ID, reg_val);
 		}
 
-		if (vpu_dev->product_code == WAVE515_CODE) {
+		if (PRODUCT_CODE_515_STYLE(vpu_dev->product_code)) {
+			u32 depth = WAVE515_COMMAND_QUEUE_DEPTH, tbsize = WAVE515_ONE_TASKBUF_SIZE;
 			dma_addr_t task_buf_base;
 			u32 i;
 
-			vpu_write_reg(vpu_dev, W5_CMD_INIT_NUM_TASK_BUF,
-				      WAVE515_COMMAND_QUEUE_DEPTH);
-			vpu_write_reg(vpu_dev, W5_CMD_INIT_TASK_BUF_SIZE,
-				      WAVE515_ONE_TASKBUF_SIZE);
+			if (vpu_dev->product_code == WAVE511_CODE) {
+				depth = WAVE511_COMMAND_QUEUE_DEPTH;
+				tbsize = WAVE511_ONE_TASKBUF_SIZE;
+				/* the vendor driver writes this before INIT_VPU */
+				vpu_write_reg(vpu_dev, W5_CMD_ADDR_SEC_AXI, 0xffff);
+			}
 
-			for (i = 0; i < WAVE515_COMMAND_QUEUE_DEPTH; i++) {
+			vpu_write_reg(vpu_dev, W5_CMD_INIT_NUM_TASK_BUF,
+				      depth);
+			vpu_write_reg(vpu_dev, W5_CMD_INIT_TASK_BUF_SIZE,
+				      tbsize);
+
+			for (i = 0; i < depth; i++) {
 				task_buf_base = temp_base + temp_size +
-						(i * WAVE515_ONE_TASKBUF_SIZE);
+						(i * tbsize);
 				vpu_write_reg(vpu_dev,
 					      W5_CMD_INIT_ADDR_TASK_BUF0 + (i * 4),
 					      task_buf_base);
@@ -1266,7 +1320,9 @@ int wave5_vpu_sleep_wake(struct device *dev, bool i_sleep_wake, const uint16_t *
 
 		code_base = common_vb->daddr;
 
-		if (vpu_dev->product_code == WAVE515_CODE)
+		if (vpu_dev->product_code == WAVE511_CODE)
+			code_size = WAVE511_MAX_CODE_BUF_SIZE;
+		else if (vpu_dev->product_code == WAVE515_CODE)
 			code_size = WAVE515_MAX_CODE_BUF_SIZE;
 		else
 			code_size = WAVE521_MAX_CODE_BUF_SIZE;
@@ -1279,7 +1335,8 @@ int wave5_vpu_sleep_wake(struct device *dev, bool i_sleep_wake, const uint16_t *
 		}
 
 		temp_base = code_base + code_size;
-		temp_size = WAVE5_TEMPBUF_SIZE;
+		temp_size = vpu_dev->product_code == WAVE511_CODE ?
+			    WAVE511_TEMPBUF_SIZE : WAVE5_TEMPBUF_SIZE;
 
 		/* Power on without DEBUG mode */
 		vpu_write_reg(vpu_dev, W5_PO_CONF, 0);
@@ -1294,7 +1351,7 @@ int wave5_vpu_sleep_wake(struct device *dev, bool i_sleep_wake, const uint16_t *
 		/* These register must be reset explicitly */
 		vpu_write_reg(vpu_dev, W5_HW_OPTION, 0);
 
-		if (vpu_dev->product_code != WAVE515_CODE) {
+		if (!PRODUCT_CODE_515_STYLE(vpu_dev->product_code)) {
 			wave5_fio_writel(vpu_dev, W5_BACKBONE_PROC_EXT_ADDR, 0);
 			wave5_fio_writel(vpu_dev, W5_BACKBONE_AXI_PARAM, 0);
 			vpu_write_reg(vpu_dev, W5_SEC_AXI_PARAM, 0);
@@ -1315,18 +1372,26 @@ int wave5_vpu_sleep_wake(struct device *dev, bool i_sleep_wake, const uint16_t *
 			wave5_fio_writel(vpu_dev, W5_BACKBONE_PROG_AXI_ID, reg_val);
 		}
 
-		if (vpu_dev->product_code == WAVE515_CODE) {
+		if (PRODUCT_CODE_515_STYLE(vpu_dev->product_code)) {
+			u32 depth = WAVE515_COMMAND_QUEUE_DEPTH, tbsize = WAVE515_ONE_TASKBUF_SIZE;
 			dma_addr_t task_buf_base;
 			u32 i;
 
-			vpu_write_reg(vpu_dev, W5_CMD_INIT_NUM_TASK_BUF,
-				      WAVE515_COMMAND_QUEUE_DEPTH);
-			vpu_write_reg(vpu_dev, W5_CMD_INIT_TASK_BUF_SIZE,
-				      WAVE515_ONE_TASKBUF_SIZE);
+			if (vpu_dev->product_code == WAVE511_CODE) {
+				depth = WAVE511_COMMAND_QUEUE_DEPTH;
+				tbsize = WAVE511_ONE_TASKBUF_SIZE;
+				/* the vendor driver writes this before INIT_VPU */
+				vpu_write_reg(vpu_dev, W5_CMD_ADDR_SEC_AXI, 0xffff);
+			}
 
-			for (i = 0; i < WAVE515_COMMAND_QUEUE_DEPTH; i++) {
+			vpu_write_reg(vpu_dev, W5_CMD_INIT_NUM_TASK_BUF,
+				      depth);
+			vpu_write_reg(vpu_dev, W5_CMD_INIT_TASK_BUF_SIZE,
+				      tbsize);
+
+			for (i = 0; i < depth; i++) {
 				task_buf_base = temp_base + temp_size +
-						(i * WAVE515_ONE_TASKBUF_SIZE);
+						(i * tbsize);
 				vpu_write_reg(vpu_dev,
 					      W5_CMD_INIT_ADDR_TASK_BUF0 + (i * 4),
 					      task_buf_base);
@@ -1378,6 +1443,17 @@ int wave5_vpu_reset(struct device *dev, enum sw_reset_mode reset_mode)
 	if ((val >> 28) & 0x1)
 		p_attr->support_vcpu_backbone = true;
 
+	/*
+	 * The WAVE511 has the combined backbone only, whatever CONFIG0 says,
+	 * and its bus-control register takes 0x4 rather than 0x7 (this is
+	 * what the vendor's reference driver for it does).
+	 */
+	if (vpu_dev->product_code == WAVE511_CODE) {
+		p_attr->support_backbone = true;
+		p_attr->support_vcore_backbone = false;
+		p_attr->support_vcpu_backbone = false;
+	}
+
 	/* waiting for completion of bus transaction */
 	if (p_attr->support_backbone) {
 		dev_dbg(dev, "%s: backbone supported\n", __func__);
@@ -1405,12 +1481,16 @@ int wave5_vpu_reset(struct device *dev, enum sw_reset_mode reset_mode)
 			}
 		} else {
 			/* step1 : disable request */
-			wave5_fio_writel(vpu_dev, W5_COMBINED_BACKBONE_BUS_CTRL, 0x7);
+			wave5_fio_writel(vpu_dev, W5_COMBINED_BACKBONE_BUS_CTRL,
+					 vpu_dev->product_code == WAVE511_CODE ? 0x4 : 0x7);
 
 			/* step2 : waiting for completion of bus transaction */
 			if (wave5_wait_bus_busy(vpu_dev, W5_COMBINED_BACKBONE_BUS_STATUS)) {
 				wave5_fio_writel(vpu_dev, W5_COMBINED_BACKBONE_BUS_CTRL, 0x00);
-				return -EBUSY;
+				/* the WAVE511's FIO port only answers once booted */
+				if (vpu_dev->product_code != WAVE511_CODE)
+					return -EBUSY;
+				dev_dbg(dev, "%s: bus quiesce not answered, resetting anyway\n", __func__);
 			}
 		}
 	} else {
@@ -1902,7 +1982,7 @@ int wave5_vpu_enc_get_seq_info(struct vpu_instance *inst, struct enc_initial_inf
 
 	dev_dbg(inst->dev->dev, "%s: init seq\n", __func__);
 
-	reg_val = vpu_read_reg(inst->dev, W5_RET_QUEUE_STATUS);
+	reg_val = wave5_read_queue_status(inst->dev);
 
 	p_enc_info->instance_queue_count = (reg_val >> 16) & 0xff;
 	p_enc_info->report_queue_count = (reg_val & QUEUE_REPORT_MASK);
@@ -2351,7 +2431,7 @@ int wave5_vpu_enc_get_result(struct vpu_instance *inst, struct enc_output_info *
 
 	dev_dbg(inst->dev->dev, "%s: enc pic complete\n", __func__);
 
-	reg_val = vpu_read_reg(inst->dev, W5_RET_QUEUE_STATUS);
+	reg_val = wave5_read_queue_status(inst->dev);
 
 	p_enc_info->instance_queue_count = (reg_val >> 16) & 0xff;
 	p_enc_info->report_queue_count = (reg_val & QUEUE_REPORT_MASK);

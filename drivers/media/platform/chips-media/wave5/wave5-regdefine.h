@@ -182,6 +182,8 @@ enum query_opt {
 #define W5_RET_STAGE0_INSTANCE_INFO             (W5_REG_BASE + 0x01EC)
 #define W5_RET_STAGE1_INSTANCE_INFO             (W5_REG_BASE + 0x01F0)
 #define W5_RET_STAGE2_INSTANCE_INFO             (W5_REG_BASE + 0x01F4)
+/* the WAVE511 firmware reports the queue status here instead */
+#define W511_RET_QUEUE_STATUS                   (W5_REG_BASE + 0x01F4)
 
 #define W5_RET_SEQ_DONE_INSTANCE_INFO           (W5_REG_BASE + 0x01FC)
 

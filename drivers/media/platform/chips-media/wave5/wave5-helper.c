@@ -42,7 +42,7 @@ void wave5_cleanup_instance(struct vpu_instance *inst, struct file *filp)
 	 * wave5_vpu_dec_unregister_device().
 	 */
 	if (list_is_singular(&inst->list) &&
-	    inst->dev->product_code != WAVE515_CODE)
+	    !PRODUCT_CODE_515_STYLE(inst->dev->product_code))
 		wave5_vdi_free_sram(inst->dev);
 
 	for (i = 0; i < inst->fbc_buf_count; i++)

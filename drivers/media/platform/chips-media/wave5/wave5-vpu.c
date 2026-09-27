@@ -74,7 +74,7 @@ static void wave5_vpu_handle_irq(void *dev_id)
 
 		if (irq_reason & BIT(INT_WAVE5_INIT_SEQ) ||
 		    irq_reason & BIT(INT_WAVE5_ENC_SET_PARAM)) {
-			if (dev->product_code == WAVE515_CODE &&
+			if (PRODUCT_CODE_515_STYLE(dev->product_code) &&
 			    (cmd_done & BIT(inst->id))) {
 				cmd_done &= ~BIT(inst->id);
 				wave5_vdi_write_register(dev, W5_RET_QUEUE_CMD_DONE_INST,
@@ -235,6 +235,10 @@ static __maybe_unused int wave5_pm_suspend(struct device *dev)
 	if (vpu->irq < 0)
 		hrtimer_cancel(&vpu->hrtimer);
 
+	/* the WAVE511 firmware does not come back from sleep: stay up, clocked */
+	if (vpu->product_code == WAVE511_CODE)
+		return 0;
+
 	wave5_vpu_sleep_wake(dev, true, NULL, 0);
 	clk_bulk_disable_unprepare(vpu->num_clks, vpu->clks);
 
@@ -246,11 +250,13 @@ static __maybe_unused int wave5_pm_resume(struct device *dev)
 	struct vpu_device *vpu = dev_get_drvdata(dev);
 	int ret = 0;
 
-	wave5_vpu_sleep_wake(dev, false, NULL, 0);
-	ret = clk_bulk_prepare_enable(vpu->num_clks, vpu->clks);
-	if (ret) {
-		dev_err(dev, "Enabling clocks, fail: %d\n", ret);
-		return ret;
+	if (vpu->product_code != WAVE511_CODE) {
+		wave5_vpu_sleep_wake(dev, false, NULL, 0);
+		ret = clk_bulk_prepare_enable(vpu->num_clks, vpu->clks);
+		if (ret) {
+			dev_err(dev, "Enabling clocks, fail: %d\n", ret);
+			return ret;
+		}
 	}
 
 	if (vpu->irq < 0 && !hrtimer_active(&vpu->hrtimer))
@@ -401,10 +407,16 @@ static int wave5_vpu_probe(struct platform_device *pdev)
 	dev_info(&pdev->dev, "Product Code:      0x%x\n", dev->product_code);
 	dev_info(&pdev->dev, "Firmware Revision: %u\n", fw_revision);
 
+	/*
+	 * The WAVE511 firmware does not come back from the sleep command
+	 * (the wake-up re-init times out), and the vendor driver never puts
+	 * it to sleep: leave runtime PM off and the core running.
+	 */
 	pm_runtime_set_autosuspend_delay(&pdev->dev, 500);
 	pm_runtime_use_autosuspend(&pdev->dev);
 	pm_runtime_enable(&pdev->dev);
-	wave5_vpu_sleep_wake(&pdev->dev, true, NULL, 0);
+	if (dev->product_code != WAVE511_CODE)
+		wave5_vpu_sleep_wake(&pdev->dev, true, NULL, 0);
 
 	return 0;
 
@@ -472,8 +484,22 @@ static const struct wave5_match_data ti_wave521c_data = {
 	.sram_size = (64 * 1024),
 };
 
+/*
+ * SigmaStar SSD20xD: a WAVE511, the decoder-only member of the 521 family,
+ * behind a 4 KiB register window that does not reach the product number
+ * register, so the code is given here as the vendor driver does. The
+ * firmware is the vendor's "chagall" decoder firmware.
+ */
+static const struct wave5_match_data sstar_ssd20xd_data = {
+	.flags = WAVE5_IS_DEC,
+	.fw_name = "cnm/chagall.bin",
+	.sram_size = (64 * 1024),
+	.product_code = WAVE511_CODE,
+};
+
 static const struct of_device_id wave5_dt_ids[] = {
 	{ .compatible = "ti,j721s2-wave521c", .data = &ti_wave521c_data },
+	{ .compatible = "sstar,ssd20xd-vdec", .data = &sstar_ssd20xd_data },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, wave5_dt_ids);
