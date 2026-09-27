@@ -29,6 +29,9 @@ struct vpu_src_buffer {
 struct vpu_dst_buffer {
 	struct v4l2_m2m_buffer v4l2_m2m_buf;
 	bool                   display;
+	/* WAVE511: picture waiting for its turn in display order */
+	s32                    poc;
+	struct list_head       list;
 };
 
 enum vpu_fmt_type {

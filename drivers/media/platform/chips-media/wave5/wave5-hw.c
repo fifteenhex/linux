@@ -799,6 +799,14 @@ int wave5_vpu_dec_get_seq_info(struct vpu_instance *inst, struct dec_initial_inf
 
 	wave5_get_dec_seq_result(inst, info);
 
+	/*
+	 * The WAVE511 firmware hands out linear pictures in decoding order
+	 * (see wave5_vpu_decode()), so the host has to reorder them for
+	 * display itself. Remember how many pictures that takes.
+	 */
+	if (inst->dev->product_code == WAVE511_CODE)
+		p_dec_info->reorder_delay = vpu_read_reg(inst->dev, W5_RET_DEC_NUM_REORDER_DELAY) & 0xff;
+
 	return ret;
 }
 
@@ -819,6 +827,22 @@ int wave5_vpu_dec_register_framebuffer(struct vpu_instance *inst, struct frame_b
 	u32 color_format = 0;
 	u32 pixel_order = 1;
 	u32 bwb_flag = (map_type == LINEAR_FRAME_MAP) ? 1 : 0;
+
+	/*
+	 * The WAVE511 firmware takes the VLC buffer of a picture with every
+	 * DEC_PIC command instead of a task buffer at SET_FB time; it does
+	 * not report a size, so size it from the picture.
+	 */
+	if (map_type >= COMPRESSED_FRAME_MAP && inst->dev->product_code == WAVE511_CODE &&
+	    !p_dec_info->vb_vlc.size) {
+		p_dec_info->vb_vlc.size = ALIGN(max(init_info->pic_width * init_info->pic_height,
+						    WAVE511_MIN_VLC_BUF_SIZE), SZ_4K);
+		ret = wave5_vdi_allocate_dma_memory(inst->dev, &p_dec_info->vb_vlc);
+		if (ret) {
+			p_dec_info->vb_vlc.size = 0;
+			return ret;
+		}
+	}
 
 	cbcr_interleave = inst->cbcr_interleave;
 	nv21 = inst->nv21;
@@ -956,6 +980,7 @@ int wave5_vpu_dec_register_framebuffer(struct vpu_instance *inst, struct frame_b
 
 free_buffers:
 	wave5_vdi_free_dma_memory(inst->dev, &p_dec_info->vb_task);
+	wave5_vdi_free_dma_memory(inst->dev, &p_dec_info->vb_vlc);
 free_fbc_c_tbl_buffers:
 	for (i = 0; i < count; i++)
 		wave5_vdi_free_dma_memory(inst->dev, &p_dec_info->vb_fbc_c_tbl[i]);
@@ -1030,6 +1055,27 @@ int wave5_vpu_decode(struct vpu_instance *inst, u32 *fail_res)
 	vpu_write_reg(inst->dev, W5_CMD_SEQ_CHANGE_ENABLE_FLAG, p_dec_info->seq_change_mask);
 	/* When reordering is disabled we force the latency of the framebuffers */
 	vpu_write_reg(inst->dev, W5_CMD_DEC_FORCE_FB_LATENCY_PLUS1, !p_dec_info->reorder_enable);
+
+	if (inst->dev->product_code == WAVE511_CODE) {
+		/*
+		 * The WAVE511 firmware does not write linear copies of the
+		 * frame buffers registered with SET_FB. Instead every DEC_PIC
+		 * names the linear buffer the decoded picture is to be written
+		 * to (in decoding order) and the VLC buffer to use.
+		 */
+		struct frame_buffer *out = &p_dec_info->linear_out;
+
+		vpu_write_reg(inst->dev, W511_CMD_DEC_OUT_SIZE,
+			      (p_dec_info->initial_info.pic_width << 16) |
+			      p_dec_info->initial_info.pic_height);
+		vpu_write_reg(inst->dev, W511_CMD_DEC_OUT_ADDR_Y, out->buf_y);
+		vpu_write_reg(inst->dev, W511_CMD_DEC_OUT_ADDR_CB, out->buf_cb);
+		vpu_write_reg(inst->dev, W511_CMD_DEC_OUT_ADDR_CR, out->buf_cr);
+		vpu_write_reg(inst->dev, W511_CMD_DEC_OUT_STRIDE, out->stride);
+		vpu_write_reg(inst->dev, W511_CMD_DEC_VLC_BUF_SIZE, p_dec_info->vb_vlc.size);
+		vpu_write_reg(inst->dev, W511_CMD_DEC_VLC_BUF_ADDR, p_dec_info->vb_vlc.daddr);
+		vpu_write_reg(inst->dev, W511_CMD_DEC_OUT_ENABLE, 1);
+	}
 
 	ret = send_firmware_command(inst, W5_DEC_ENC_PIC, true, &reg_val, fail_res);
 	if (ret == -ETIMEDOUT)

@@ -689,6 +689,10 @@ struct dec_info {
 	u32 user_data_buf_size;
 	struct vpu_buf vb_work;
 	struct vpu_buf vb_task;
+	/* WAVE511: VLC buffer and linear output of the picture being decoded */
+	struct vpu_buf vb_vlc;
+	struct frame_buffer linear_out;
+	u32 reorder_delay;
 	struct dec_output_info dec_out_info[WAVE5_MAX_FBS];
 	u32 seq_change_mask;
 	enum temporal_id_mode temp_id_select_mode;
@@ -814,6 +818,13 @@ struct vpu_instance {
 	u32 queued_dst_buf_num;
 	struct list_head avail_src_bufs;
 	struct list_head avail_dst_bufs;
+	/*
+	 * WAVE511: the capture buffer the picture in flight is decoded into,
+	 * and the decoded pictures held back for display reordering.
+	 */
+	struct vb2_v4l2_buffer *out_buf;
+	struct list_head reorder_bufs;
+	unsigned int reorder_count;
 	struct v4l2_rect conf_win;
 	u64 timestamp;
 	enum frame_buffer_format output_format;

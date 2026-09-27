@@ -706,6 +706,7 @@ int wave5_vpu_dec_give_command(struct vpu_instance *inst, enum codec_command cmd
 		}
 
 		wave5_vdi_free_dma_memory(inst->dev, &p_dec_info->vb_task);
+		wave5_vdi_free_dma_memory(inst->dev, &p_dec_info->vb_vlc);
 		break;
 	}
 	case DEC_GET_SEQ_INFO: {

@@ -185,6 +185,19 @@ enum query_opt {
 /* the WAVE511 firmware reports the queue status here instead */
 #define W511_RET_QUEUE_STATUS                   (W5_REG_BASE + 0x01F4)
 
+/*
+ * WAVE511 - DEC_PIC: the linear output of the decoded picture and its VLC
+ * buffer are given with every command.
+ */
+#define W511_CMD_DEC_OUT_ENABLE                 (W5_REG_BASE + 0x0124)
+#define W511_CMD_DEC_OUT_SIZE                   (W5_REG_BASE + 0x0154)
+#define W511_CMD_DEC_OUT_ADDR_Y                 (W5_REG_BASE + 0x0158)
+#define W511_CMD_DEC_OUT_ADDR_CB                (W5_REG_BASE + 0x015C)
+#define W511_CMD_DEC_OUT_ADDR_CR                (W5_REG_BASE + 0x0160)
+#define W511_CMD_DEC_OUT_STRIDE                 (W5_REG_BASE + 0x0164)
+#define W511_CMD_DEC_VLC_BUF_SIZE               (W5_REG_BASE + 0x0168)
+#define W511_CMD_DEC_VLC_BUF_ADDR               (W5_REG_BASE + 0x016C)
+
 #define W5_RET_SEQ_DONE_INSTANCE_INFO           (W5_REG_BASE + 0x01FC)
 
 #define W5_BS_OPTION                            (W5_REG_BASE + 0x0120)

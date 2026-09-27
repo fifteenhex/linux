@@ -166,6 +166,14 @@ static int wave5_vpu_dec_set_eos_on_firmware(struct vpu_instance *inst)
 	return 0;
 }
 
+static bool wave5_is_draining_or_eos(struct vpu_instance *inst)
+{
+	struct v4l2_m2m_ctx *m2m_ctx = inst->v4l2_fh.m2m_ctx;
+
+	lockdep_assert_held(&inst->state_spinlock);
+	return m2m_ctx->is_draining || inst->eos;
+}
+
 static bool wave5_last_src_buffer_consumed(struct v4l2_m2m_ctx *m2m_ctx)
 {
 	struct vpu_src_buffer *vpu_buf;
@@ -228,12 +236,131 @@ static void wave5_handle_src_buffer(struct vpu_instance *inst, dma_addr_t rd_ptr
 	inst->remaining_consumed_bytes = consumed_bytes;
 }
 
+/*
+ * The WAVE511 firmware writes the linear picture of every DEC_PIC into a
+ * buffer named by the host, in decoding order, and reports no display
+ * index. The driver picks a capture buffer for each decode and reorders
+ * the decoded pictures for display by their picture order count.
+ */
+static bool wave5_dec_host_reorders(struct vpu_instance *inst)
+{
+	return inst->dev->product_code == WAVE511_CODE;
+}
+
+static void wave5_dec_set_linear_out(struct vpu_instance *inst, struct vb2_v4l2_buffer *vbuf)
+{
+	struct frame_buffer *out = &inst->codec_info->dec_info.linear_out;
+	struct vb2_buffer *vb = &vbuf->vb2_buf;
+	u32 stride = inst->dst_fmt.plane_fmt[0].bytesperline;
+	u32 luma_size = stride * inst->dst_fmt.height;
+	u32 chroma_size;
+
+	if (inst->output_format == FORMAT_422)
+		chroma_size = stride * inst->dst_fmt.height / 2;
+	else
+		chroma_size = stride * inst->dst_fmt.height / 4;
+
+	out->buf_y = vb2_dma_contig_plane_dma_addr(vb, 0);
+	if (inst->dst_fmt.num_planes == 1) {
+		out->buf_cb = out->buf_y + luma_size;
+		out->buf_cr = out->buf_cb + chroma_size;
+	} else if (inst->dst_fmt.num_planes == 2) {
+		out->buf_cb = vb2_dma_contig_plane_dma_addr(vb, 1);
+		out->buf_cr = out->buf_cb + chroma_size;
+	} else {
+		out->buf_cb = vb2_dma_contig_plane_dma_addr(vb, 1);
+		out->buf_cr = vb2_dma_contig_plane_dma_addr(vb, 2);
+	}
+	out->stride = stride;
+	out->map_type = LINEAR_FRAME_MAP;
+}
+
+static void wave5_dec_output_picture(struct vpu_instance *inst, struct vb2_v4l2_buffer *vbuf,
+				     enum vb2_buffer_state state)
+{
+	struct vpu_dst_buffer *dst_vpu_buf = wave5_to_vpu_dst_buf(vbuf);
+	unsigned int i;
+
+	for (i = 0; i < inst->dst_fmt.num_planes; i++)
+		vb2_set_plane_payload(&vbuf->vb2_buf, i,
+				      state == VB2_BUF_STATE_DONE ?
+				      inst->dst_fmt.plane_fmt[i].sizeimage : 0);
+	vbuf->field = V4L2_FIELD_NONE;
+	dst_vpu_buf->display = true;
+	v4l2_m2m_buf_done(vbuf, state);
+}
+
+/* Hand out reordered pictures until at most @keep of them are held back. */
+static void wave5_dec_reorder_flush(struct vpu_instance *inst, unsigned int keep,
+				    enum vb2_buffer_state state)
+{
+	while (inst->reorder_count > keep) {
+		struct vpu_dst_buffer *buf, *first = NULL;
+
+		list_for_each_entry(buf, &inst->reorder_bufs, list) {
+			if (!first || buf->poc < first->poc)
+				first = buf;
+		}
+		list_del(&first->list);
+		inst->reorder_count--;
+		wave5_dec_output_picture(inst, &first->v4l2_m2m_buf.vb, state);
+	}
+}
+
+static unsigned int wave5_dec_reorder_keep(struct vpu_instance *inst)
+{
+	struct vb2_queue *dst_vq = v4l2_m2m_get_dst_vq(inst->v4l2_fh.m2m_ctx);
+	unsigned int nbufs = vb2_get_num_buffers(dst_vq);
+	unsigned int keep = inst->codec_info->dec_info.reorder_delay;
+
+	/* one buffer is being decoded into and the application needs one */
+	if (nbufs >= 2 && keep > nbufs - 2)
+		keep = nbufs - 2;
+
+	return keep;
+}
+
+static void wave5_dec_return_out_buf(struct vpu_instance *inst, enum vb2_buffer_state state)
+{
+	struct v4l2_m2m_ctx *m2m_ctx = inst->v4l2_fh.m2m_ctx;
+	struct vb2_v4l2_buffer *out = inst->out_buf;
+
+	if (!out)
+		return;
+
+	inst->out_buf = NULL;
+	if (state == VB2_BUF_STATE_QUEUED)
+		v4l2_m2m_buf_queue(m2m_ctx, out);
+	else
+		wave5_dec_output_picture(inst, out, state);
+}
+
 static int start_decode(struct vpu_instance *inst, u32 *fail_res)
 {
 	struct v4l2_m2m_ctx *m2m_ctx = inst->v4l2_fh.m2m_ctx;
 	int ret = 0;
 
+	if (wave5_dec_host_reorders(inst)) {
+		struct vb2_v4l2_buffer *dst;
+
+		/* one picture at a time: its buffer is only known when it completes */
+		if (inst->out_buf) {
+			*fail_res = WAVE5_SYSERR_QUEUEING_FAIL;
+			return 0;
+		}
+
+		dst = v4l2_m2m_dst_buf_remove(m2m_ctx);
+		if (!dst) {
+			*fail_res = WAVE5_SYSERR_QUEUEING_FAIL;
+			return 0;
+		}
+		wave5_dec_set_linear_out(inst, dst);
+		inst->out_buf = dst;
+	}
+
 	ret = wave5_vpu_dec_start_one_frame(inst, fail_res);
+	if (ret || *fail_res == WAVE5_SYSERR_QUEUEING_FAIL)
+		wave5_dec_return_out_buf(inst, VB2_BUF_STATE_QUEUED);
 	if (ret) {
 		struct vb2_v4l2_buffer *src_buf;
 
@@ -372,6 +499,7 @@ static void wave5_vpu_dec_finish_decode(struct vpu_instance *inst)
 	ret = wave5_vpu_dec_get_output_info(inst, &dec_info);
 	if (ret) {
 		dev_dbg(inst->dev->dev, "%s: could not get output info.", __func__);
+		wave5_dec_return_out_buf(inst, VB2_BUF_STATE_QUEUED);
 		v4l2_m2m_job_finish(inst->v4l2_m2m_dev, m2m_ctx);
 		return;
 	}
@@ -385,14 +513,53 @@ static void wave5_vpu_dec_finish_decode(struct vpu_instance *inst)
 
 	if (!vb2_is_streaming(dst_vq)) {
 		dev_dbg(inst->dev->dev, "%s: capture is not streaming..", __func__);
+		wave5_dec_return_out_buf(inst, VB2_BUF_STATE_QUEUED);
 		v4l2_m2m_job_finish(inst->v4l2_m2m_dev, m2m_ctx);
 		return;
 	}
 
-	/* Remove decoded buffer from the ready queue now that it has been
-	 * decoded.
-	 */
-	if (dec_info.index_frame_decoded >= 0) {
+	if (wave5_dec_host_reorders(inst)) {
+		struct vb2_v4l2_buffer *out = inst->out_buf;
+		bool seq_end = false;
+		unsigned long flags;
+
+		inst->out_buf = NULL;
+		if (out && dec_info.index_frame_decoded >= 0) {
+			struct vpu_dst_buffer *out_vpu_buf = wave5_to_vpu_dst_buf(out);
+
+			out->vb2_buf.timestamp = inst->timestamp;
+			out_vpu_buf->poc = dec_info.decoded_poc;
+			/* an IDR picture restarts the count: display everything before it first */
+			if (dec_info.pic_type == PIC_TYPE_IDR)
+				wave5_dec_reorder_flush(inst, 0, VB2_BUF_STATE_DONE);
+			list_add_tail(&out_vpu_buf->list, &inst->reorder_bufs);
+			inst->reorder_count++;
+			wave5_dec_reorder_flush(inst, wave5_dec_reorder_keep(inst), VB2_BUF_STATE_DONE);
+		} else if (out) {
+			/* nothing was decoded into it */
+			v4l2_m2m_buf_queue(m2m_ctx, out);
+		}
+
+		/*
+		 * The firmware never reports the end of the sequence: once it is
+		 * draining and has decoded the last picture, a decode that
+		 * produces nothing is the end.
+		 */
+		spin_lock_irqsave(&inst->state_spinlock, flags);
+		if (dec_info.index_frame_decoded < 0 && wave5_is_draining_or_eos(inst) &&
+		    (!m2m_ctx->last_src_buf || wave5_last_src_buffer_consumed(m2m_ctx)))
+			seq_end = true;
+		spin_unlock_irqrestore(&inst->state_spinlock, flags);
+
+		if (seq_end || dec_info.sequence_changed) {
+			wave5_dec_reorder_flush(inst, 0, VB2_BUF_STATE_DONE);
+			if (seq_end)
+				dec_info.index_frame_display = DISPLAY_IDX_FLAG_SEQ_END;
+		}
+	} else if (dec_info.index_frame_decoded >= 0) {
+		/* Remove decoded buffer from the ready queue now that it has been
+		 * decoded.
+		 */
 		struct vb2_buffer *vb = vb2_get_buffer(dst_vq,
 						       dec_info.index_frame_decoded);
 		if (vb) {
@@ -404,7 +571,7 @@ static void wave5_vpu_dec_finish_decode(struct vpu_instance *inst)
 		}
 	}
 
-	if (dec_info.index_frame_display >= 0) {
+	if (dec_info.index_frame_display >= 0 && !wave5_dec_host_reorders(inst)) {
 		disp_buf = v4l2_m2m_dst_buf_remove_by_idx(m2m_ctx, dec_info.index_frame_display);
 		if (!disp_buf)
 			dev_warn(inst->dev->dev, "%s: invalid display frame index %i",
@@ -1126,7 +1293,7 @@ static int wave5_prepare_fb(struct vpu_instance *inst)
 	 * Mark all frame buffers as out of display, to avoid using them before
 	 * the application have them queued.
 	 */
-	for (i = 0; i < v4l2_m2m_num_dst_bufs_ready(m2m_ctx); i++) {
+	for (i = 0; !wave5_dec_host_reorders(inst) && i < v4l2_m2m_num_dst_bufs_ready(m2m_ctx); i++) {
 		ret = wave5_vpu_dec_set_disp_flag(inst, i);
 		if (ret) {
 			dev_dbg(inst->dev->dev,
@@ -1306,7 +1473,7 @@ static void wave5_vpu_dec_buf_queue_dst(struct vb2_buffer *vb)
 	pm_runtime_resume_and_get(inst->dev->dev);
 	vbuf->sequence = inst->queued_dst_buf_num++;
 
-	if (inst->state == VPU_INST_STATE_PIC_RUN) {
+	if (inst->state == VPU_INST_STATE_PIC_RUN && !wave5_dec_host_reorders(inst)) {
 		struct vpu_dst_buffer *vpu_buf = wave5_to_vpu_dst_buf(vbuf);
 		int ret;
 
@@ -1511,7 +1678,12 @@ static int streamoff_capture(struct vb2_queue *q)
 	unsigned int i;
 	int ret = 0;
 
-	for (i = 0; i < v4l2_m2m_num_dst_bufs_ready(m2m_ctx); i++) {
+	if (wave5_dec_host_reorders(inst)) {
+		wave5_dec_reorder_flush(inst, 0, VB2_BUF_STATE_ERROR);
+		wave5_dec_return_out_buf(inst, VB2_BUF_STATE_ERROR);
+	}
+
+	for (i = 0; !wave5_dec_host_reorders(inst) && i < v4l2_m2m_num_dst_bufs_ready(m2m_ctx); i++) {
 		ret = wave5_vpu_dec_set_disp_flag(inst, i);
 		if (ret)
 			dev_dbg(inst->dev->dev,
@@ -1649,14 +1821,6 @@ static int initialize_sequence(struct vpu_instance *inst)
 	wave5_update_min_bufs_ctrl(inst, fbc_buf_count);
 
 	return 0;
-}
-
-static bool wave5_is_draining_or_eos(struct vpu_instance *inst)
-{
-	struct v4l2_m2m_ctx *m2m_ctx = inst->v4l2_fh.m2m_ctx;
-
-	lockdep_assert_held(&inst->state_spinlock);
-	return m2m_ctx->is_draining || inst->eos;
 }
 
 static void wave5_vpu_dec_device_run(void *priv)
@@ -1852,7 +2016,8 @@ static int wave5_vpu_dec_job_ready(void *priv)
 		if (!m2m_ctx->cap_q_ctx.q.streaming) {
 			dev_dbg(inst->dev->dev, "CAPTURE queue must be streaming to queue jobs!\n");
 			break;
-		} else if (v4l2_m2m_num_dst_bufs_ready(m2m_ctx) < (inst->fbc_buf_count - 1)) {
+		} else if (v4l2_m2m_num_dst_bufs_ready(m2m_ctx) <
+			   (wave5_dec_host_reorders(inst) ? 1 : inst->fbc_buf_count - 1)) {
 			dev_dbg(inst->dev->dev,
 				"No capture buffer ready to decode!\n");
 			break;
@@ -1904,6 +2069,7 @@ static int wave5_vpu_open_dec(struct file *filp)
 	spin_lock_init(&inst->state_spinlock);
 	mutex_init(&inst->feed_lock);
 	INIT_LIST_HEAD(&inst->avail_src_bufs);
+	INIT_LIST_HEAD(&inst->reorder_bufs);
 
 	inst->codec_info = kzalloc_obj(*inst->codec_info);
 	if (!inst->codec_info) {
