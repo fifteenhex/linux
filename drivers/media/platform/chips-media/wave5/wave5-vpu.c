@@ -27,6 +27,12 @@ struct wave5_match_data {
 	int flags;
 	const char *fw_name;
 	u32 sram_size;
+	/*
+	 * Product code to use when the integration does not expose the
+	 * product number register (it sits at 0x1044, outside a 4 KiB
+	 * register window); 0 means read it from the hardware.
+	 */
+	u32 product_code;
 };
 
 static int vpu_poll_interval = 5;
@@ -325,7 +331,10 @@ static int wave5_vpu_probe(struct platform_device *pdev)
 
 	dev->sram_size = match_data->sram_size;
 
-	dev->product_code = wave5_vdi_read_register(dev, VPU_PRODUCT_CODE_REGISTER);
+	if (match_data->product_code)
+		dev->product_code = match_data->product_code;
+	else
+		dev->product_code = wave5_vdi_read_register(dev, VPU_PRODUCT_CODE_REGISTER);
 	ret = wave5_vdi_init(&pdev->dev);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "wave5_vdi_init, fail: %d\n", ret);

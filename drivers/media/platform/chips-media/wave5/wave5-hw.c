@@ -197,7 +197,7 @@ bool wave5_vpu_is_init(struct vpu_device *vpu_dev)
 
 unsigned int wave5_vpu_get_product_id(struct vpu_device *vpu_dev)
 {
-	u32 val = vpu_read_reg(vpu_dev, W5_PRODUCT_NUMBER);
+	u32 val = vpu_dev->product_code;
 
 	switch (val) {
 	case WAVE515_CODE:
@@ -593,7 +593,7 @@ int wave5_vpu_build_up_dec_param(struct vpu_instance *inst,
 		return ret;
 	}
 
-	p_dec_info->product_code = vpu_read_reg(inst->dev, W5_PRODUCT_NUMBER);
+	p_dec_info->product_code = inst->dev->product_code;
 
 	return 0;
 }
@@ -1602,7 +1602,7 @@ int wave5_vpu_build_up_enc_param(struct device *dev, struct vpu_instance *inst,
 	p_enc_info->stream_buf_end_addr = buffer_addr + buffer_size;
 	p_enc_info->stride = 0;
 	p_enc_info->initial_info_obtained = false;
-	p_enc_info->product_code = vpu_read_reg(inst->dev, W5_PRODUCT_NUMBER);
+	p_enc_info->product_code = inst->dev->product_code;
 
 	return 0;
 free_vb_work:
