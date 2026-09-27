@@ -884,6 +884,15 @@ config DRM_PANEL_SAMSUNG_LD9040
 	depends on BACKLIGHT_CLASS_DEVICE
 	select VIDEOMODE_HELPERS
 
+config DRM_PANEL_SAMSUNG_LMS279CC01
+	tristate "Samsung LMS279CC01 640x480 DSI panel"
+	depends on OF
+	depends on DRM_MIPI_DSI
+	depends on BACKLIGHT_CLASS_DEVICE
+	help
+	  Say Y here if you want to enable support for the Samsung LMS279CC01
+	  2.8" 640x480 MIPI-DSI panel used in the Miyoo Mini.
+
 config DRM_PANEL_SAMSUNG_LTL106HL02
 	tristate "Samsung LTL106HL02 panel"
 	depends on OF

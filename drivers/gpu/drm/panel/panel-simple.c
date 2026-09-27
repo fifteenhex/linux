@@ -6526,43 +6526,6 @@ static const struct panel_desc_dsi tsd_tst070wsbe_196c = {
 	.lanes = 4,
 };
 
-static const struct drm_display_mode samsung_lms279cc01_mode = {
-	/*
-	 * Exactly the timing the vendor u-boot programs, which locks the panel:
-	 * 640x480 with porches hfp=48 hsw=4 hbp=48 and vfp=10 vsw=4 vbp=10, so
-	 * htotal=740, vtotal=504 and 740 * 504 * 60 = 22.3776 MHz. The kernel's
-	 * op2/DSI timing is derived from this mode, so it has to match u-boot's
-	 * numbers or the panel rolls (earlier values 22422/46/3/50/... were close
-	 * but not exact - wrong porches and htotal/vtotal off by one).
-	 */
-	.clock = 22378,
-	.hdisplay = 640,
-	.hsync_start = 640 + 48,
-	.hsync_end = 640 + 48 + 4,
-	.htotal = 640 + 48 + 4 + 48,	/* 740 */
-	.vdisplay = 480,
-	.vsync_start = 480 + 10,
-	.vsync_end = 480 + 10 + 4,
-	.vtotal = 480 + 10 + 4 + 10,	/* 504 */
-	.flags = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC,
-};
-
-static const struct panel_desc_dsi samsung_lms279cc01 = {
-	.desc = {
-		.modes = &samsung_lms279cc01_mode,
-		.num_modes = 1,
-		.bpc = 8,
-		.size = {
-			.width = 57,
-			.height = 44,
-		},
-		.connector_type = DRM_MODE_CONNECTOR_DSI,
-	},
-	.flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_CLOCK_NON_CONTINUOUS,
-	.format = MIPI_DSI_FMT_RGB888,
-	.lanes = 2,	/* the Miyoo panel is wired 2-lane, as the vendor u-boot drives it */
-};
-
 static const struct of_device_id dsi_of_match[] = {
 	{
 		.compatible = "auo,b080uan01",
@@ -6586,11 +6549,6 @@ static const struct of_device_id dsi_of_match[] = {
 		.compatible = "team-source-display,tst070wsbe-196c",
 		.data = &tsd_tst070wsbe_196c
 	}, {
-
-		.compatible = "samsung,lms279cc01",
-		.data = &samsung_lms279cc01
-	},
-	{
 		/* sentinel */
 	}
 };
