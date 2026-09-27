@@ -86,6 +86,7 @@
 #define DSI_HSA_WC		0x50
 #define DSI_HBP_WC		0x54
 #define DSI_HFP_WC		0x58
+#define DSI_BLLP_WC		0x5c
 
 #define DSI_CMDQ_SIZE		0x60
 #define CMDQ_SIZE			0x3f
@@ -197,6 +198,7 @@ struct mstar_dsi {
 	struct clk *engine_clk;
 	struct clk *digital_clk;
 	struct clk *hs_clk;
+	struct clk *pixel_clk;
 
 	u32 data_rate;
 
@@ -229,11 +231,56 @@ static void mstar_dsi_mask(struct mstar_dsi *dsi, u32 offset, u32 mask, u32 data
 	writel((temp & ~mask) | (data & mask), dsi->regs + offset);
 }
 
+/*
+ * The vendor derives the D-PHY HS timing and the video-mode blanking word
+ * counts from the lane rate and per-panel D-PHY parameters in a way that is
+ * only partly understood; the generic formulas below produce values that the
+ * stock firmware does not, and a mismatch corrupts the HS burst (shimmering,
+ * wrong pixels, rolling bottom rows). For the lane rates that have been
+ * traced on real hardware the stock firmware's values are used verbatim.
+ */
+struct mstar_dsi_vendor_timing {
+	u32 data_rate;		/* DSI data-lane bit rate this was traced at */
+	u32 timcon[4];		/* PHY_TIMECON0..3 */
+	u32 vbp, vfp;		/* vertical porches, in stream lines */
+	u32 hsa_wc, hbp_wc, hfp_wc;	/* horizontal blanking word counts */
+};
+
+static const struct mstar_dsi_vendor_timing mstar_dsi_vendor_timings[] = {
+	{
+		/* 640x480 2-lane RGB888 @ 22.3776 MHz pixel clock (Miyoo Mini) */
+		.data_rate = 268531200,
+		.timcon = { 0x03050210, 0x041a1632, 0x0e0a0100, 0x00040a02 },
+		.vbp = 16,
+		.vfp = 4,
+		.hsa_wc = 0x04,
+		.hbp_wc = 0x98,
+		.hfp_wc = 0x50,
+	},
+};
+
+static const struct mstar_dsi_vendor_timing *mstar_dsi_find_vendor_timing(struct mstar_dsi *dsi)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(mstar_dsi_vendor_timings); i++) {
+		const struct mstar_dsi_vendor_timing *t = &mstar_dsi_vendor_timings[i];
+		u32 tol = t->data_rate / 50;	/* 2% */
+
+		if (dsi->data_rate + tol >= t->data_rate &&
+		    dsi->data_rate <= t->data_rate + tol)
+			return t;
+	}
+
+	return NULL;
+}
+
 static void mstar_dsi_phy_timconfig(struct mstar_dsi *dsi)
 {
 	u32 timcon0, timcon1, timcon2, timcon3;
 	u32 data_rate_mhz = DIV_ROUND_UP(dsi->data_rate, 1000000);
 	struct mtk_phy_timing *timing = &dsi->phy_timing;
+	const struct mstar_dsi_vendor_timing *vt = mstar_dsi_find_vendor_timing(dsi);
 
 	timing->lpx = (60 * data_rate_mhz / (8 * 1000)) + 1;
 	timing->da_hs_prepare = (80 * data_rate_mhz + 4 * 1000) / 8000;
@@ -260,6 +307,13 @@ static void mstar_dsi_phy_timconfig(struct mstar_dsi *dsi)
 		  timing->clk_hs_trail << 24;
 	timcon3 = timing->clk_hs_prepare | timing->clk_hs_post << 8 |
 		  timing->clk_hs_exit << 16;
+
+	if (vt) {
+		timcon0 = vt->timcon[0];
+		timcon1 = vt->timcon[1];
+		timcon2 = vt->timcon[2];
+		timcon3 = vt->timcon[3];
+	}
 
 	writel(timcon0, dsi->regs + DSI_PHY_TIMECON0);
 	writel(timcon1, dsi->regs + DSI_PHY_TIMECON1);
@@ -457,6 +511,7 @@ static void mstar_dsi_config_vdo_timing(struct mstar_dsi *dsi)
 	u32 dsi_tmp_buf_bpp, data_phy_cycles;
 	u32 delta;
 	struct mtk_phy_timing *timing = &dsi->phy_timing;
+	const struct mstar_dsi_vendor_timing *vt = mstar_dsi_find_vendor_timing(dsi);
 
 	struct videomode *vm = &dsi->vm;
 
@@ -504,16 +559,24 @@ static void mstar_dsi_config_vdo_timing(struct mstar_dsi *dsi)
 		DRM_WARN("HFP + HBP less than d-phy, FPS will under 60Hz\n");
 	}
 
+	if (vt) {
+		writel(vt->vbp, dsi->regs + DSI_VBP_NL);
+		writel(vt->vfp, dsi->regs + DSI_VFP_NL);
+		horizontal_sync_active_byte = vt->hsa_wc;
+		horizontal_backporch_byte = vt->hbp_wc;
+		horizontal_frontporch_byte = vt->hfp_wc;
+	}
+
 	writel(horizontal_sync_active_byte, dsi->regs + DSI_HSA_WC);
 	writel(horizontal_backporch_byte, dsi->regs + DSI_HBP_WC);
 	writel(horizontal_frontporch_byte, dsi->regs + DSI_HFP_WC);
+	writel(0, dsi->regs + DSI_BLLP_WC);
 
 	mstar_dsi_ps_control(dsi);
 }
 
 static void mstar_dsi_start(struct mstar_dsi *dsi)
 {
-	printk("%s:%d\n", __func__, __LINE__);
 	writel(0, dsi->regs + DSI_START);
 	writel(1, dsi->regs + DSI_START);
 }
@@ -638,18 +701,16 @@ static int mstar_dsi_poweron(struct mstar_dsi *dsi)
 	dsi->data_rate = DIV_ROUND_UP_ULL(dsi->vm.pixelclock * bit_per_pixel,
 					  dsi->lanes);
 
-	ret = clk_set_rate(dsi->hs_clk, dsi->data_rate);
-	if (ret < 0) {
-		dev_err(dev, "Failed to set data rate: %d\n", ret);
-		goto err_refcount;
-	}
-
-	phy_power_on(dsi->phy);
-
+	/*
+	 * Order matters on this SoC: the D-PHY and host register banks are
+	 * unclocked (and hang the bus when touched) until the APB clock and
+	 * the LPLL-derived DSI clock are running, so the clocks come first,
+	 * the PHY second, and only then are host registers written.
+	 */
 	ret = clk_prepare_enable(dsi->engine_clk);
 	if (ret < 0) {
 		dev_err(dev, "Failed to enable engine clock: %d\n", ret);
-		goto err_phy_power_off;
+		goto err_refcount;
 	}
 
 	ret = clk_prepare_enable(dsi->digital_clk);
@@ -658,32 +719,52 @@ static int mstar_dsi_poweron(struct mstar_dsi *dsi)
 		goto err_disable_engine_clk;
 	}
 
-	mstar_dsi_enable(dsi);
+	ret = clk_set_rate(dsi->hs_clk, dsi->data_rate);
+	if (ret < 0) {
+		dev_err(dev, "Failed to set data rate: %d\n", ret);
+		goto err_disable_digital_clk;
+	}
 
-	if (dsi->driver_data->has_shadow_ctl)
-		writel(FORCE_COMMIT | BYPASS_SHADOW,
-		       dsi->regs + DSI_SHADOW_DEBUG);
+	ret = clk_prepare_enable(dsi->hs_clk);
+	if (ret < 0) {
+		dev_err(dev, "Failed to enable hs clock: %d\n", ret);
+		goto err_disable_digital_clk;
+	}
 
-	mstar_dsi_reset_engine(dsi);
-	mstar_dsi_phy_timconfig(dsi);
+	ret = clk_prepare_enable(dsi->pixel_clk);
+	if (ret < 0) {
+		dev_err(dev, "Failed to enable pixel clock: %d\n", ret);
+		goto err_disable_hs_clk;
+	}
 
+	ret = phy_power_on(dsi->phy);
+	if (ret < 0) {
+		dev_err(dev, "Failed to power on the D-PHY: %d\n", ret);
+		goto err_disable_pixel_clk;
+	}
+
+	/*
+	 * The vendor's host init for the command phase, and nothing more:
+	 * lanes, a host reset pulse, command mode. The PHY timing and the
+	 * video stream setup come in mstar_output_dsi_enable(), after the
+	 * panel's init sequence has gone out over the command-mode link.
+	 */
 	mstar_dsi_rxtx_control(dsi);
-	usleep_range(30, 100);
-	mstar_dsi_reset_dphy(dsi);
-	mstar_dsi_ps_control_vact(dsi);
-	mstar_dsi_set_vm_cmd(dsi);
-	mstar_dsi_config_vdo_timing(dsi);
+	writel(DSI_RESET | DPHY_RESET, dsi->regs + DSI_CON_CTRL);
+	writel(0, dsi->regs + DSI_CON_CTRL);
+	mstar_dsi_set_cmd_mode(dsi);
 	mstar_dsi_set_interrupt_enable(dsi);
-
-	mstar_dsi_clk_ulp_mode_leave(dsi);
-	mstar_dsi_lane0_ulp_mode_leave(dsi);
 	mstar_dsi_clk_hs_mode(dsi, 0);
 
 	return 0;
+err_disable_pixel_clk:
+	clk_disable_unprepare(dsi->pixel_clk);
+err_disable_hs_clk:
+	clk_disable_unprepare(dsi->hs_clk);
+err_disable_digital_clk:
+	clk_disable_unprepare(dsi->digital_clk);
 err_disable_engine_clk:
 	clk_disable_unprepare(dsi->engine_clk);
-err_phy_power_off:
-	phy_power_off(dsi->phy);
 err_refcount:
 	dsi->refcount--;
 	return ret;
@@ -713,10 +794,13 @@ static void mstar_dsi_poweroff(struct mstar_dsi *dsi)
 
 	mstar_dsi_disable(dsi);
 
-	clk_disable_unprepare(dsi->engine_clk);
-	clk_disable_unprepare(dsi->digital_clk);
-
+	/* the PHY bank needs the APB clock: power it down before the clocks go */
 	phy_power_off(dsi->phy);
+
+	clk_disable_unprepare(dsi->pixel_clk);
+	clk_disable_unprepare(dsi->hs_clk);
+	clk_disable_unprepare(dsi->digital_clk);
+	clk_disable_unprepare(dsi->engine_clk);
 }
 
 static void mstar_output_dsi_enable(struct mstar_dsi *dsi)
@@ -732,8 +816,18 @@ static void mstar_output_dsi_enable(struct mstar_dsi *dsi)
 		return;
 	}
 
-	mstar_dsi_set_mode(dsi);
+	/*
+	 * Video stream setup in the vendor's order: clock lane to HS, the
+	 * D-PHY HS timing, the stream timing and pixel format, a host reset
+	 * pulse, then video mode and start.
+	 */
 	mstar_dsi_clk_hs_mode(dsi, 1);
+	mstar_dsi_phy_timconfig(dsi);
+	mstar_dsi_config_vdo_timing(dsi);
+
+	writel(DSI_RESET | DPHY_RESET, dsi->regs + DSI_CON_CTRL);
+	writel(0, dsi->regs + DSI_CON_CTRL);
+	mstar_dsi_set_mode(dsi);
 
 	mstar_dsi_start(dsi);
 
@@ -770,24 +864,54 @@ static void mstar_dsi_bridge_mode_set(struct drm_bridge *bridge,
 	drm_display_mode_to_videomode(adjusted, &dsi->vm);
 }
 
-static void mstar_dsi_bridge_disable(struct drm_bridge *bridge)
+/*
+ * The panel's DCS init sequence goes out in command mode, so the host is
+ * powered up (clocks, PLL, D-PHY, command mode) in pre_enable, which runs
+ * before the panel's prepare() because the panel sets prepare_prev_first,
+ * and the switch to video mode happens in enable, after the panel is ready.
+ */
+static void mstar_dsi_bridge_pre_enable(struct drm_bridge *bridge)
 {
 	struct mstar_dsi *dsi = bridge_to_dsi(bridge);
+	int ret;
 
-	//mstar_output_dsi_disable(dsi);
+	ret = mstar_dsi_poweron(dsi);
+	if (ret < 0)
+		DRM_ERROR("failed to power on dsi: %d\n", ret);
 }
 
 static void mstar_dsi_bridge_enable(struct drm_bridge *bridge)
 {
 	struct mstar_dsi *dsi = bridge_to_dsi(bridge);
 
-	//mstar_output_dsi_enable(dsi);
+	mstar_output_dsi_enable(dsi);
+}
+
+static void mstar_dsi_bridge_disable(struct drm_bridge *bridge)
+{
+	struct mstar_dsi *dsi = bridge_to_dsi(bridge);
+
+	if (!dsi->enabled)
+		return;
+
+	mstar_dsi_stop(dsi);
+	mstar_dsi_switch_to_cmd_mode(dsi, VM_DONE_INT_FLAG, 500);
+	dsi->enabled = false;
+}
+
+static void mstar_dsi_bridge_post_disable(struct drm_bridge *bridge)
+{
+	struct mstar_dsi *dsi = bridge_to_dsi(bridge);
+
+	mstar_dsi_poweroff(dsi);
 }
 
 static const struct drm_bridge_funcs mstar_dsi_bridge_funcs = {
 	.attach = mstar_dsi_bridge_attach,
-	.disable = mstar_dsi_bridge_disable,
+	.pre_enable = mstar_dsi_bridge_pre_enable,
 	.enable = mstar_dsi_bridge_enable,
+	.disable = mstar_dsi_bridge_disable,
+	.post_disable = mstar_dsi_bridge_post_disable,
 	.mode_set = mstar_dsi_bridge_mode_set,
 };
 
@@ -921,7 +1045,6 @@ static ssize_t mstar_dsi_host_transfer(struct mipi_dsi_host *host,
 	void *src_addr;
 	u8 irq_flag = CMD_DONE_INT_FLAG;
 
-	printk("%s\n", __func__);
 
 	if (readl(dsi->regs + DSI_MODE_CTRL) & MODE) {
 		DRM_ERROR("dsi engine is not command mode\n");
@@ -1098,6 +1221,17 @@ static int mstar_dsi_probe(struct platform_device *pdev)
 	if (IS_ERR(dsi->hs_clk)) {
 		ret = PTR_ERR(dsi->hs_clk);
 		dev_err(dev, "Failed to get hs clock: %d\n", ret);
+		goto err_unregister_host;
+	}
+	/*
+	 * CLK_dac, the DISP output-side clock: the host's register file does
+	 * not respond until it runs. Optional so older device trees still
+	 * probe (they rely on the boot loader having set it up).
+	 */
+	dsi->pixel_clk = devm_clk_get_optional(dev, "pixel");
+	if (IS_ERR(dsi->pixel_clk)) {
+		ret = PTR_ERR(dsi->pixel_clk);
+		dev_err(dev, "Failed to get pixel clock: %d\n", ret);
 		goto err_unregister_host;
 	}
 
