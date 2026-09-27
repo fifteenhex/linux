@@ -29,6 +29,7 @@
 #include "pinctrl-msc313-ssd20xd.h"
 #include "pinctrl-msc313-ssd203d.h"
 #include "pinctrl-msc313-ssc8336.h"
+#include <linux/platform_device.h>
 
 #define DRIVER_NAME "pinctrl-msc313"
 
@@ -189,9 +190,9 @@ static int mstar_pin_config_group_set(struct pinctrl_dev *pctldev,
 	struct group_desc *group = pinctrl_generic_get_group(pctldev, selector);
 	int i, j, ret;
 
-	for (i = 0; i < group->num_pins; i++) {
+	for (i = 0; i < group->grp.npins; i++) {
 		for (j = 0; j < num_configs; j++) {
-			ret = mstar_set_config(pinctrl, group->pins[i], configs[j]);
+			ret = mstar_set_config(pinctrl, group->grp.pins[i], configs[j]);
 			if (ret)
 				return ret;
 		}

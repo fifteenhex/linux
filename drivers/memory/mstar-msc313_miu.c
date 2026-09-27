@@ -409,9 +409,8 @@ static int msc313_miu_probe(struct platform_device *pdev)
 	return msc313_miu_ddrpll_probe(pdev, miu);
 }
 
-static int msc313_miu_remove(struct platform_device *pdev)
+static void msc313_miu_remove(struct platform_device *pdev)
 {
-	return 0;
 }
 
 static struct platform_driver msc313_miu_driver = {

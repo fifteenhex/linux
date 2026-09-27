@@ -12,6 +12,7 @@
 #include <linux/pm_runtime.h>
 
 #include "../dmaengine.h"
+#include <linux/platform_device.h>
 
 #define DRIVER_NAME		"msc313-urdma"
 #define CHANNELS		2
@@ -170,7 +171,7 @@ static void msc313_urdma_finish_inflight(struct msc313_urdma_chan *chan,
 	 * if we are coming from the irq or terminate all
 	 * then the watchdog could still be configured.
 	 */
-	del_timer(&chan->watchdog);
+	timer_delete(&chan->watchdog);
 
 	if (chan->rptr)
 		regmap_field_read(chan->rptr, &rptr);
@@ -309,7 +310,7 @@ static void msc313_urdma_terminate_inflight(struct msc313_urdma_chan *chan)
 
 static void msc313_urdma_watchdog(struct timer_list *t)
 {
-	struct msc313_urdma_chan *chan = from_timer(chan, t, watchdog);
+	struct msc313_urdma_chan *chan = timer_container_of(chan, t, watchdog);
 
 	printk("%s:%d\n", __func__, __LINE__);
 	msc313_urdma_dump_state(chan);

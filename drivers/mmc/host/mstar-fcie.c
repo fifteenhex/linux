@@ -949,14 +949,12 @@ static int msc313_fcie_probe(struct platform_device *pdev)
 	return ret;
 }
 
-static int msc313_fcie_remove(struct platform_device *pdev)
+static void msc313_fcie_remove(struct platform_device *pdev)
 {
 	struct mmc_host	*mmc = platform_get_drvdata(pdev);
 
 	mmc_remove_host(mmc);
 	mmc_free_host(mmc);
-
-	return 0;
 }
 
 static struct platform_driver msc313_fcie_driver = {

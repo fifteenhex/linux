@@ -55,16 +55,15 @@ static int dummy_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int dummy_remove(struct platform_device *pdev)
+static void dummy_remove(struct platform_device *pdev)
 {
-	return 0;
 }
 
 static const struct of_device_id dummy_dt_ids[] = {
 	{ .compatible = "dummy-irq" },
 	{},
 };
-MODULE_DEVICE_TABLE(of, msc313_fcie_dt_ids);
+MODULE_DEVICE_TABLE(of, dummy_dt_ids);
 
 static struct platform_driver dt_dummy_driver = {
 	.probe = dummy_probe,

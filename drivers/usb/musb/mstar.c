@@ -366,13 +366,11 @@ err_platform_device_put:
 	return ret;
 }
 
-static int mstar_remove(struct platform_device *pdev)
+static void mstar_remove(struct platform_device *pdev)
 {
 	struct mstar_glue *glue = platform_get_drvdata(pdev);
 
 	platform_device_unregister(glue->pdev);
-
-	return 0;
 }
 
 #ifdef CONFIG_OF

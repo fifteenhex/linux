@@ -37,9 +37,8 @@ out:
 	return ret;
 }
 
-static int mstar_riu_remove(struct platform_device *pdev)
+static void mstar_riu_remove(struct platform_device *pdev)
 {
-	return 0;
 }
 
 static const struct of_device_id mstar_riu_of_match[] = {

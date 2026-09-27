@@ -192,7 +192,7 @@ static struct irq_chip msc313_pm_gpio_irqchip = {
 	.irq_set_type = msc313_pm_gpio_irq_set_type,
 };
 
-static void msc313e_pm_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
+static int msc313e_pm_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
 {
 	struct msc313_pm_gpio *priv = gpiochip_get_data(chip);
 	void __iomem *addr = priv->base + priv->info->offsets[offset];
@@ -207,6 +207,8 @@ static void msc313e_pm_gpio_set(struct gpio_chip *chip, unsigned offset, int val
 		reg &= ~BIT_OUT;
 	writew_relaxed(reg, addr);
 	spin_unlock_irqrestore(&priv->lock, flags);
+
+	return 0;
 }
 
 static int msc313e_pm_gpio_get(struct gpio_chip *chip, unsigned int offset)
@@ -342,7 +344,7 @@ static int msc313_pm_gpio_probe(struct platform_device *pdev)
 
 	gpioirqchip = &gpiochip->irq;
 	gpioirqchip->chip = &msc313_pm_gpio_irqchip;
-	gpioirqchip->fwnode = of_node_to_fwnode(pdev->dev.of_node);
+	gpioirqchip->fwnode = of_fwnode_handle(pdev->dev.of_node);
 	gpioirqchip->parent_domain = parent_domain;
 	gpioirqchip->child_to_parent_hwirq = msc313e_pm_gpio_child_to_parent_hwirq;
 	gpioirqchip->populate_parent_alloc_arg = msc313_pm_gpio_populate_parent_fwspec;

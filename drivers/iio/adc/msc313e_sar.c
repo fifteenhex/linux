@@ -441,11 +441,13 @@ static void msc313e_sar_gpio_free(struct gpio_chip *chip, unsigned offset)
 	gpiochip_generic_free(chip, offset);
 }
 
-static void msc313e_sar_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
+static int msc313e_sar_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
 {
 	struct msc313e_sar *sar = gpiochip_get_data(chip);
 
 	regmap_field_update_bits(sar->field_gpio_value, 1 << offset, value << offset);
+
+	return 0;
 }
 
 static int msc313e_sar_gpio_get(struct gpio_chip *chip, unsigned offset)
@@ -738,9 +740,8 @@ out:
 	return ret;
 }
 
-static int msc313e_sar_remove(struct platform_device *pdev)
+static void msc313e_sar_remove(struct platform_device *pdev)
 {
-	return 0;
 }
 
 static int __maybe_unused msc313e_sar_suspend(struct device *dev)

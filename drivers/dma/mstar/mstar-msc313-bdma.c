@@ -13,6 +13,7 @@
 #include <linux/regmap.h>
 
 #include "../dmaengine.h"
+#include <linux/platform_device.h>
 
 #define DRIVER_NAME "msc313-bdma"
 #define BDMA_AUTOSUSPEND_DELAY	100
@@ -434,7 +435,7 @@ static irqreturn_t msc313_bdma_irq(int irq, void *data)
 	spin_lock_irqsave(&chan->lock, flags);
 
 	/* call off the watchdog */
-	del_timer(&chan->watchdog);
+	timer_delete(&chan->watchdog);
 	msc313_bdma_moveinflighttocomplete(chan, true, 0);
 
 	spin_unlock_irqrestore(&chan->lock, flags);
@@ -488,7 +489,7 @@ static struct dma_chan *msc313_bdma_of_xlate(struct of_phandle_args *dma_spec,
 
 static void msc313_bdma_watchdog(struct timer_list *t)
 {
-	struct msc313_bdma_chan *chan = from_timer(chan, t, watchdog);
+	struct msc313_bdma_chan *chan = timer_container_of(chan, t, watchdog);
 	struct msc313_bdma_desc *desc = chan->inflight;
 	unsigned int queued, busy, irq, done;
 	unsigned int srcid, dstid, residue, src, dst;
@@ -781,11 +782,11 @@ static int msc313_bdma_probe(struct platform_device *pdev)
 			msc313_bdma_of_xlate, &bdma->dma_device);
 }
 
-static int msc313_bdma_remove(struct platform_device *pdev)
+static void msc313_bdma_remove(struct platform_device *pdev)
 {
 	struct msc313_bdma *bdma = platform_get_drvdata(pdev);
 	struct device *dev = &pdev->dev;
-	int ret, i;
+	int i;
 
 	of_dma_controller_free(dev->of_node);
 
@@ -795,12 +796,8 @@ static int msc313_bdma_remove(struct platform_device *pdev)
 	}
 
 #ifndef CONFIG_PM
-	ret = msc313_bdma_suspend(dev);
-	if (ret)
-		return ret;
+	msc313_bdma_suspend(dev);
 #endif
-
-	return 0;
 }
 
 static const struct msc313_bdma_info msc313_info = {

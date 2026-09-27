@@ -463,7 +463,7 @@ static const struct of_device_id ssd20xd_rtcpwc_of_match_table[] = {
 	{ .compatible = "sstar,ssd20xd-rtcpwc" },
 	{ }
 };
-MODULE_DEVICE_TABLE(of, ms_rtc_of_match_table);
+MODULE_DEVICE_TABLE(of, ssd20xd_rtcpwc_of_match_table);
 
 static struct platform_driver ssd20xd_rtcpwc_driver = {
 	.probe = ssd20xd_rtcpwc_probe,

@@ -46,9 +46,8 @@ static int msc313_mcm_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int msc313_mcm_remove(struct platform_device *pdev)
+static void msc313_mcm_remove(struct platform_device *pdev)
 {
-	return 0;
 }
 
 static struct platform_driver msc313_mcm_driver = {

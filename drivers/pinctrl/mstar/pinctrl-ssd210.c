@@ -17,6 +17,9 @@
 #include "pinctrl-mstar.h"
 #include "pinctrl-ssd210.h"
 #include "pinctrl-ssd210-ssd210.h"
+#include <linux/platform_device.h>
+#include <linux/device.h>
+#include <linux/slab.h>
 
 #define DRIVER_NAME "ssd210-pinctrl"
 

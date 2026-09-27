@@ -19,6 +19,10 @@
 #include "../pinmux.h"
 
 #include "pinctrl-mstar.h"
+#include <linux/platform_device.h>
+#include <linux/device.h>
+#include <linux/slab.h>
+#include <linux/of.h>
 
 #define DRIVER_NAME "pinctrl-msc313-pm"
 

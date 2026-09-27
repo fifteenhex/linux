@@ -21,12 +21,14 @@ static void ip6xxx_gpio_set_gpiobit(struct ip6xxx *ip6xxx, unsigned high_reg,
 			value ? bit & 0xff : 0);
 }
 
-static void ip6xxx_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
+static int ip6xxx_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
 {
 	struct ip6xxx *ip6xxx = gpiochip_get_data(chip);
 
 	ip6xxx_gpio_set_gpiobit(ip6xxx, IP6303_GPIO_DAT1,
 			IP6303_GPIO_DAT0, offset, value);
+
+	return 0;
 }
 
 static int ip6xxx_gpio_get(struct gpio_chip *chip, unsigned offset)

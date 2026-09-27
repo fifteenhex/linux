@@ -379,7 +379,7 @@ struct ssd210_gpio {
 	u8 *saved;
 };
 
-static void ssd210_gpio_set(struct gpio_chip *chip, unsigned int offset, int value)
+static int ssd210_gpio_set(struct gpio_chip *chip, unsigned int offset, int value)
 {
 	struct ssd210_gpio *gpio = gpiochip_get_data(chip);
 	u8 gpioreg = readb_relaxed(gpio->base + gpio->gpio_data->offsets[offset]);
@@ -390,6 +390,8 @@ static void ssd210_gpio_set(struct gpio_chip *chip, unsigned int offset, int val
 		gpioreg &= ~SSD210_GPIO_OUT;
 
 	writeb_relaxed(gpioreg, gpio->base + gpio->gpio_data->offsets[offset]);
+
+	return 0;
 }
 
 static int ssd210_gpio_get(struct gpio_chip *chip, unsigned int offset)
@@ -506,7 +508,7 @@ static int ssd210_gpio_probe(struct platform_device *pdev)
 
 	gpioirqchip = &gpiochip->irq;
 	gpioirqchip->chip = &ssd210_gpio_irqchip;
-	gpioirqchip->fwnode = of_node_to_fwnode(dev->of_node);
+	gpioirqchip->fwnode = of_fwnode_handle(dev->of_node);
 	gpioirqchip->parent_domain = parent_domain;
 	gpioirqchip->child_to_parent_hwirq = ssd210_gpio_child_to_parent_hwirq;
 	gpioirqchip->populate_parent_alloc_arg = gpiochip_populate_parent_fwspec_twocell;

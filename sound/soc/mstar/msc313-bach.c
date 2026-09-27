@@ -924,7 +924,7 @@ static int msc313_bach_pcm_ack(struct snd_soc_component *component,
 }
 
 static const struct snd_soc_component_driver msc313_soc_pcm_drv = {
-	.pcm_construct	= msc313_bach_pcm_construct,
+	.pcm_new	= msc313_bach_pcm_construct,
 	.open		= msc313_bach_pcm_open,
 	.prepare	= msc313_bach_pcm_prepare,
 	.trigger	= msc313_bach_pcm_trigger,
