@@ -245,6 +245,34 @@
 			clock-div = <1>;
 			clock-mult = <1>;
 		};
+
+		/*
+		 * The SPI flash clock mux has a few more divided down
+		 * outputs of the 216MHz MPLL tap: 108, 54 and 27MHz.
+		 */
+		mpll_div_4_div2: mpll_div_4_div2 {
+			compatible = "fixed-factor-clock";
+			#clock-cells = <0>;
+			clocks = <&mpll MSTAR_MSC313_MPLL_DIV4>;
+			clock-div = <2>;
+			clock-mult = <1>;
+		};
+
+		mpll_div_4_div4: mpll_div_4_div4 {
+			compatible = "fixed-factor-clock";
+			#clock-cells = <0>;
+			clocks = <&mpll MSTAR_MSC313_MPLL_DIV4>;
+			clock-div = <4>;
+			clock-mult = <1>;
+		};
+
+		mpll_div_4_div8: mpll_div_4_div8 {
+			compatible = "fixed-factor-clock";
+			#clock-cells = <0>;
+			clocks = <&mpll MSTAR_MSC313_MPLL_DIV4>;
+			clock-div = <8>;
+			clock-mult = <1>;
+		};
 	};
 
 	soc: soc {
@@ -361,20 +389,34 @@
 				pm_muxes: pm_muxes@0 {
 					compatible = "mstar,msc313-pm-muxes";
 					#clock-cells = <1>;
-					clock-names =	"rtc_xtal",
+					clock-names =	"deglitch",
+							"rtc_xtal",
 							"rtc_xtal_div4",
+							"xtal",
 							"xtal_div2",
+							"xtal_div2_div2",
+							"xtal_div2_div4",
 							"xtal_div2_div8",
 							"xtal_div2_div12",
 							"xtal_div2_div16",
-							"mpll_div_4";
-					clocks = <&rtc_xtal>, 
+							"mpll_div_4",
+							"mpll_div_4_div2",
+							"mpll_div_4_div4",
+							"mpll_div_4_div8";
+					clocks = <&xtal_div2>,
+						 <&rtc_xtal>,
 						 <&rtc_xtal_div4>,
+						 <&xtal>,
 						 <&xtal_div2>,
+						 <&xtal_div2_div2>,
+						 <&xtal_div2_div4>,
 						 <&xtal_div2_div8>,
 						 <&xtal_div2_div12>,
 						 <&xtal_div2_div16>,
-						 <&mpll 3>;
+						 <&mpll MSTAR_MSC313_MPLL_DIV4>,
+						 <&mpll_div_4_div2>,
+						 <&mpll_div_4_div4>,
+						 <&mpll_div_4_div8>;
 				};
 
 				pm_regulators {
