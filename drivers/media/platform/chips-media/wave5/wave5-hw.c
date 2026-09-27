@@ -594,22 +594,33 @@ int wave5_vpu_build_up_dec_param(struct vpu_instance *inst,
 		return -EINVAL;
 	}
 
-	if (vpu_dev->product == PRODUCT_ID_515)
-		p_dec_info->vb_work.size = WAVE515DEC_WORKBUF_SIZE;
-	else
-		p_dec_info->vb_work.size = WAVE521DEC_WORKBUF_SIZE;
+	if (vpu_dev->product_code == WAVE511_CODE) {
+		/*
+		 * The WAVE511 firmware has no per-instance work buffer: the
+		 * vendor driver hands every instance the temp buffer that
+		 * follows the code in common memory.
+		 */
+		vpu_write_reg(inst->dev, W5_ADDR_WORK_BASE,
+			      vpu_dev->common_mem.daddr + WAVE511_MAX_CODE_BUF_SIZE);
+		vpu_write_reg(inst->dev, W5_WORK_SIZE, WAVE511_TEMPBUF_SIZE);
+	} else {
+		if (vpu_dev->product == PRODUCT_ID_515)
+			p_dec_info->vb_work.size = WAVE515DEC_WORKBUF_SIZE;
+		else
+			p_dec_info->vb_work.size = WAVE521DEC_WORKBUF_SIZE;
 
-	ret = wave5_vdi_allocate_dma_memory(inst->dev, &p_dec_info->vb_work);
-	if (ret)
-		return ret;
+		ret = wave5_vdi_allocate_dma_memory(inst->dev, &p_dec_info->vb_work);
+		if (ret)
+			return ret;
+
+		wave5_vdi_clear_memory(inst->dev, &p_dec_info->vb_work);
+
+		vpu_write_reg(inst->dev, W5_ADDR_WORK_BASE, p_dec_info->vb_work.daddr);
+		vpu_write_reg(inst->dev, W5_WORK_SIZE, p_dec_info->vb_work.size);
+	}
 
 	if (!PRODUCT_CODE_515_STYLE(inst->dev->product_code))
 		vpu_write_reg(inst->dev, W5_CMD_DEC_VCORE_INFO, 1);
-
-	wave5_vdi_clear_memory(inst->dev, &p_dec_info->vb_work);
-
-	vpu_write_reg(inst->dev, W5_ADDR_WORK_BASE, p_dec_info->vb_work.daddr);
-	vpu_write_reg(inst->dev, W5_WORK_SIZE, p_dec_info->vb_work.size);
 
 	if (!PRODUCT_CODE_515_STYLE(inst->dev->product_code)) {
 		vpu_write_reg(inst->dev, W5_CMD_ADDR_SEC_AXI, vpu_dev->sram_buf.daddr);
