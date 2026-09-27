@@ -60,7 +60,7 @@ static const struct msc313_clkgen_parent_data mipi_tx_parents[] = {
 	PARENT_GATE(9),
 	PARENT_GATE(4),
 };
-#define MIPI_TX_DSI	MSC313_MUX_PARENT_DATA(SSD20XD_CLKGEN_MIPI_TX_DSI, "mipi_tx_dsi", mipi_tx_parents, 0x1bc, 0, 2, 3, -1)
+#define MIPI_TX_DSI	MSC313_MUX_PARENT_DATA_FLAGS(SSD20XD_CLKGEN_MIPI_TX_DSI, "mipi_tx_dsi", mipi_tx_parents, 0x1bc, 0, 2, 3, -1, 0, CLK_SET_RATE_PARENT)
 
 static const struct msc313_mux_data ssd20xd_muxes[] = {
 	COMMON(SSD20XD),

@@ -485,6 +485,10 @@ static const struct msc313_clkgen_parent_data sc_pixel_parents[] = {
 	PARENT_GATE(7), // WRONG!! should be 72MHz
 	PARENT_DIVIDER(9, 4),
 	PARENT_OF("lpll"),
+	PARENT_GATE(9), // unknown
+	PARENT_GATE(9), // unknown
+	PARENT_GATE(9), // unknown
+	PARENT_DIVIDER(8, 8), // mpll_288m / 8: what the vendor selects for the panel
 };
 #define SC_PIXEL MSC313_MUX_PARENT_DATA(SSD20XD_CLKGEN_SC_PIXEL, "sc_pixel", sc_pixel_parents, 0x18c, 0, 2, 4, -1)
 

@@ -71,8 +71,20 @@ static const struct clk_parent_data hdmi_parents[] = {
 
 static const struct clk_parent_data mipi_tx_dsi_apb_parents[] = {
 	{ .fw_name = "xtal_div2" }, // incorrect, should be mcu
-	{ .fw_name = "xtal_div2" }, // incorrect, should be mipi_tx_dsi
+	{ .fw_name = "mipi_tx_dsi" },
 };
+/*
+ * CLK_dac: the DISP output-side clock, fed from the hdmi clock (which the
+ * display bring-up sources from sc_pixel). The DSI host's register file is
+ * dead until this runs, so it is a clock of the DSI host as well.
+ */
+static const struct clk_parent_data dac_parents[] = {
+	{ .fw_name = "xtal_div2" },
+	{ .name = "hdmi", .index = -1 },
+};
+#define SSD20XD_DAC_MUX	0xd8
+#define SSD20XD_DAC MSC313_MUX_CLK_PARENT_DATA(SSD20XD_SC_GP_DAC, "dac", dac_parents, SSD20XD_DAC_MUX, 0, 2, 2, -1)
+
 #define SSD20XD_MIPI_TX_DSI_APB_MUX	0xdc
 #define SSD20XD_MIPI_TX_DSI_APB MSC313_MUX_CLK_PARENT_DATA(SSD20XD_SC_GP_MIPI_TX_DSI_APB, "mipi_tx_dsi_apb", mipi_tx_dsi_apb_parents, SSD20XD_MIPI_TX_DSI_APB_MUX, 0, 2, 2, -1)
 
@@ -91,6 +103,8 @@ static const struct msc313_mux_data ssd20xd_muxes[] = {
 			-1, 3, 1, -1, 0, CLK_SET_RATE_PARENT),
 	SSD20XD_HDMI,
 	SSD20XD_MIPI_TX_DSI_APB,
+	/* array position is the binding id / 2: keep this after the APB mux */
+	SSD20XD_DAC,
 };
 
 static const struct msc313_muxes_data ssd20xd_data = MSC313_MUXES_DATA(ssd20xd_muxes);
