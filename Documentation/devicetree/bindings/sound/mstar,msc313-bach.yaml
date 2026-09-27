@@ -1,0 +1,83 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/sound/mstar,msc313-bach.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: MStar/SigmaStar BACH audio
+
+maintainers:
+  - Daniel Palmer <daniel@thingy.jp>
+
+description:
+  The BACH block is the on-chip audio of the MStar/SigmaStar ARMv7 SoCs. It
+  holds the DMA reader and writer that feed and drain the codec, the digital
+  gain stages and the I2S interface; the analog side (DACs, ADCs, mic and
+  line inputs) sits in the audio top block and is controlled through a
+  syscon. The driver presents the whole thing as one sound card, so the
+  board's speaker amplifier and headphone jack are described here too.
+
+properties:
+  compatible:
+    enum:
+      - mstar,msc313-bach
+      - mstar,ssd210-bach
+
+  reg:
+    maxItems: 1
+
+  clocks:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+
+  mstar,audiotop:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: The audio top syscon with the analog controls.
+
+  interconnects:
+    maxItems: 1
+
+  interconnect-names:
+    const: dma-mem
+
+  amp-gpios:
+    maxItems: 1
+    description:
+      Enable of the speaker amplifier fed from the line output, driven
+      while the speaker is in use.
+
+  hp-det-gpios:
+    maxItems: 1
+    description:
+      Headphone jack detection. While headphones are plugged the speaker
+      is switched off.
+
+  audio-aux-devs:
+    $ref: /schemas/types.yaml#/definitions/phandle-array
+    description: Auxiliary devices for the card, as for simple-audio-card.
+
+required:
+  - compatible
+  - reg
+  - clocks
+  - interrupts
+  - mstar,audiotop
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+    #include <dt-bindings/interrupt-controller/arm-gic.h>
+    #include <dt-bindings/interrupt-controller/irq.h>
+
+    bach: bach@2a0400 {
+        compatible = "mstar,msc313-bach";
+        reg = <0x2a0400 0x600>;
+        clocks = <&clkgen 0>;
+        interrupts = <GIC_SPI 42 IRQ_TYPE_LEVEL_HIGH>;
+        mstar,audiotop = <&audiotop>;
+        amp-gpios = <&gpio 0 GPIO_ACTIVE_HIGH>;
+    };
