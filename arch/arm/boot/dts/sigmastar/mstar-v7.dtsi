@@ -469,7 +469,7 @@
 
 			efuse: efuse@4000 {
 				compatible = "mstar,msc313-efuse";
-				reg = <0x4000 0x8>;
+				reg = <0x4000 0x80>;
 			};
 
 			watchdog@6000 {

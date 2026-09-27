@@ -272,6 +272,8 @@
 		reg = <0>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&tx_mipi_mode1_pins>;
+		/* RESX is wired to the TTL0 pad */
+		reset-gpios = <&gpio SSD20XD_GPIO_TTL0 GPIO_ACTIVE_LOW>;
 		backlight = <&backlight>;
 		dsi-lanes = <2>;
 		rotation = <180>;
@@ -301,4 +303,12 @@
 /* On-chip BACH audio (codec + I2S), for the speaker/headphone output. */
 &bach {
 	status = "okay";
+};
+
+/*
+ * The five DSI channels (clock + data) come out on the physical lanes in
+ * this order on the Miyoo; without the map the panel never sees valid DSI.
+ */
+&dphy {
+	mstar,lane-map = /bits/ 8 <2 4 3 1 0>;
 };
