@@ -1,113 +1,124 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
+ * MStar/SigmaStar "BACH" audio: on-chip codec (audio top), DPGAs and the
+ * DMA reader/writer pair that feed and drain it.
+ *
  * Copyright (C) 2021 Daniel Palmer <daniel@thingy.jp>
+ *
+ * The DMA engine is not a free-running ring: each direction keeps a level
+ * counter of the bytes it may work on. The host writes samples into the
+ * ring and then "triggers" that many bytes, which adds them to the reader's
+ * level; the reader consumes them and the level drops. The writer fills its
+ * ring and its level grows; the host reads samples out and triggers that
+ * many bytes to release them. Threshold interrupts (level below a value for
+ * the reader, above it for the writer) give the period ticks, and the
+ * pointer comes straight from the level. The vendor HAL (MHAL_AUDIO in
+ * mhal.ko) works the same way and the register semantics below follow it.
  */
 
 #include <linux/clk.h>
-#include <linux/module.h>
+#include <linux/delay.h>
+#include <linux/gpio/consumer.h>
 #include <linux/interrupt.h>
-#include <linux/platform_device.h>
-
+#include <linux/mfd/syscon.h>
+#include <linux/module.h>
 #include <linux/of.h>
-#include <linux/of_address.h>
 #include <linux/of_irq.h>
+#include <linux/platform_device.h>
+#include <linux/regmap.h>
 
 #include <sound/core.h>
+#include <sound/jack.h>
 #include <sound/pcm.h>
+#include <sound/pcm_params.h>
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
-#include <sound/jack.h>
-#include <sound/pcm_params.h>
-#include <sound/initval.h>
 #include <sound/tlv.h>
-#include <sound/dmaengine_pcm.h>
-
-#include <linux/mfd/syscon.h>
 
 #define DRIVER_NAME "msc313-bach"
 
 /*
- * For older versions alignment is 8, for new versions,
- * it's 16, just use 16.
+ * The DMA works in "miu" units of 8 (msc313) or 16 (ssd210) bytes; all
+ * addresses, sizes, levels and thresholds are in those units. Buffers and
+ * periods are kept to a multiple of 16 bytes so both work.
  */
 #define MSC313_BACH_ALIGNMENT	16
-#define MSC313_BACH_FIFOSZ	8
-/* The amount to shift depends on the IP version.. */
-#define TO_MIUSIZE(_bach, _x) (_x >> _bach->data->addr_sz_shift)
-#define FROM_MIUSIZE(_bach,_x) (_x <<  _bach->data->addr_sz_shift)
-#define MAX_PERIODS 128
 
-#define MSC313_BACH_DMA_SUB_CHANNEL_EN			0
-#define MSC313_BACH_DMA_SUB_CHANNEL_ADDR		0x4
-#define MSC313_BACH_DMA_SUB_CHANNEL_SIZE		0x8
-#define MSC313_BACH_DMA_SUB_CHANNEL_TRIGGER		0xc
-#define MSC313_BACH_DMA_SUB_CHANNEL_OVERRUNTHRESHOLD	0x10
-#define MSC313_BACH_DMA_SUB_CHANNEL_UNDERRUNTHRESHOLD	0x14
-#define MSC313_BACK_DMA_SUB_CHANNEL_LEVEL		0x18
+/* Bank 0 */
+#define REG_SR_SEL		0x004
+#define REG_MUX0SEL		0x00c
+#define REG_DPGA_PLAYBACK	0x084	/* MMC1 DPGA CFG2: gain L (7:0), R (15:8) */
+#define REG_DPGA_CAPTURE	0x094
+#define REG_DMA_CTRL		0x100
+#define REG_DMA_RD		0x104	/* reader sub-channel */
+#define REG_DMA_FLAGS		0x120
+#define REG_DMA_WR		0x124	/* writer sub-channel */
+#define REG_SINEGEN		0x1d4
+#define REG_DMA_TEST_CTRL7	0x1dc
+#define REG_DMA_INT		0x21c
+
+/* sub-channel register offsets */
+#define SUB_CTRL		0x00	/* address low bits and control bits */
+#define SUB_ADDR_HI		0x04
+#define SUB_SIZE		0x08
+#define SUB_TRIGGER		0x0c
+#define SUB_OVERRUN_THR		0x10
+#define SUB_UNDERRUN_THR	0x14
+#define SUB_LEVEL		0x18
+
+/* Audio top (analog) registers, reached through the codec as 0x1000 + offset */
+#define REG_ATOP_OFFSET		0x1000
+#define REG_ATOP_ANALOG_CTRL0	(REG_ATOP_OFFSET + 0x00)
+#define REG_ATOP_ANALOG_CTRL1	(REG_ATOP_OFFSET + 0x04)
+#define REG_ATOP_ANALOG_CTRL3	(REG_ATOP_OFFSET + 0x0c)	/* power downs, 1 = down */
+#define REG_ATOP_ADC_MUX	(REG_ATOP_OFFSET + 0x14)
+#define REG_ATOP_ADC_GAIN	(REG_ATOP_OFFSET + 0x18)
+#define REG_ATOP_MIC_GAIN	(REG_ATOP_OFFSET + 0x20)
+
+/* REG_ATOP_ANALOG_CTRL3: the vendor's three "atop paths" */
+#define ATOP_PD_ADC_BIAS	(BIT(0) | BIT(2) | BIT(5))
+#define ATOP_PD_ADC		(BIT(7) | BIT(8))
+#define ATOP_PD_DAC		(BIT(1) | BIT(4) | BIT(6) | BIT(9) | BIT(10))
+#define ATOP_PD_ALL		(BIT(11) | BIT(12))
+
+#define ATOP_ADC_MUX_LINEIN	0x00
+#define ATOP_ADC_MUX_MICIN	0x77
 
 struct msc313_bach;
-struct msc313_bach_dma_channel;
 
-struct msc313_bach_dma_sub_channel {
-	struct msc313_bach_dma_channel *dma_channel;
+struct msc313_bach_sub {
+	struct msc313_bach *bach;
+	bool writer;
 
-	struct regmap_field *count;
-	struct regmap_field *trigger;
-	struct regmap_field *init;
 	struct regmap_field *en;
-	struct regmap_field *addr_hi, *addr_lo;
+	struct regmap_field *init;
+	struct regmap_field *trigger;
+	struct regmap_field *count;
+	struct regmap_field *addr_lo, *addr_hi;
 	struct regmap_field *size;
 	struct regmap_field *trigger_level;
-	struct regmap_field *overrunthreshold;
-	struct regmap_field *underrunthreshold;
+	struct regmap_field *overrun_thr;
+	struct regmap_field *underrun_thr;
 	struct regmap_field *level;
+	struct regmap_field *int_clear;
+	struct regmap_field *int_thr_en;	/* reader: underrun, writer: overrun */
+	struct regmap_field *int_edge_en;	/* reader: empty, writer: full */
+	struct regmap_field *flag_thr;
+	struct regmap_field *flag_edge;
+	struct regmap_field *mono, *mono2;
+	struct regmap_field *rate_sel, *rate_sel2;
 
 	struct snd_pcm_substream *substream;
+
+	/* stream state, under bach->lock */
+	bool running;
+	size_t buf_bytes;
+	size_t period_bytes;
+	size_t queued;		/* bytes triggered so far: to play, or released for capture */
+	size_t pending;		/* bytes from the application not yet triggered */
+	size_t next_period;	/* stream position of the next period boundary */
+	snd_pcm_uframes_t last_appl;
 };
-
-#define MSC313_BACH_DMA_CHANNEL_CTRL0	0x0
-#define MSC313_BACH_DMA_CHANNEL_CTRL8	0x20
-#define MSC313_SUB_CHANNEL_READER	0
-#define MSC313_SUB_CHANNEL_WRITER	1
-
-struct msc313_bach_dma_channel {
-	struct msc313_bach *bach;
-	/*
-	 * Enabling the channel might cause an interrupt
-	 * and bust everything, this lock must be taken
-	 * when doing something that might result in an
-	 * interrupt and when handling interrupts.
-	 */
-	spinlock_t lock;
-
-	struct regmap_field *rst;
-	struct regmap_field *en;
-	struct regmap_field *live_count_en;
-	struct regmap_field *rd_int_clear;
-	struct regmap_field *rd_empty_int_en;
-	struct regmap_field *rd_overrun_int_en;
-	struct regmap_field *rd_underrun_int_en;
-
-	struct regmap_field *wr_underrun_flag;
-	struct regmap_field *wr_overrun_flag;
-	struct regmap_field *rd_underrun_flag;
-	struct regmap_field *rd_overrun_flag;
-	struct regmap_field *rd_empty_flag;
-	struct regmap_field *wr_full_flag;
-	struct regmap_field *wr_localbuf_full_flag;
-	struct regmap_field *rd_localbuf_empty_flag;
-
-	struct regmap_field *dma_rd_mono;
-	struct regmap_field *dma_wr_mono;
-	struct regmap_field *dma_rd_mono_copy;
-
-	struct regmap_field *rate_sel;
-
-	struct msc313_bach_dma_sub_channel reader_writer[2];
-};
-
-#define MSC313_BACH_SR0_SEL		0x4
-#define MSC313_BACH_DMA_TEST_CTRL7	0x1dc
 
 struct msc313_bach_data {
 	unsigned int addr_sz_shift;
@@ -116,154 +127,658 @@ struct msc313_bach_data {
 struct msc313_bach {
 	struct device *dev;
 	const struct msc313_bach_data *data;
-
 	struct clk *clk;
+
+	struct regmap *bach;
+	struct regmap *audiotop;
+
+	/* Serialises the DMA registers between the PCM callbacks and the IRQ */
+	spinlock_t lock;
+
+	struct regmap_field *dma_rst;
+	struct regmap_field *dma_en;
+	struct regmap_field *dma_live_count_en;
+	struct regmap_field *dma_int_en;
+	struct msc313_bach_sub reader;
+	struct msc313_bach_sub writer;
+	unsigned int open_streams;
+
+	struct gpio_desc *amp_gpio;
+	struct snd_soc_jack hp_jack;
+	struct snd_soc_jack_gpio hp_jack_gpio;
 
 	struct snd_soc_dai_link_component cpu_dai_component;
 	struct snd_soc_dai_link_component platform_component;
 	struct snd_soc_dai_link_component codec_component;
 	struct snd_soc_dai_link dai_link;
 	struct snd_soc_card card;
-
-	struct regmap *audiotop;
-	struct regmap *bach;
-
-	/* DMA */
-	struct regmap_field *dma_int_en;
-	struct msc313_bach_dma_channel dma_channels[1];
-
-	/* Analog controls? */
-	struct regmap_field *codec_sel;
 };
 
-struct msc313_bach_substream_runtime {
-	struct msc313_bach_dma_sub_channel *sub_channel;
-	bool running;
+/* Registering the card claims the device's driver data, so go through it */
+static inline struct msc313_bach *msc313_bach_from_component(struct snd_soc_component *component)
+{
+	return snd_soc_card_get_drvdata(component->card);
+}
 
-	snd_pcm_uframes_t last_appl_ptr;
-
-	/* Filled by prepare */
-	ssize_t period_bytes;
-	ssize_t max_inflight;
-	unsigned max_level;
-	ssize_t underflow_level;
-
-	/* Hardware queue state */
-	/* number of bytes that are in the buffer */
-	ssize_t pending_bytes;
-	/* number of bytes we have queued into the hardware so far */
-	ssize_t total_bytes;
-	/*
-	 * number of bytes that the hardware has completed, updated
-	 * when the irq fires
-	 */
-	ssize_t processed_bytes;
-
-	/* IRQ stats, updated by irq */
-	unsigned irqs;
-	unsigned empties;
-	unsigned underruns;
-
-	/* Debugging */
-	unsigned long start_time;
-	unsigned long end_time;
-};
+#define TO_MIU(_bach, _x)	((_x) >> (_bach)->data->addr_sz_shift)
+#define FROM_MIU(_bach, _x)	((size_t)(_x) << (_bach)->data->addr_sz_shift)
 
 /*
- * The amount of bytes the channel is currently munching through is the difference
- * between the bytes queued and the number of bytes that have been processed
- * according to an IRQ coming.
+ * Register defaults, from a running vendor system. The DMA sub-channel
+ * registers are programmed per stream and are left out.
  */
-#define BACH_PCM_RUNTIME_INFLIGHT(_brt)	(_brt->total_bytes - _brt->processed_bytes)
-#define BACH_PMC_RUNTIME_BYTES_UNTIL_UNDERFLOW(__brt) (BACH_PCM_RUNTIME_INFLIGHT(__brt) - __brt->underflow_level)
+static const struct reg_sequence msc313_bach_atop_init[] = {
+	{ 0x00, 0x0a14 }, { 0x04, 0x0030 }, { 0x08, 0x0080 },
+	/* everything analog powered down; DAPM brings the paths up */
+	{ 0x0c, ATOP_PD_ADC_BIAS | ATOP_PD_ADC | ATOP_PD_DAC | ATOP_PD_ALL },
+	{ 0x10, 0 }, { 0x14, 0 }, { 0x18, 0 }, { 0x1c, 0 }, { 0x20, 0x3000 },
+	{ 0x24, 0 }, { 0x28, 0 }, { 0x2c, 0 }, { 0x30, 0 }, { 0x34, 0 },
+	{ 0x38, 0 }, { 0x3c, 0 }, { 0x40, 0 }, { 0x44, 0 }, { 0x48, 0 },
+	{ 0x4c, 0 }, { 0x50, 0 }, { 0x54, 0 }, { 0x58, 0 }, { 0x5c, 0 },
+	{ 0x60, 0 }, { 0x64, 0 }, { 0x68, 0 }, { 0x6c, 0 }, { 0x70, 0 },
+	{ 0x74, 0 }, { 0x78, 0 }, { 0x7c, 0 }, { 0x80, 0 }, { 0x84, 0x3c1e },
+	{ 0x88, 0 }, { 0x8c, 0 }, { 0x90, 0 }, { 0x94, 0 }, { 0x98, 0 },
+	{ 0x9c, 0 }, { 0xa0, 0 }, { 0xa4, 0 }, { 0xa8, 0 }, { 0xac, 0 },
+	{ 0xb0, 0 }, { 0xb4, 0 }, { 0xb8, 0 }, { 0xbc, 0 }, { 0xc0, 0 },
+	{ 0xc4, 0 }, { 0xc8, 0 }, { 0xcc, 0 }, { 0xd0, 0 }, { 0xd4, 0 },
+	{ 0xd8, 0 }, { 0xdc, 0 }, { 0xe0, 0 }, { 0xe4, 0 }, { 0xe8, 0 },
+	{ 0xec, 0 }, { 0xf0, 0 }, { 0xf4, 0 }, { 0xf8, 0 }, { 0xfc, 0 },
+};
 
-/* Bank 1 */
-#define REG_MUX0SEL	0xc
-#define MSC313_BACH_MMC1_DPGA_CFG2	0x84
-#define REG_SINEGEN	0x1d4
-/* Bank 2 */
-#define REG_DMA_INT	0x21c
+static const struct reg_sequence msc313_bach_init[] = {
+	{ 0x000, 0x89ff }, { 0x004, 0xff00 }, { 0x008, 0x0003 },
+	{ REG_MUX0SEL, 0x19b4 }, { 0x010, 0xf000 }, { 0x014, 0x8000 },
+	{ 0x018, 0xc09a }, { 0x01c, 0x555a }, { 0x020, 0 }, { 0x024, 0x0209 },
+	{ 0x028, 0 }, { 0x02c, 0x007d }, { 0x030, 0 }, { 0x034, 0 },
+	{ 0x038, 0x3017 }, { 0x03c, 0x0002 },
+	/* DPGAs */
+	{ 0x040, 0x9400 }, { 0x044, 0x9400 }, { 0x048, 0x9400 }, { 0x04c, 0xd400 },
+	{ 0x050, 0x8400 }, { 0x054, 0xd000 }, { 0x058, 0x9400 }, { 0x05c, 0x9400 },
+	{ 0x060, 0x8400 }, { 0x064, 0 }, { 0x068, 0 }, { 0x06c, 0 }, { 0x070, 0 },
+	{ 0x074, 0 }, { 0x078, 0 }, { 0x07c, 0 }, { 0x080, 0x0005 },
+	{ REG_DPGA_PLAYBACK, 0 }, { 0x088, 0x0007 }, { 0x08c, 0 }, { 0x090, 0x0037 },
+	{ REG_DPGA_CAPTURE, 0 }, { 0x098, 0x0007 }, { 0x09c, 0 }, { 0x0a0, 0x0037 },
+	{ 0x0a4, 0 }, { 0x0a8, 0x0007 }, { 0x0ac, 0 }, { 0x0b0, 0x0007 }, { 0x0b4, 0 },
+	{ 0x0b8, 0x0007 }, { 0x0bc, 0 }, { 0x0c0, 0x0037 }, { 0x0c4, 0 }, { 0x0c8, 0x0007 },
+	{ 0x0cc, 0 }, { 0x0d0, 0 }, { 0x0d4, 0 }, { 0x0d8, 0 }, { 0x0dc, 0 }, { 0x0e0, 0 },
+	{ 0x0e4, 0 }, { 0x0e8, 0 }, { 0x0ec, 0 }, { 0x0f0, 0 }, { 0x0f4, 0 }, { 0x0f8, 0 },
+	{ 0x0fc, 0 },
+	/* DMA test/misc */
+	{ 0x140, 0 }, { 0x144, 0 }, { 0x148, 0 }, { 0x14c, 0 }, { 0x150, 0 },
+	{ 0x154, 0 }, { 0x158, 0 }, { 0x15c, 0 }, { 0x160, 0 }, { 0x164, 0 },
+	{ 0x168, 0 }, { 0x16c, 0 }, { 0x170, 0 }, { 0x174, 0 }, { 0x178, 0 },
+	{ 0x17c, 0 }, { 0x180, 0 }, { 0x184, 0 }, { 0x188, 0 }, { 0x18c, 0 },
+	{ 0x190, 0 }, { 0x194, 0 }, { 0x198, 0 }, { 0x19c, 0 }, { 0x1a0, 0 },
+	{ 0x1a4, 0 }, { 0x1a8, 0 }, { 0x1ac, 0 }, { 0x1b0, 0 }, { 0x1b4, 0 },
+	{ 0x1b8, 0 }, { 0x1bc, 0 }, { 0x1c0, 0 }, { 0x1c4, 0 }, { 0x1c8, 0 },
+	{ 0x1cc, 0x00e3 }, { 0x1d0, 0x0097 },
+	/* sine generator: off, into the reader path */
+	{ REG_SINEGEN, 0x6000 },
+	{ 0x1d8, 0 }, { REG_DMA_TEST_CTRL7, 0x0400 }, { 0x1e0, 0 }, { 0x1e4, 0 },
+	{ 0x1e8, 0 }, { 0x1ec, 0 }, { 0x1f0, 0 }, { 0x1f4, 0 }, { 0x1f8, 0 },
+	{ 0x1fc, 0 },
+	/* Bank 1 */
+	{ 0x200, 0 }, { 0x204, 0 }, { 0x208, 0 }, { 0x20c, 0 }, { 0x210, 0x4000 },
+	{ 0x214, 0x0100 }, { 0x218, 0x03e8 }, { 0x220, 0 }, { 0x224, 0 },
+	{ 0x228, 0 }, { 0x22c, 0 }, { 0x230, 0 }, { 0x234, 0 }, { 0x238, 0x0003 },
+	{ 0x23c, 0 }, { 0x240, 0x38c0 }, { 0x244, 0x3838 }, { 0x248, 0x0c04 },
+	{ 0x24c, 0x1c14 }, { 0x250, 0x0001 }, { 0x254, 0 }, { 0x258, 0x0003 },
+	{ 0x25c, 0 }, { 0x260, 0 }, { 0x264, 0 }, { 0x268, 0 }, { 0x26c, 0x0202 },
+	{ 0x270, 0 }, { 0x274, 0 }, { 0x278, 0 }, { 0x27c, 0 }, { 0x280, 0 },
+	{ 0x284, 0 }, { 0x288, 0 }, { 0x28c, 0 }, { 0x290, 0 }, { 0x294, 0x1234 },
+	{ 0x298, 0x5678 }, { 0x29c, 0 }, { 0x2a0, 0 }, { 0x2a4, 0 }, { 0x2a8, 0 },
+	{ 0x2ac, 0 }, { 0x2b0, 0 }, { 0x2b4, 0 }, { 0x2b8, 0 }, { 0x2bc, 0 },
+	{ 0x2c0, 0 }, { 0x2c4, 0 }, { 0x2c8, 0 }, { 0x2cc, 0 }, { 0x2d0, 0 },
+	{ 0x2d4, 0 }, { 0x2d8, 0 }, { 0x2dc, 0 }, { 0x2e0, 0 }, { 0x2e4, 0 },
+	{ 0x2e8, 0 }, { 0x2ec, 0 }, { 0x2f0, 0 }, { 0x2f4, 0 }, { 0x2f8, 0 },
+	{ 0x2fc, 0 }, { 0x300, 0 }, { 0x304, 0 }, { 0x308, 0 }, { 0x30c, 0 },
+	{ 0x310, 0 }, { 0x314, 0 }, { 0x318, 0 }, { 0x31c, 0 }, { 0x320, 0 },
+	{ 0x324, 0 }, { 0x328, 0 }, { 0x32c, 0x0001 }, { 0x330, 0 }, { 0x334, 0 },
+	{ 0x338, 0 }, { 0x33c, 0 }, { 0x340, 0 }, { 0x344, 0 }, { 0x348, 0 },
+	{ 0x34c, 0 }, { 0x350, 0 }, { 0x354, 0 }, { 0x358, 0 }, { 0x35c, 0 },
+	{ 0x360, 0 }, { 0x364, 0 }, { 0x368, 0 }, { 0x36c, 0 }, { 0x370, 0 },
+	{ 0x374, 0 }, { 0x378, 0 }, { 0x37c, 0x0080 }, { 0x380, 0 }, { 0x384, 0 },
+	{ 0x388, 0xff34 }, { 0x38c, 0 }, { 0x390, 0x7fff }, { 0x394, 0x7fe9 },
+	{ 0x398, 0 }, { 0x39c, 0 }, { 0x3a0, 0 }, { 0x3a4, 0 }, { 0x3a8, 0 },
+	{ 0x3ac, 0xfea6 }, { 0x3b0, 0x019d }, { 0x3b4, 0 }, { 0x3b8, 0 },
+	{ 0x3bc, 0x78f4 }, { 0x3c0, 0 }, { 0x3c4, 0 }, { 0x3c8, 0x10d3 },
+	{ 0x3cc, 0x0942 }, { 0x3d0, 0 }, { 0x3d4, 0 }, { 0x3d8, 0xfdb6 },
+	{ 0x3dc, 0xf291 }, { 0x3e0, 0x78f4 }, { 0x3e4, 0 }, { 0x3e8, 0 },
+	{ 0x3ec, 0 }, { 0x3f0, 0x7fff }, { 0x3f4, 0 }, { 0x3f8, 0x0001 }, { 0x3fc, 0 },
+	/* Bank 2 */
+	{ 0x400, 0 }, { 0x404, 0x0021 }, { 0x408, 0 }, { 0x40c, 0 }, { 0x410, 0x000a },
+	{ 0x414, 0x8000 }, { 0x418, 0x011f }, { 0x41c, 0 }, { 0x420, 0 }, { 0x424, 0 },
+	{ 0x428, 0 }, { 0x42c, 0 }, { 0x430, 0 }, { 0x434, 0 }, { 0x438, 0 },
+	{ 0x43c, 0xffff }, { 0x440, 0 }, { 0x444, 0x0001 }, { 0x448, 0x8000 },
+	{ 0x44c, 0x0001 }, { 0x450, 0x8000 }, { 0x454, 0 }, { 0x458, 0 }, { 0x45c, 0 },
+	{ 0x460, 0 }, { 0x464, 0 }, { 0x468, 0 }, { 0x46c, 0 }, { 0x470, 0 },
+	{ 0x474, 0 }, { 0x478, 0 }, { 0x47c, 0 }, { 0x480, 0x0001 }, { 0x484, 0 },
+	{ 0x488, 0 }, { 0x48c, 0 }, { 0x490, 0 }, { 0x494, 0 }, { 0x498, 0 },
+	{ 0x49c, 0 }, { 0x4a0, 0 }, { 0x4a4, 0 }, { 0x4a8, 0 }, { 0x4ac, 0 },
+	{ 0x4b0, 0 }, { 0x4b4, 0 }, { 0x4b8, 0 }, { 0x4bc, 0 }, { 0x4c0, 0 },
+	{ 0x4c4, 0 }, { 0x4c8, 0 }, { 0x4cc, 0 }, { 0x4d0, 0 }, { 0x4d4, 0 },
+	{ 0x4d8, 0 }, { 0x4dc, 0 }, { 0x4e0, 0 }, { 0x4e4, 0 }, { 0x4e8, 0 },
+	{ 0x4ec, 0 }, { 0x4f0, 0 }, { 0x4f4, 0 }, { 0x4f8, 0 }, { 0x4fc, 0 },
+	{ 0x500, 0x0080 }, { 0x504, 0x0078 }, { 0x508, 0 }, { 0x50c, 0 }, { 0x510, 0 },
+	{ 0x514, 0 }, { 0x518, 0 }, { 0x51c, 0 }, { 0x520, 0 }, { 0x524, 0 },
+	{ 0x528, 0 }, { 0x52c, 0 }, { 0x530, 0 }, { 0x534, 0 }, { 0x538, 0 },
+	{ 0x53c, 0 }, { 0x540, 0 }, { 0x544, 0 }, { 0x548, 0 }, { 0x54c, 0 },
+	{ 0x550, 0 }, { 0x554, 0 }, { 0x558, 0 }, { 0x55c, 0 }, { 0x560, 0 },
+	{ 0x564, 0 }, { 0x568, 0 }, { 0x56c, 0 }, { 0x570, 0 }, { 0x574, 0 },
+	{ 0x578, 0 }, { 0x57c, 0 }, { 0x580, 0 }, { 0x584, 0 }, { 0x588, 0 },
+	{ 0x58c, 0 }, { 0x590, 0 }, { 0x594, 0 }, { 0x598, 0 }, { 0x59c, 0 },
+	{ 0x5a0, 0 }, { 0x5a4, 0 }, { 0x5a8, 0 }, { 0x5ac, 0 }, { 0x5b0, 0 },
+	{ 0x5b4, 0 }, { 0x5b8, 0 }, { 0x5bc, 0 }, { 0x5c0, 0 }, { 0x5c4, 0x0b0b },
+	{ 0x5c8, 0 }, { 0x5cc, 0x4a4a }, { 0x5d0, 0x4a4a }, { 0x5d4, 0 }, { 0x5d8, 0 },
+	{ 0x5dc, 0x4949 }, { 0x5e0, 0x4949 }, { 0x5e4, 0 }, { 0x5e8, 0 }, { 0x5ec, 0 },
+	{ 0x5f0, 0 }, { 0x5f4, 0 }, { 0x5f8, 0 }, { 0x5fc, 0 },
+};
 
-/* Audio top */
-#define REG_ATOP_OFFSET 0x1000
-#define REG_ATOP_ANALOG_CTRL0	(REG_ATOP_OFFSET + 0)
-#define REG_ATOP_ANALOG_CTRL1	(REG_ATOP_OFFSET + 0x4)
-#define REG_ATOP_ANALOG_CTRL3	(REG_ATOP_OFFSET + 0xc)
+/* --- DMA sub-channel helpers, called with bach->lock held --- */
 
-/* cpu dai */
-static const struct snd_soc_dai_driver msc313_bach_cpu_dai_drv = {
+static unsigned int msc313_bach_sub_level(struct msc313_bach_sub *sub)
+{
+	unsigned int level;
+
+	regmap_field_force_write(sub->count, 1);
+	regmap_field_read(sub->level, &level);
+	regmap_field_force_write(sub->count, 0);
+
+	return level;
+}
+
+static size_t msc313_bach_sub_level_bytes(struct msc313_bach_sub *sub)
+{
+	return FROM_MIU(sub->bach, msc313_bach_sub_level(sub));
+}
+
+/* Hand @bytes (a multiple of the alignment) to the hardware */
+static void msc313_bach_sub_push(struct msc313_bach_sub *sub, size_t bytes)
+{
+	unsigned int trig;
+
+	if (!bytes)
+		return;
+
+	regmap_field_write(sub->trigger_level, TO_MIU(sub->bach, bytes));
+	regmap_field_read(sub->trigger, &trig);
+	regmap_field_force_write(sub->trigger, !trig);
+	sub->queued += bytes;
+}
+
+static void msc313_bach_sub_push_pending(struct msc313_bach_sub *sub)
+{
+	size_t bytes = sub->pending - (sub->pending % MSC313_BACH_ALIGNMENT);
+
+	msc313_bach_sub_push(sub, bytes);
+	sub->pending -= bytes;
+}
+
+/* Stream position in bytes since the stream was prepared */
+static size_t msc313_bach_sub_position(struct msc313_bach_sub *sub)
+{
+	size_t level = msc313_bach_sub_level_bytes(sub);
+
+	if (sub->writer)
+		return sub->queued + level;
+	if (level > sub->queued)
+		return sub->queued;
+	return sub->queued - level;
+}
+
+static void msc313_bach_sub_clear_irq(struct msc313_bach_sub *sub)
+{
+	regmap_field_force_write(sub->int_clear, 1);
+	regmap_field_force_write(sub->int_clear, 0);
+}
+
+/*
+ * Point the threshold interrupt at the next period boundary. The flag bits
+ * in REG_DMA_FLAGS read as set all the time, so only the level is trusted:
+ * the reader's interrupt asserts while its level is below the threshold and
+ * the writer's while it is above, and both are quiet again once the
+ * threshold is rewritten for a boundary that has not been reached.
+ *
+ * Returns true when a boundary has been passed (or the stream ran dry),
+ * in which case the caller owes ALSA a period tick and should arm again.
+ */
+static bool msc313_bach_sub_arm(struct msc313_bach_sub *sub)
+{
+	struct msc313_bach *bach = sub->bach;
+	size_t level = msc313_bach_sub_level_bytes(sub);
+	size_t pos, thr_bytes;
+	bool passed = false;
+
+	if (sub->writer) {
+		pos = sub->queued + level;
+		if (pos >= sub->next_period) {
+			sub->next_period += sub->period_bytes;
+			passed = true;
+		} else if (level >= sub->buf_bytes) {
+			/* full and nobody reading: leave it to ALSA's overrun */
+			regmap_field_write(sub->int_thr_en, 0);
+			return true;
+		}
+		/* the level the writer reaches at the boundary */
+		thr_bytes = sub->next_period - sub->queued;
+		if (thr_bytes > sub->buf_bytes)
+			thr_bytes = sub->buf_bytes;
+		regmap_field_write(sub->overrun_thr, TO_MIU(bach, thr_bytes));
+		regmap_field_write(sub->int_thr_en, 1);
+		return passed;
+	}
+
+	pos = level > sub->queued ? sub->queued : sub->queued - level;
+	if (pos >= sub->next_period) {
+		sub->next_period += sub->period_bytes;
+		passed = true;
+	} else if (!level && sub->queued) {
+		/* ran dry before the boundary: an underrun for ALSA to see */
+		regmap_field_write(sub->int_thr_en, 0);
+		return true;
+	}
+	/*
+	 * The level left when the boundary is consumed (the interrupt fires
+	 * at level <= threshold); a boundary beyond what has been queued so
+	 * far means an interrupt when it runs dry.
+	 */
+	thr_bytes = sub->next_period > sub->queued ? 0 : sub->queued - sub->next_period;
+	regmap_field_write(sub->underrun_thr, TO_MIU(bach, thr_bytes));
+	regmap_field_write(sub->int_thr_en, 1);
+	return passed;
+}
+
+static void msc313_bach_sub_disarm(struct msc313_bach_sub *sub)
+{
+	regmap_field_write(sub->int_thr_en, 0);
+	regmap_field_write(sub->int_edge_en, 0);
+	msc313_bach_sub_clear_irq(sub);
+}
+
+/* --- PCM --- */
+
+static const struct snd_pcm_hardware msc313_bach_pcm_hardware = {
+	.info			= SNDRV_PCM_INFO_MMAP |
+				  SNDRV_PCM_INFO_MMAP_VALID |
+				  SNDRV_PCM_INFO_INTERLEAVED,
+	.formats		= SNDRV_PCM_FMTBIT_S16_LE,
+	.rates			= SNDRV_PCM_RATE_8000_48000 |
+				  SNDRV_PCM_RATE_12000 | SNDRV_PCM_RATE_24000,
+	.rate_min		= 8000,
+	.rate_max		= 48000,
+	.channels_min		= 1,
+	.channels_max		= 2,
+	.buffer_bytes_max	= SZ_128K,
+	.period_bytes_min	= 512,
+	.period_bytes_max	= SZ_32K,
+	.periods_min		= 2,
+	.periods_max		= 128,
+	.fifo_size		= 32,
+};
+
+/* The reader resamples from any of these; the writer only from four of them */
+static const unsigned int msc313_bach_reader_rates[] = {
+	8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000,
+};
+
+static const unsigned int msc313_bach_writer_rates[] = {
+	8000, 16000, 32000, 48000,
+};
+
+static const struct snd_pcm_hw_constraint_list msc313_bach_writer_rate_list = {
+	.count = ARRAY_SIZE(msc313_bach_writer_rates),
+	.list = msc313_bach_writer_rates,
+};
+
+static struct msc313_bach_sub *msc313_bach_substream_sub(struct msc313_bach *bach,
+							 struct snd_pcm_substream *substream)
+{
+	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+		return &bach->reader;
+	return &bach->writer;
+}
+
+static int msc313_bach_pcm_construct(struct snd_soc_component *component,
+				     struct snd_soc_pcm_runtime *rtd)
+{
+	snd_pcm_set_managed_buffer_all(rtd->pcm, SNDRV_DMA_TYPE_DEV,
+				       component->dev,
+				       msc313_bach_pcm_hardware.buffer_bytes_max,
+				       msc313_bach_pcm_hardware.buffer_bytes_max);
+	return 0;
+}
+
+static int msc313_bach_pcm_open(struct snd_soc_component *component,
+				struct snd_pcm_substream *substream)
+{
+	struct msc313_bach *bach = msc313_bach_from_component(component);
+	struct snd_pcm_runtime *runtime = substream->runtime;
+	struct msc313_bach_sub *sub = msc313_bach_substream_sub(bach, substream);
+	unsigned long flags;
+	int ret;
+
+	snd_soc_set_runtime_hwparams(substream, &msc313_bach_pcm_hardware);
+
+	/* The DMA works in aligned units; have ALSA pick sizes that fit */
+	ret = snd_pcm_hw_constraint_step(runtime, 0, SNDRV_PCM_HW_PARAM_PERIOD_BYTES,
+					 MSC313_BACH_ALIGNMENT);
+	if (ret < 0)
+		return ret;
+	ret = snd_pcm_hw_constraint_step(runtime, 0, SNDRV_PCM_HW_PARAM_BUFFER_BYTES,
+					 MSC313_BACH_ALIGNMENT);
+	if (ret < 0)
+		return ret;
+	if (sub->writer) {
+		ret = snd_pcm_hw_constraint_list(runtime, 0, SNDRV_PCM_HW_PARAM_RATE,
+						 &msc313_bach_writer_rate_list);
+		if (ret < 0)
+			return ret;
+	}
+
+	spin_lock_irqsave(&bach->lock, flags);
+	sub->substream = substream;
+	sub->running = false;
+	if (!bach->open_streams++)
+		regmap_field_force_write(bach->dma_live_count_en, 1);
+	spin_unlock_irqrestore(&bach->lock, flags);
+
+	return 0;
+}
+
+static int msc313_bach_pcm_close(struct snd_soc_component *component,
+				 struct snd_pcm_substream *substream)
+{
+	struct msc313_bach *bach = msc313_bach_from_component(component);
+	struct msc313_bach_sub *sub = msc313_bach_substream_sub(bach, substream);
+	unsigned long flags;
+
+	spin_lock_irqsave(&bach->lock, flags);
+	msc313_bach_sub_disarm(sub);
+	sub->running = false;
+	sub->substream = NULL;
+	bach->open_streams--;
+	spin_unlock_irqrestore(&bach->lock, flags);
+
+	return 0;
+}
+
+static int msc313_bach_pcm_prepare(struct snd_soc_component *component,
+				   struct snd_pcm_substream *substream)
+{
+	struct msc313_bach *bach = msc313_bach_from_component(component);
+	struct snd_pcm_runtime *runtime = substream->runtime;
+	struct msc313_bach_sub *sub = msc313_bach_substream_sub(bach, substream);
+	unsigned int mono = runtime->channels == 1;
+	unsigned int miu_addr = TO_MIU(bach, runtime->dma_addr);
+	unsigned long flags;
+	int i, rate_sel = -1;
+
+	if ((runtime->dma_addr % MSC313_BACH_ALIGNMENT) ||
+	    (runtime->dma_bytes % MSC313_BACH_ALIGNMENT))
+		return -EINVAL;
+
+	if (sub->writer) {
+		for (i = 0; i < ARRAY_SIZE(msc313_bach_writer_rates); i++)
+			if (msc313_bach_writer_rates[i] == runtime->rate)
+				rate_sel = i;
+	} else {
+		for (i = 0; i < ARRAY_SIZE(msc313_bach_reader_rates); i++)
+			if (msc313_bach_reader_rates[i] == runtime->rate)
+				rate_sel = i;
+	}
+	if (rate_sel < 0)
+		return -EINVAL;
+
+	spin_lock_irqsave(&bach->lock, flags);
+
+	msc313_bach_sub_disarm(sub);
+	regmap_field_write(sub->en, 0);
+	sub->running = false;
+	sub->buf_bytes = runtime->dma_bytes;
+	sub->period_bytes = frames_to_bytes(runtime, runtime->period_size);
+	sub->queued = 0;
+	sub->pending = 0;
+	sub->next_period = sub->period_bytes;
+	sub->last_appl = 0;
+
+	/* reset the level counter */
+	regmap_field_force_write(sub->trigger, 0);
+	regmap_field_force_write(sub->init, 1);
+	regmap_field_force_write(sub->init, 0);
+
+	regmap_field_write(sub->addr_hi, miu_addr >> 12);
+	regmap_field_write(sub->addr_lo, miu_addr & 0xfff);
+	regmap_field_write(sub->size, TO_MIU(bach, runtime->dma_bytes));
+	regmap_field_write(sub->overrun_thr, 0);
+	regmap_field_write(sub->underrun_thr, 0);
+
+	regmap_field_write(sub->mono, mono);
+	if (sub->mono2)
+		regmap_field_write(sub->mono2, mono);
+	regmap_field_write(sub->rate_sel, rate_sel);
+	if (sub->rate_sel2)
+		regmap_field_write(sub->rate_sel2, rate_sel);
+
+	spin_unlock_irqrestore(&bach->lock, flags);
+
+	return 0;
+}
+
+/*
+ * Called without bach->lock: turn any passed boundaries into period ticks.
+ * The trigger and ack callbacks run under the PCM stream lock, from where
+ * snd_pcm_period_elapsed() would deadlock.
+ */
+static void msc313_bach_sub_tick(struct msc313_bach_sub *sub, bool passed, bool stream_locked)
+{
+	struct msc313_bach *bach = sub->bach;
+	unsigned long flags;
+	int guard = 64;
+
+	while (passed && guard--) {
+		if (stream_locked)
+			snd_pcm_period_elapsed_under_stream_lock(sub->substream);
+		else
+			snd_pcm_period_elapsed(sub->substream);
+		spin_lock_irqsave(&bach->lock, flags);
+		passed = sub->running && msc313_bach_sub_arm(sub);
+		spin_unlock_irqrestore(&bach->lock, flags);
+	}
+}
+
+static int msc313_bach_pcm_trigger(struct snd_soc_component *component,
+				   struct snd_pcm_substream *substream, int cmd)
+{
+	struct msc313_bach *bach = msc313_bach_from_component(component);
+	struct msc313_bach_sub *sub = msc313_bach_substream_sub(bach, substream);
+	unsigned long flags;
+	bool passed = false;
+	int ret = 0;
+
+	spin_lock_irqsave(&bach->lock, flags);
+
+	switch (cmd) {
+	case SNDRV_PCM_TRIGGER_START:
+	case SNDRV_PCM_TRIGGER_RESUME:
+	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
+		msc313_bach_sub_clear_irq(sub);
+		if (!sub->writer) {
+			/* the channel enable has to go right before the reader's */
+			regmap_field_write(bach->dma_en, 1);
+			udelay(10);
+		}
+		regmap_field_write(sub->en, 1);
+		udelay(10);
+		sub->running = true;
+		/* whatever the application queued before starting */
+		msc313_bach_sub_push_pending(sub);
+		passed = msc313_bach_sub_arm(sub);
+		break;
+	case SNDRV_PCM_TRIGGER_STOP:
+	case SNDRV_PCM_TRIGGER_SUSPEND:
+	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
+		msc313_bach_sub_disarm(sub);
+		sub->running = false;
+		regmap_field_write(sub->en, 0);
+		udelay(10);
+		if (!sub->writer)
+			regmap_field_write(bach->dma_en, 0);
+		break;
+	default:
+		ret = -EINVAL;
+	}
+
+	spin_unlock_irqrestore(&bach->lock, flags);
+
+	if (!ret)
+		msc313_bach_sub_tick(sub, passed, true);
+
+	return ret;
+}
+
+static snd_pcm_uframes_t msc313_bach_pcm_pointer(struct snd_soc_component *component,
+						 struct snd_pcm_substream *substream)
+{
+	struct msc313_bach *bach = msc313_bach_from_component(component);
+	struct snd_pcm_runtime *runtime = substream->runtime;
+	struct msc313_bach_sub *sub = msc313_bach_substream_sub(bach, substream);
+	unsigned long flags;
+	size_t pos;
+
+	spin_lock_irqsave(&bach->lock, flags);
+	pos = msc313_bach_sub_position(sub);
+	spin_unlock_irqrestore(&bach->lock, flags);
+
+	return bytes_to_frames(runtime, pos % runtime->dma_bytes);
+}
+
+/*
+ * The application moved its pointer: samples were written (playback) or
+ * read (capture). Hand that many bytes to the hardware.
+ */
+static int msc313_bach_pcm_ack(struct snd_soc_component *component,
+			       struct snd_pcm_substream *substream)
+{
+	struct msc313_bach *bach = msc313_bach_from_component(component);
+	struct snd_pcm_runtime *runtime = substream->runtime;
+	struct msc313_bach_sub *sub = msc313_bach_substream_sub(bach, substream);
+	snd_pcm_uframes_t appl = READ_ONCE(runtime->control->appl_ptr);
+	snd_pcm_uframes_t delta;
+	unsigned long flags;
+	bool passed = false;
+
+	spin_lock_irqsave(&bach->lock, flags);
+	if (appl >= sub->last_appl)
+		delta = appl - sub->last_appl;
+	else
+		delta = appl + runtime->boundary - sub->last_appl;
+	sub->last_appl = appl;
+	sub->pending += frames_to_bytes(runtime, delta);
+	if (sub->running) {
+		msc313_bach_sub_push_pending(sub);
+		passed = msc313_bach_sub_arm(sub);
+	}
+	spin_unlock_irqrestore(&bach->lock, flags);
+
+	msc313_bach_sub_tick(sub, passed, true);
+
+	return 0;
+}
+
+static irqreturn_t msc313_bach_irq(int irq, void *data)
+{
+	struct msc313_bach *bach = data;
+	struct msc313_bach_sub *subs[] = { &bach->reader, &bach->writer };
+	irqreturn_t ret = IRQ_NONE;
+	unsigned long flags;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(subs); i++) {
+		struct msc313_bach_sub *sub = subs[i];
+		unsigned int en = 0;
+		bool passed = false;
+
+		spin_lock_irqsave(&bach->lock, flags);
+		regmap_field_read(sub->int_thr_en, &en);
+		if (en && sub->running && sub->substream) {
+			ret = IRQ_HANDLED;
+			msc313_bach_sub_clear_irq(sub);
+			passed = msc313_bach_sub_arm(sub);
+		}
+		spin_unlock_irqrestore(&bach->lock, flags);
+
+		if (passed)
+			msc313_bach_sub_tick(sub, passed, false);
+	}
+
+	return ret;
+}
+
+static const struct snd_soc_component_driver msc313_bach_pcm_component = {
+	.name		= "msc313-bach-pcm",
+	.debugfs_prefix	= "pcm",
+	.pcm_new	= msc313_bach_pcm_construct,
+	.open		= msc313_bach_pcm_open,
+	.close		= msc313_bach_pcm_close,
+	.prepare	= msc313_bach_pcm_prepare,
+	.trigger	= msc313_bach_pcm_trigger,
+	.pointer	= msc313_bach_pcm_pointer,
+	.ack		= msc313_bach_pcm_ack,
+};
+
+/* --- CPU DAI --- */
+
+static struct snd_soc_dai_driver msc313_bach_cpu_dai_drv = {
 	.name = "msc313-bach-cpu-dai",
-	.playback =
-	{
+	.playback = {
+		.stream_name	= "CPU Playback",
 		.channels_min	= 1,
 		.channels_max	= 2,
-		.rates		= SNDRV_PCM_RATE_8000_48000,
-		.formats	= SNDRV_PCM_FMTBIT_S16_LE
+		.rates		= SNDRV_PCM_RATE_8000_48000 |
+				  SNDRV_PCM_RATE_12000 | SNDRV_PCM_RATE_24000,
+		.formats	= SNDRV_PCM_FMTBIT_S16_LE,
 	},
-	.capture =
-	{
+	.capture = {
+		.stream_name	= "CPU Capture",
 		.channels_min	= 1,
 		.channels_max	= 2,
-		.rates		= SNDRV_PCM_RATE_8000_48000,
+		.rates		= SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_16000 |
+				  SNDRV_PCM_RATE_32000 | SNDRV_PCM_RATE_48000,
 		.formats	= SNDRV_PCM_FMTBIT_S16_LE,
 	},
 };
 
 static const struct snd_soc_component_driver msc313_bach_cpu_component = {
-	.name = "msc313-bach",
+	.name = "msc313-bach-cpu",
+	.debugfs_prefix = "cpu",
 };
-/* cpu dai */
 
-/* codec */
-/**
-* Used to set Playback volume 0~76 (mapping to -64dB~12dB)
-*/
-#define MAIN_PLAYBACK_VOLUME "Main Playback Volume"
+/* --- Codec --- */
 
-/*
-* Used to set Capture volume 0~76 (mapping to -64dB~12dB)
-*/
-#define MAIN_CAPTURE_VOLUME "Main Capture Volume"
-
-/*
-* Used to set microphone gain, total 5 bits ,
-* it consists of the upper 2 bits(4 levels) + the lower 3 bits (8 levels)
-*/
-#define MIC_GAIN_SELECTION "Mic Gain Selection"
-
-/*
-* Used to set line-in gain level 0~7
-*/
-#define LINEIN_GAIN_LEVEL "LineIn Gain Level"
-
-/*
-* Used to select ADC input (Line-in, Mic-in)
-*/
-#define ADC_MUX "ADC Mux"
-
-struct snd_soc_dai_driver msc313_bach_codec_dai_drv = {
-	.name	= "Codec",
-	.playback =
-	{
+static struct snd_soc_dai_driver msc313_bach_codec_dai_drv = {
+	.name = "Codec",
+	.playback = {
 		.stream_name	= "Main Playback",
 		.channels_min	= 1,
 		.channels_max	= 2,
-		.rates		= SNDRV_PCM_RATE_8000_48000,
+		.rates		= SNDRV_PCM_RATE_8000_48000 |
+				  SNDRV_PCM_RATE_12000 | SNDRV_PCM_RATE_24000,
 		.formats	= SNDRV_PCM_FMTBIT_S16_LE,
 	},
-	.capture =
-	{
+	.capture = {
 		.stream_name	= "Main Capture",
 		.channels_min	= 1,
 		.channels_max	= 2,
-		.rates		= SNDRV_PCM_RATE_8000_48000,
+		.rates		= SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_16000 |
+				  SNDRV_PCM_RATE_32000 | SNDRV_PCM_RATE_48000,
 		.formats	= SNDRV_PCM_FMTBIT_S16_LE,
 	},
 };
 
-static unsigned int msc313_bach_codec_read(struct snd_soc_component *component, unsigned int reg)
+static unsigned int msc313_bach_codec_read(struct snd_soc_component *component,
+					   unsigned int reg)
 {
-	struct msc313_bach *bach = snd_soc_card_get_drvdata(component->card);
+	struct msc313_bach *bach = msc313_bach_from_component(component);
 	unsigned int val;
 	int ret;
 
@@ -272,667 +787,201 @@ static unsigned int msc313_bach_codec_read(struct snd_soc_component *component, 
 	else
 		ret = regmap_read(bach->bach, reg, &val);
 
-	if (ret)
-		return ret;
-
-	dev_info(bach->dev, "reg read %04x, %04x\n", reg, val);
-
-	return val;
+	return ret ? 0 : val;
 }
 
 static int msc313_bach_codec_write(struct snd_soc_component *component,
-		unsigned int reg, unsigned int value)
+				   unsigned int reg, unsigned int value)
 {
-	struct msc313_bach *bach = snd_soc_card_get_drvdata(component->card);
-	int ret;
-
-	dev_info(bach->dev, "reg write %04x, %04x\n", reg, value);
+	struct msc313_bach *bach = msc313_bach_from_component(component);
 
 	if (reg >= REG_ATOP_OFFSET)
-		ret = regmap_write(bach->audiotop, reg - REG_ATOP_OFFSET, value);
-	else
-		ret = regmap_write(bach->bach, reg, value);
+		return regmap_write(bach->audiotop, reg - REG_ATOP_OFFSET, value);
+	return regmap_write(bach->bach, reg, value);
+}
 
+/*
+ * The DPGA gain fields are signed 8-bit in -0.5 dB steps: 0 is 0 dB,
+ * 0x7e is -63 dB and 0x7f is mute. Only attenuation is offered.
+ */
+static const DECLARE_TLV_DB_SCALE(msc313_bach_dpga_tlv, -6350, 50, 1);
+
+static const struct snd_kcontrol_new msc313_bach_controls[] = {
+	SOC_DOUBLE_TLV("Main Playback Volume", REG_DPGA_PLAYBACK, 0, 8, 0x7f, 1,
+		       msc313_bach_dpga_tlv),
+	SOC_DOUBLE_TLV("Main Capture Volume", REG_DPGA_CAPTURE, 0, 8, 0x7f, 1,
+		       msc313_bach_dpga_tlv),
+	SOC_DOUBLE("ADC Capture Volume", REG_ATOP_ADC_GAIN, 0, 4, 7, 0),
+	SOC_SINGLE("Mic Gain", REG_ATOP_MIC_GAIN, 4, 3, 0),
+	/* the built-in test tone, see the "SineGen Switch" below */
+	SOC_SINGLE("SineGen Gain", REG_SINEGEN, 4, 15, 0),
+	SOC_SINGLE("SineGen Rate", REG_SINEGEN, 0, 15, 0),
+};
+
+/*
+ * The sine generator is a DAPM switch rather than a plain control so that
+ * turning it on powers the DAC and whatever the board has behind it, which
+ * makes it a test of the analog side that needs no stream at all.
+ */
+static const struct snd_kcontrol_new msc313_bach_sinegen_switch =
+	SOC_DAPM_SINGLE("Switch", REG_SINEGEN, 15, 1, 0);
+
+static const char * const msc313_bach_output_select[] = { "ADC", "DMA Reader" };
+static SOC_ENUM_SINGLE_DECL(msc313_bach_output_enum, REG_MUX0SEL, 5,
+			    msc313_bach_output_select);
+static const struct snd_kcontrol_new msc313_bach_output_mux =
+	SOC_DAPM_ENUM("Playback Source", msc313_bach_output_enum);
+
+static const char * const msc313_bach_adc_select[] = { "Line-in", "Mic-in" };
+static const unsigned int msc313_bach_adc_values[] = {
+	ATOP_ADC_MUX_LINEIN, ATOP_ADC_MUX_MICIN,
+};
+static SOC_VALUE_ENUM_SINGLE_DECL(msc313_bach_adc_enum, REG_ATOP_ADC_MUX, 0, 0xff,
+				  msc313_bach_adc_select, msc313_bach_adc_values);
+static const struct snd_kcontrol_new msc313_bach_adc_mux =
+	SOC_DAPM_ENUM("ADC Source", msc313_bach_adc_enum);
+
+static int msc313_bach_atop_power(struct snd_soc_dapm_widget *w, unsigned int mask, bool on)
+{
+	struct snd_soc_component *component = snd_soc_dapm_to_component(w->dapm);
+	struct msc313_bach *bach = msc313_bach_from_component(component);
+
+	return regmap_update_bits(bach->audiotop, REG_ATOP_ANALOG_CTRL3 - REG_ATOP_OFFSET,
+				  mask, on ? 0 : mask);
+}
+
+static int msc313_bach_atop_event(struct snd_soc_dapm_widget *w,
+				  struct snd_kcontrol *kcontrol, int event)
+{
+	return msc313_bach_atop_power(w, ATOP_PD_ALL, SND_SOC_DAPM_EVENT_ON(event));
+}
+
+static int msc313_bach_dac_event(struct snd_soc_dapm_widget *w,
+				 struct snd_kcontrol *kcontrol, int event)
+{
+	int ret = msc313_bach_atop_power(w, ATOP_PD_DAC, SND_SOC_DAPM_EVENT_ON(event));
+
+	/* the vendor gives the DAC a moment before letting an amplifier at it */
+	if (!ret && SND_SOC_DAPM_EVENT_ON(event))
+		msleep(10);
 	return ret;
 }
 
-static const DECLARE_TLV_DB_SCALE(infinity_dpga_tlv, -64, 12, 0);
-
-static const struct snd_kcontrol_new msc313_bach_controls[] =
+static int msc313_bach_adc_event(struct snd_soc_dapm_widget *w,
+				 struct snd_kcontrol *kcontrol, int event)
 {
-	/* playback */
-	SOC_DOUBLE_TLV(MAIN_PLAYBACK_VOLUME, MSC313_BACH_MMC1_DPGA_CFG2, 0, 8, 76, 1, infinity_dpga_tlv),
+	int ret = msc313_bach_atop_power(w, ATOP_PD_ADC_BIAS | ATOP_PD_ADC,
+					 SND_SOC_DAPM_EVENT_ON(event));
 
-	//SOC_SINGLE_TLV(MAIN_CAPTURE_VOLUME, AUD_CAPTURE_DPGA, 0, 76, 0, infinity_dpga_tlv),
-	//SOC_SINGLE_TLV(MIC_GAIN_SELECTION, AUD_MIC_GAIN, 0, 31, 0, NULL),
-	//SOC_SINGLE_TLV(LINEIN_GAIN_LEVEL, AUD_LINEIN_GAIN, 0, 7, 0, NULL),
+	if (!ret && SND_SOC_DAPM_EVENT_ON(event))
+		msleep(50);
+	return ret;
+}
 
-	/* sinegen */
-	//SOC_SINGLE("SineGen Enable", REG_SINEGEN, 15, 1, 0),
-	//SOC_SINGLE("SineGen Gain Level", REG_SINEGEN, 4, 15, 0),
-	//SOC_SINGLE("SineGen Rate Select", REG_SINEGEN, 0, 15, 0),
+static const struct snd_soc_dapm_widget msc313_bach_dapm_widgets[] = {
+	SND_SOC_DAPM_SUPPLY("Analog Power", SND_SOC_NOPM, 0, 0, msc313_bach_atop_event,
+			    SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
+
+	SND_SOC_DAPM_AIF_IN("DMARD", "Main Playback", 0, SND_SOC_NOPM, 0, 0),
+	SND_SOC_DAPM_MUX("Playback Mux", SND_SOC_NOPM, 0, 0, &msc313_bach_output_mux),
+	SND_SOC_DAPM_SIGGEN("Sine Generator"),
+	SND_SOC_DAPM_SWITCH("SineGen", SND_SOC_NOPM, 0, 0, &msc313_bach_sinegen_switch),
+	SND_SOC_DAPM_DAC_E("DAC", NULL, SND_SOC_NOPM, 0, 0, msc313_bach_dac_event,
+			   SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_PRE_PMD),
+	SND_SOC_DAPM_OUTPUT("LINEOUT"),
+
+	SND_SOC_DAPM_INPUT("LINEIN"),
+	SND_SOC_DAPM_INPUT("MICIN"),
+	SND_SOC_DAPM_MUX("ADC Mux", SND_SOC_NOPM, 0, 0, &msc313_bach_adc_mux),
+	SND_SOC_DAPM_ADC_E("ADC", NULL, SND_SOC_NOPM, 0, 0, msc313_bach_adc_event,
+			   SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_PRE_PMD),
+	SND_SOC_DAPM_AIF_OUT("DMAWR", "Main Capture", 0, SND_SOC_NOPM, 0, 0),
 };
 
-static const char *infinity_adc_select[] = {
-	"Line-in",
-	"Mic-in",
-};
+static const struct snd_soc_dapm_route msc313_bach_dapm_routes[] = {
+	{ "Playback Mux", "DMA Reader", "DMARD" },
+	{ "Playback Mux", "ADC", "ADC" },
+	{ "DAC", NULL, "Playback Mux" },
+	{ "SineGen", "Switch", "Sine Generator" },
+	{ "DAC", NULL, "SineGen" },
+	{ "DAC", NULL, "Analog Power" },
+	{ "LINEOUT", NULL, "DAC" },
 
-/* Main output mux control */
-static const char *msc313_bach_output_select[] = {
-	"ADC In",
-	"DMA Reader",
-};
-
-static const struct soc_enum msc313_bach_outsel_enum =
-	SOC_ENUM_SINGLE(REG_MUX0SEL, 5,
-		ARRAY_SIZE(msc313_bach_output_select),
-		msc313_bach_output_select);
-
-static const struct snd_kcontrol_new msc313_bach_output_mux_controls =
-	SOC_DAPM_ENUM("Playback Select", msc313_bach_outsel_enum);
-
-//static const struct soc_enum infinity_adcsel_enum =
-//		SOC_ENUM_SINGLE(AUD_ADC_MUX, 0, 2, infinity_adc_select);
-//static const struct snd_kcontrol_new infinity_adc_mux_controls =
-//		SOC_DAPM_ENUM("ADC Select", infinity_adcsel_enum);
-
-#define OUTPUT_MUX	"OUTPUT_MUX"
-#define LINEOUT		"LINEOUT"
-
-static const struct snd_soc_dapm_widget infinity_dapm_widgets[] =
-{
-	/* top bits */
-	//SND_SOC_DAPM_DAC("DAC",   NULL, REG_ATOP_ANALOG_CTRL1, 1, 0),
-	SND_SOC_DAPM_ADC("ADC", NULL, REG_ATOP_ANALOG_CTRL1, 0, 0),
-	SND_SOC_DAPM_INPUT("DMARD"),
-	SND_SOC_DAPM_AIF_IN("DMARD", OUTPUT_MUX, 0, SND_SOC_NOPM, 0, 0),
-
-
-
-
-	//SND_SOC_DAPM_AIF_OUT("DMAWR1", "Sub Capture",  0, SND_SOC_NOPM, 0, 0),
-	//SND_SOC_DAPM_AIF_OUT("DMAWR", "Main Capture",   0, SND_SOC_NOPM, 0, 0),
-	//SND_SOC_DAPM_AIF_IN("DMARD2",  "Sub Playback",  0, SND_SOC_NOPM, 0, 0),
-	//SND_SOC_DAPM_AIF_IN("DIGMIC", NULL,   0, AUD_DIGMIC_PWR, 0, 0),
-
-
-	//SND_SOC_DAPM_INPUT("LINEIN"),
-	//SND_SOC_DAPM_INPUT("MICIN"),
-
-
-	//SND_SOC_DAPM_ADC("Mic Bias", NULL, AUD_ATOP_PWR, 2, 0),
-	//SND_SOC_DAPM_MICBIAS("Mic Bias", AUD_ATOP_PWR, 5, 0),
-
-//	SND_SOC_DAPM_PGA("Main Playback DPGA", AUD_DPGA_PWR, 0, 0, NULL, 0),
-	//SND_SOC_DAPM_PGA("Main Capture DPGA",  AUD_DPGA_PWR, 1, 0, NULL, 0),
-
-	//SND_SOC_DAPM_MUX(ADC_MUX, SND_SOC_NOPM, 0, 0, &infinity_adc_mux_controls),
-
-	/* output */
-	SND_SOC_DAPM_MUX(OUTPUT_MUX, SND_SOC_NOPM, 0, 0,
-			&msc313_bach_output_mux_controls),
-	SND_SOC_DAPM_OUTPUT(LINEOUT),
-};
-
-static const struct snd_soc_dapm_route infinity_codec_routes[] =
-{
-	{ .source = "DMARD", .sink = OUTPUT_MUX, },
-	{ .source = "ADC", .sink = OUTPUT_MUX, },
-	{ .source = OUTPUT_MUX, .sink = LINEOUT, },
+	{ "ADC Mux", "Line-in", "LINEIN" },
+	{ "ADC Mux", "Mic-in", "MICIN" },
+	{ "ADC", NULL, "ADC Mux" },
+	{ "ADC", NULL, "Analog Power" },
+	{ "DMAWR", NULL, "ADC" },
 };
 
 static const struct snd_soc_component_driver msc313_bach_codec_drv = {
+	.name			= "msc313-bach-codec",
+	.debugfs_prefix		= "codec",
 	.write			= msc313_bach_codec_write,
 	.read			= msc313_bach_codec_read,
 	.controls		= msc313_bach_controls,
 	.num_controls		= ARRAY_SIZE(msc313_bach_controls),
-	.dapm_widgets		= infinity_dapm_widgets,
-	.num_dapm_widgets	= ARRAY_SIZE(infinity_dapm_widgets),
-	.dapm_routes		= infinity_codec_routes,
-	.num_dapm_routes	= ARRAY_SIZE(infinity_codec_routes),
-};
-/* codec */
-
-/* pcm */
-static const struct snd_pcm_hardware msc313_bach_pcm_playback_hardware =
-{
-	.info			= SNDRV_PCM_INFO_MMAP |
-				  SNDRV_PCM_INFO_MMAP_VALID |
-				  SNDRV_PCM_INFO_INTERLEAVED,
-	.formats		= SNDRV_PCM_FMTBIT_S16_LE,
-	.rates			= SNDRV_PCM_RATE_8000_48000,
-	.rate_min		= 8000,
-	.rate_max		= 48000,
-	.channels_min		= 1,
-	.channels_max		= 2,
-	/* The buffer level only has 16 bits */
-	.buffer_bytes_max	= (SZ_64K - 1),
-	.period_bytes_min	= 512,
-	.period_bytes_max	= 24 * SZ_1K,
-	.periods_min		= 2,
-	.periods_max		= MAX_PERIODS,
-	.fifo_size		= 32,
+	.dapm_widgets		= msc313_bach_dapm_widgets,
+	.num_dapm_widgets	= ARRAY_SIZE(msc313_bach_dapm_widgets),
+	.dapm_routes		= msc313_bach_dapm_routes,
+	.num_dapm_routes	= ARRAY_SIZE(msc313_bach_dapm_routes),
+	.idle_bias_on		= 1,
+	.use_pmdown_time	= 1,
+	.endianness		= 1,
 };
 
-static const struct snd_pcm_hardware msc313_bach_pcm_capture_hardware =
+/* --- Card: the board's speaker amplifier and headphone jack --- */
+
+static int msc313_bach_spk_event(struct snd_soc_dapm_widget *w,
+				 struct snd_kcontrol *kcontrol, int event)
 {
-	.info			= SNDRV_PCM_INFO_INTERLEAVED |
-				  SNDRV_PCM_INFO_MMAP |
-				  SNDRV_PCM_INFO_MMAP_VALID,
-	.formats		= SNDRV_PCM_FMTBIT_S16_LE,
-	.rates			= SNDRV_PCM_RATE_8000_48000,
-	.rate_min		= 8000,
-	.rate_max		= 48000,
-	.channels_min		= 1,
-	.channels_max		= 2,
-	/* The buffer level only has 16 bits */
-	.buffer_bytes_max	= (SZ_64K - 1),
-	.period_bytes_min	= 512,
-	.period_bytes_max	= 10 * SZ_1K,
-	.periods_min		= 2,
-	.periods_max		= 128,
-	.fifo_size		= 32,
-};
+	struct msc313_bach *bach = snd_soc_card_get_drvdata(snd_soc_dapm_to_card(w->dapm));
 
-static int msc313_bach_pcm_construct(struct snd_soc_component *component,
-		struct snd_soc_pcm_runtime *rtd)
-{
-	struct snd_card *card = rtd->card->snd_card;
-
-	snd_pcm_set_managed_buffer_all(rtd->pcm,
-				       SNDRV_DMA_TYPE_DEV,
-				       card->dev,
-				       msc313_bach_pcm_playback_hardware.buffer_bytes_max,
-				       msc313_bach_pcm_playback_hardware.buffer_bytes_max);
-
+	if (bach->amp_gpio)
+		gpiod_set_value_cansleep(bach->amp_gpio, SND_SOC_DAPM_EVENT_ON(event));
 	return 0;
 }
 
-#define PERIOD_BYTES_MIN 0x100
+static const struct snd_soc_dapm_widget msc313_bach_card_widgets[] = {
+	SND_SOC_DAPM_SPK("Speaker", msc313_bach_spk_event),
+	SND_SOC_DAPM_HP("Headphone", NULL),
+	SND_SOC_DAPM_MIC("Mic", NULL),
+	SND_SOC_DAPM_LINE("Line In", NULL),
+};
 
-static int msc313_bach_get_level(struct msc313_bach_dma_sub_channel *sub_channel)
+static const struct snd_soc_dapm_route msc313_bach_card_routes[] = {
+	{ "Speaker", NULL, "LINEOUT" },
+	{ "Headphone", NULL, "LINEOUT" },
+	{ "MICIN", NULL, "Mic" },
+	{ "LINEIN", NULL, "Line In" },
+};
+
+static struct snd_soc_jack_pin msc313_bach_jack_pins[] = {
+	{ .pin = "Headphone", .mask = SND_JACK_HEADPHONE },
+	{ .pin = "Speaker", .mask = SND_JACK_HEADPHONE, .invert = true },
+};
+
+static int msc313_bach_card_late_probe(struct snd_soc_card *card)
 {
-	unsigned level;
-
-	regmap_field_force_write(sub_channel->count, 1);
-	regmap_field_read(sub_channel->level, &level);
-	regmap_field_force_write(sub_channel->count, 0);
-
-	return level;
-}
-
-static void msc313_bach_dump_dmactrl(struct msc313_bach *bach)
-{
-	unsigned ctrl0;
-	int i;
-
-	for(i = 0; i < 0x9; i++){
-		regmap_read(bach->bach, 0x100 + (i * 4), &ctrl0);
-		printk("ctrl%d: %04x\n", i, ctrl0);
-	}
-}
-
-static void msc313_bach_pcm_dumpruntime(struct device *dev,
-					struct msc313_bach_substream_runtime *bach_runtime)
-{
-	struct msc313_bach_dma_sub_channel *sub_channel = bach_runtime->sub_channel;
-	int level;
-
-	level = msc313_bach_get_level(sub_channel);
-
-	dev_dbg(dev, "irqs %d, empties %d, underruns %d, pending_bytes: %u, processed_bytes: %u, total_bytes: %u, play time %u ms\n",
-		     bach_runtime->irqs,
-		     bach_runtime->empties,
-		     bach_runtime->underruns,
-		     (unsigned) bach_runtime->pending_bytes,
-		     (unsigned) bach_runtime->processed_bytes,
-		     (unsigned) bach_runtime->total_bytes,
-		     jiffies_to_msecs(bach_runtime->end_time - bach_runtime->start_time));
-}
-
-static int msc313_bach_pcm_open(struct snd_soc_component *component,
-				struct snd_pcm_substream *substream)
-{
-	struct device *dev = component->dev;
-	struct msc313_bach *bach = snd_soc_card_get_drvdata(component->card);
-	struct snd_pcm_runtime *runtime = substream->runtime;
-	struct msc313_bach_substream_runtime *bach_runtime;
-	struct msc313_bach_dma_channel *dma_channel = &bach->dma_channels[0];
-
-	dev_info(dev, "%s:%d\n", __func__, __LINE__);
-
-	bach_runtime = kzalloc(sizeof(*bach_runtime), GFP_KERNEL);
-	if (!bach_runtime)
-		return -ENOMEM;
-
-	runtime->private_data = bach_runtime;
-
-	switch(substream->stream) {
-	case SNDRV_PCM_STREAM_PLAYBACK:
-		snd_soc_set_runtime_hwparams(substream, &msc313_bach_pcm_playback_hardware);
-		bach_runtime->sub_channel = &bach->dma_channels[0].reader_writer[0];
-		bach->dma_channels[0].reader_writer[0].substream = substream;
-		/*
-		 * The DMA engine works in MSC313_BACH_ALIGNMENT-byte units, and
-		 * prepare rejects an unaligned buffer/period, so constrain ALSA to
-		 * pick aligned sizes rather than failing hw_params for the app.
-		 */
-		snd_pcm_hw_constraint_step(runtime, 0,
-				SNDRV_PCM_HW_PARAM_PERIOD_BYTES, MSC313_BACH_ALIGNMENT);
-		snd_pcm_hw_constraint_step(runtime, 0,
-				SNDRV_PCM_HW_PARAM_BUFFER_BYTES, MSC313_BACH_ALIGNMENT);
-		break;
-	default:
-		/*
-		 * Only playback is wired up; capture would leave
-		 * bach_runtime->sub_channel NULL and crash in prepare/trigger/
-		 * pointer. Fail the open cleanly instead of exposing a stream
-		 * that oopses the kernel.
-		 */
-		dev_warn(dev, "capture is not supported\n");
-		kfree(bach_runtime);
-		runtime->private_data = NULL;
-		return -EINVAL;
-	}
-
-	regmap_field_force_write(dma_channel->rst, 1);
-	udelay(10);
-	regmap_field_force_write(dma_channel->rst, 0);
-	udelay(10);
-
-	/* Setup default register config */
-	regmap_field_force_write(dma_channel->live_count_en, 1);
-
-	return 0;
-}
-
-static int msc313_bach_pcm_close(struct snd_soc_component *component,
-		struct snd_pcm_substream *substream)
-{
-	struct msc313_bach *bach = snd_soc_card_get_drvdata(component->card);
-	struct snd_pcm_runtime *runtime = substream->runtime;
-	struct msc313_bach_dma_channel *dma_channel = &bach->dma_channels[0];
+	struct msc313_bach *bach = snd_soc_card_get_drvdata(card);
 	int ret;
 
-	//printk("%s:%d\n", __func__, __LINE__);
+	if (!of_property_present(card->dev->of_node, "hp-det-gpios"))
+		return 0;
 
-	switch(substream->stream){
-	case SNDRV_PCM_STREAM_PLAYBACK:
-		dma_channel->reader_writer[MSC313_SUB_CHANNEL_READER].substream = NULL;
-		break;
-	case SNDRV_PCM_STREAM_CAPTURE:
-		break;
-	default:
-		return -EINVAL;
-	}
+	ret = snd_soc_card_jack_new_pins(card, "Headphone Jack", SND_JACK_HEADPHONE,
+					 &bach->hp_jack, msc313_bach_jack_pins,
+					 ARRAY_SIZE(msc313_bach_jack_pins));
+	if (ret)
+		return ret;
 
-	regmap_field_write(dma_channel->rst, 1);
-
-	return 0;
+	bach->hp_jack_gpio.name = "hp-det";
+	bach->hp_jack_gpio.report = SND_JACK_HEADPHONE;
+	bach->hp_jack_gpio.debounce_time = 150;
+	return snd_soc_jack_add_gpiods(card->dev, &bach->hp_jack, 1, &bach->hp_jack_gpio);
 }
 
-/*
- * Update when the next underflow interrupt happens and enable the interrupt
- * if needed.
- */
-static void msc313_bach_pcm_update_underflow(struct snd_pcm_runtime *runtime)
-{
-	struct msc313_bach_substream_runtime *bach_runtime = runtime->private_data;
-	struct msc313_bach_dma_sub_channel *sub_channel = bach_runtime->sub_channel;
-	struct msc313_bach_dma_channel *dma_channel = sub_channel->dma_channel;
-	struct msc313_bach *bach = dma_channel->bach;
-	unsigned stride = runtime->frame_bits >> 3;
-	unsigned miu_underrun_size;
-	ssize_t fullperiods;
-	ssize_t new_level;
-
-	if (!BACH_PCM_RUNTIME_INFLIGHT(bach_runtime))
-		return;
-
-	/*
-	 * We want an underrun interrupt before we are totally empty and
-	 * at something close to the period.. plus the level seems to have
-	 * 8 byte granularity? .. make it 8 samples before the end of the current
-	 * period.
-	 */
-	fullperiods = BACH_PCM_RUNTIME_INFLIGHT(bach_runtime) -
-			(BACH_PCM_RUNTIME_INFLIGHT(bach_runtime) % bach_runtime->period_bytes);
-	if (fullperiods)
-		fullperiods -= bach_runtime->period_bytes;
-
-	new_level = fullperiods ? fullperiods : stride * 8;
-
-	if (new_level != bach_runtime->underflow_level)
-		dev_dbg(bach->dev, "underflow level is now %zu\n", new_level);
-
-	bach_runtime->underflow_level = new_level;
-	miu_underrun_size = TO_MIUSIZE(bach, bach_runtime->underflow_level);
-
-	regmap_field_write(sub_channel->underrunthreshold, miu_underrun_size);
-
-	/* Enable or reenable the interrupt */
-	regmap_field_write(dma_channel->rd_underrun_int_en, 1);
-
-	//
-	regmap_field_write(dma_channel->rd_empty_int_en, 1);
-}
-
-//#define DEBUG_STUCK_QUEUE
-
-static int msc313_bach_queue_push(struct snd_pcm_substream *substream,
-				  ssize_t new_bytes)
-{
-	struct snd_pcm_runtime *runtime = substream->runtime;
-	struct msc313_bach_substream_runtime *bach_runtime = runtime->private_data;
-	struct msc313_bach_dma_sub_channel *sub_channel = bach_runtime->sub_channel;
-	struct msc313_bach_dma_channel *dma_channel = sub_channel->dma_channel;
-	struct msc313_bach *bach = dma_channel->bach;
-	unsigned en, trigbit;
-	unsigned miu_trigger_level = TO_MIUSIZE(bach, new_bytes);
-	int target_level, old_level, new_level;
-
-	old_level = msc313_bach_get_level(sub_channel);
-
-	target_level = old_level + miu_trigger_level;
-	if (target_level > bach_runtime->max_level) {
-		printk("target level, %d, is max %d\n", target_level, bach_runtime->max_level);
-		return -EINVAL;
-	}
-
-	regmap_field_write(sub_channel->trigger_level, miu_trigger_level);
-	regmap_field_read(sub_channel->trigger, &trigbit);
-	regmap_field_force_write(sub_channel->trigger, ~trigbit);
-
-	bach_runtime->total_bytes += new_bytes;
-
-	new_level = msc313_bach_get_level(sub_channel);
-
-#ifdef DEBUG_STUCK_QUEUE
-	{
-		int delay_level;
-
-		udelay(200);
-		delay_level = msc313_bach_get_level(sub_channel);
-
-		printk("old level: %d, new level %d, delay level %d\n",
-				old_level, new_level, delay_level);
-
-		if (delay_level == new_level)
-			printk("level didn't change after waiting, dma is probably stuck\n");
-	}
-#endif
-
-	//msc313_bach_pcm_dumpruntime(bach_runtime);
-
-	return 0;
-}
-
-static void msc313_bach_queue_update(struct msc313_bach *bach,
-				     struct snd_pcm_substream *substream,
-				     struct msc313_bach_substream_runtime *bach_runtime) {
-	struct snd_pcm_runtime *runtime = substream->runtime;
-	ssize_t new_bytes;
-
-	/*
-	 * Trying to queue before the channel is running results in either
-	 * the data not being queued or the dma locking up, so don't do that.
-	 */
-	if (!bach_runtime->running)
-		return;
-
-	/*
-	 * Queue in multiples of the alignment size
-	 */
-	new_bytes = bach_runtime->pending_bytes -
-			(bach_runtime->pending_bytes % MSC313_BACH_ALIGNMENT);
-
-	if (new_bytes) {
-		msc313_bach_queue_push(substream, new_bytes);
-		bach_runtime->pending_bytes -= new_bytes;
-	}
-
-out:
-	msc313_bach_pcm_update_underflow(runtime);
-}
-
-static int msc313_bach_pcm_trigger(struct snd_soc_component *component,
-		struct snd_pcm_substream *substream, int cmd)
-{
-	struct device *dev = component->dev;
-	struct snd_pcm_runtime *runtime = substream->runtime;
-	struct msc313_bach_substream_runtime *bach_runtime = runtime->private_data;
-	struct msc313_bach_dma_sub_channel *sub_channel = bach_runtime->sub_channel;
-	struct msc313_bach_dma_channel *dma_channel = sub_channel->dma_channel;
-	struct msc313_bach *bach = snd_soc_card_get_drvdata(component->card);
-	int ret = 0;
-	unsigned long flags;
-
-	//printk("%s:%d %d\n", __func__, __LINE__, cmd);
-
-	/*
-	 * Enabling the channel can cause interrupts before we are ready,
-	 * take the lock to force an irq to wait until we are finished.
-	 */
-	spin_lock_irqsave(&dma_channel->lock, flags);
-
-	switch (cmd) {
-	case SNDRV_PCM_TRIGGER_START:
-	case SNDRV_PCM_TRIGGER_RESUME:
-		/* Clear any pending interrupts */
-		regmap_field_force_write(dma_channel->rd_int_clear, 1);
-		regmap_field_force_write(dma_channel->rd_int_clear, 0);
-
-		/* Unmask interrupts */
-		regmap_field_write(dma_channel->rd_overrun_int_en, 0);
-		//regmap_field_write(dma_channel->rd_underrun_int_en, 1);
-		//regmap_field_write(dma_channel->rd_empty_int_en, 0); //1
-
-		/*
-		 * Note: it seems like enabling the DMA channel must happen right
-		 * before enabling the reader or the reader locks up.
-		 */
-		regmap_field_write(dma_channel->en, 1);
-		udelay(10);
-
-		/* Start playback */
-		regmap_field_write(sub_channel->en, 1);
-		udelay(10);
-		bach_runtime->start_time = jiffies;
-		bach_runtime->running = true;
-		msc313_bach_queue_update(bach, substream, bach_runtime);
-		break;
-	case SNDRV_PCM_TRIGGER_STOP:
-	case SNDRV_PCM_TRIGGER_SUSPEND:
-		regmap_field_write(sub_channel->en, 0);
-		udelay(10);
-		regmap_field_write(dma_channel->en, 0);
-		/* Mask interrupts */
-		regmap_field_write(dma_channel->rd_underrun_int_en, 0);
-		regmap_field_write(dma_channel->rd_empty_int_en, 0);
-
-		bach_runtime->running = false;
-		bach_runtime->end_time = jiffies;
-
-		msc313_bach_pcm_dumpruntime(dev, bach_runtime);
-		break;
-	default:
-		ret = -EINVAL;
-	}
-
-	spin_unlock_irqrestore(&dma_channel->lock, flags);
-
-	return ret;
-}
-
-static snd_pcm_uframes_t msc313_bach_pcm_pointer(struct snd_soc_component *component,
-						 struct snd_pcm_substream *substream)
-{
-	struct device *dev = component->dev;
-	struct snd_pcm_runtime *runtime = substream->runtime;
-	struct msc313_bach_substream_runtime *bach_runtime = runtime->private_data;
-	struct msc313_bach_dma_sub_channel *sub_channel = bach_runtime->sub_channel;
-	struct msc313_bach_dma_channel *dma_channel = sub_channel->dma_channel;
-	struct msc313_bach *bach = dma_channel->bach;
-	ssize_t inflight, done = 0;
-	snd_pcm_uframes_t pos;
-	int i, level;
-	unsigned long flags;
-
-	spin_lock_irqsave(&dma_channel->lock, flags);
-
-	inflight = BACH_PCM_RUNTIME_INFLIGHT(bach_runtime);
-	/*
-	 * The number of bytes that have been processed before the next IRQ comes will
-	 * be roughly the number of bytes that are waiting to be confirmed by an IRQ
-	 * minus current number of bytes the hardware says it still hasn't processed.
-	 */
-	level = msc313_bach_get_level(sub_channel);
-	ssize_t infifo = FROM_MIUSIZE(bach, level);
-	/* Make sure done doesn't become negative ..*/
-	if (inflight) {
-		if (infifo < inflight)
-			done = inflight - infifo;
-	}
-
-	pos = bytes_to_frames(runtime, (bach_runtime->processed_bytes + done) %
-			runtime->dma_bytes);
-
-	dev_dbg(dev, "stream position is %lu frames.\n"
-		      "total %zu bytes, processed %zu, bytes, pending bytes %zu,\n"
-		      "inflight %zu, done %zu bytes, infifo %d bytes\n",
-		      pos,
-		      bach_runtime->total_bytes,
-		      bach_runtime->processed_bytes,
-		      bach_runtime->pending_bytes,
-		      inflight,
-		      done,
-		      infifo);
-	msc313_bach_pcm_dumpruntime(dev, bach_runtime);
-
-	spin_unlock_irqrestore(&dma_channel->lock, flags);
-
-	return pos;
-}
-
-static const int msc313_bach_src_rates[] = {
-	8000,
-	11025,
-	12000, /* unsupported by alsa? */
-	16000,
-	22050,
-	24000, /* unsupported by alsa? */
-	32000,
-	44100,
-	48000,
-};
-
-static int msc313_bach_pcm_prepare(struct snd_soc_component *component,
-				   struct snd_pcm_substream *substream)
-{
-	struct device *dev = component->dev;
-	struct msc313_bach *bach = snd_soc_card_get_drvdata(component->card);
-	struct snd_pcm_runtime *runtime = substream->runtime;
-	struct msc313_bach_substream_runtime *bach_runtime = runtime->private_data;
-	struct msc313_bach_dma_sub_channel *sub_channel = bach_runtime->sub_channel;
-	struct msc313_bach_dma_channel *dma_channel = sub_channel->dma_channel;
-	unsigned miu_buffer_size, miu_addr;
-	unsigned mono = runtime->channels == 1 ? 1 : 0;
-	int i, ret;
-
-	if ((runtime->dma_addr % MSC313_BACH_ALIGNMENT) ||
-			(runtime->dma_bytes % MSC313_BACH_ALIGNMENT)) {
-		dev_err(dev, "dma_addr and/or dma_bytes not aligned\n");
-		return -EINVAL;
-	}
-
-	bach_runtime->last_appl_ptr = 0;
-	bach_runtime->irqs = 0;
-	bach_runtime->empties = 0;
-	bach_runtime->underruns = 0;
-	bach_runtime->pending_bytes = 0;
-	bach_runtime->processed_bytes = 0;
-	bach_runtime->total_bytes = 0;
-	bach_runtime->period_bytes = frames_to_bytes(runtime, runtime->period_size);
-	bach_runtime->max_inflight = bach_runtime->period_bytes * 2;
-
-	miu_buffer_size = TO_MIUSIZE(bach, runtime->dma_bytes);
-	miu_addr = TO_MIUSIZE(bach, runtime->dma_addr);
-	bach_runtime->max_level = TO_MIUSIZE(bach, bach_runtime->period_bytes * MAX_PERIODS);
-
-	/* This is needed to reset the buffer level */
-	regmap_field_force_write(sub_channel->trigger, 0);
-	regmap_field_force_write(sub_channel->init, 1);
-	regmap_field_force_write(sub_channel->init, 0);
-
-	//dev_dbg(dev, "sample rate: %d\n", substream->runtime->rate);
-	//dev_dbg(dev, "period %d, (%d bytes)\n", runtime->period_size,
-	//		bach_runtime->period_bytes);
-	//dev_dbg(dev, "dma addr %08x, size %zu\n",
-	//		(unsigned) runtime->dma_addr, runtime->dma_bytes);
-
-	regmap_field_write(sub_channel->addr_hi, miu_addr >> 12);
-	regmap_field_write(sub_channel->addr_lo, miu_addr);
-	regmap_field_write(sub_channel->size, miu_buffer_size);
-
-	/* Don't care about over run,.. */
-	regmap_field_write(sub_channel->overrunthreshold, 0);
-
-	switch(substream->stream) {
-		case SNDRV_PCM_STREAM_PLAYBACK:
-			regmap_field_write(dma_channel->dma_rd_mono, mono);
-			regmap_field_write(dma_channel->dma_rd_mono_copy, mono);
-			break;
-	}
-
-	ret = -EINVAL;
-	for (i = 0; i < ARRAY_SIZE(msc313_bach_src_rates); i++) {
-		if (msc313_bach_src_rates[i] == substream->runtime->rate) {
-			regmap_field_write(dma_channel->rate_sel, i);
-			ret = 0;
-			break;
-		}
-	}
-
-	return ret;
-}
-
-static int msc313_bach_pcm_ack(struct snd_soc_component *component,
-			       struct snd_pcm_substream *substream)
-{
-	struct msc313_bach *bach = snd_soc_card_get_drvdata(component->card);
-	struct snd_pcm_runtime *runtime = substream->runtime;
-	struct msc313_bach_substream_runtime *bach_runtime = runtime->private_data;
-	struct msc313_bach_dma_sub_channel *sub_channel = bach_runtime->sub_channel;
-	struct msc313_bach_dma_channel *dma_channel = sub_channel->dma_channel;
-	unsigned long flags;
-	ssize_t new_bytes;
-
-	//printk("%s:%d, %u\n", __func__, __LINE__, (unsigned) runtime->control->appl_ptr);
-
-	spin_lock_irqsave(&dma_channel->lock, flags);
-
-	new_bytes = frames_to_bytes(runtime, runtime->control->appl_ptr - bach_runtime->last_appl_ptr);
-	bach_runtime->last_appl_ptr = runtime->control->appl_ptr;
-	bach_runtime->pending_bytes += new_bytes;
-
-	msc313_bach_queue_update(bach, substream, bach_runtime);
-
-	spin_unlock_irqrestore(&dma_channel->lock, flags);
-
-	return 0;
-}
-
-static const struct snd_soc_component_driver msc313_soc_pcm_drv = {
-	.pcm_new	= msc313_bach_pcm_construct,
-	.open		= msc313_bach_pcm_open,
-	.prepare	= msc313_bach_pcm_prepare,
-	.trigger	= msc313_bach_pcm_trigger,
-	.pointer	= msc313_bach_pcm_pointer,
-	.ack		= msc313_bach_pcm_ack,
-	.close		= msc313_bach_pcm_close,
-};
-/* pcm */
+/* --- Probe --- */
 
 static const struct regmap_config msc313_bach_regmap_config = {
 	.name = "bach",
@@ -941,609 +990,91 @@ static const struct regmap_config msc313_bach_regmap_config = {
 	.reg_stride = 4,
 };
 
-static irqreturn_t msc313_bach_irq(int irq, void *data)
+static struct regmap_field *msc313_bach_field(struct device *dev, struct regmap *map,
+					      unsigned int reg, unsigned int lsb,
+					      unsigned int msb, int *err)
 {
-	struct msc313_bach *bach = data;
-	unsigned long flags;
-	int i;
+	struct reg_field field = REG_FIELD(reg, lsb, msb);
+	struct regmap_field *f = devm_regmap_field_alloc(dev, map, field);
 
-	for (i = 0; i < ARRAY_SIZE(bach->dma_channels); i++) {
-		struct msc313_bach_dma_channel *dma_channel = &bach->dma_channels[i];
-		struct msc313_bach_substream_runtime *bach_runtime;
-		struct snd_pcm_substream *substream;
-		struct snd_pcm_runtime *runtime;
-		unsigned empty, underrun, overrun;
-		int level;
+	if (IS_ERR(f) && !*err)
+		*err = PTR_ERR(f);
+	return f;
+}
 
-		spin_lock_irqsave(&dma_channel->lock, flags);
+static int msc313_bach_sub_init(struct msc313_bach *bach, struct msc313_bach_sub *sub,
+				bool writer)
+{
+	struct device *dev = bach->dev;
+	struct regmap *map = bach->bach;
+	unsigned int base = writer ? REG_DMA_WR : REG_DMA_RD;
+	int err = 0;
 
-		level = msc313_bach_get_level(&bach->dma_channels[i].reader_writer[0]);
-		/* Handle reader flags */
-		substream = dma_channel->reader_writer[0].substream;
+	sub->bach = bach;
+	sub->writer = writer;
 
-		/*
-		 * No reader stream is open: this is a shared or spurious IRQ, or
-		 * one racing pcm_close(). Ack any pending flag and move on rather
-		 * than dereferencing a NULL substream in hard-IRQ context.
-		 */
-		if (!substream) {
-			regmap_field_force_write(dma_channel->rd_int_clear, 1);
-			regmap_field_force_write(dma_channel->rd_int_clear, 0);
-			spin_unlock_irqrestore(&dma_channel->lock, flags);
-			continue;
-		}
+	sub->addr_lo = msc313_bach_field(dev, map, base + SUB_CTRL, 0, 11, &err);
+	sub->count = msc313_bach_field(dev, map, base + SUB_CTRL, 12, 12, &err);
+	sub->trigger = msc313_bach_field(dev, map, base + SUB_CTRL, 13, 13, &err);
+	sub->init = msc313_bach_field(dev, map, base + SUB_CTRL, 14, 14, &err);
+	sub->en = msc313_bach_field(dev, map, base + SUB_CTRL, 15, 15, &err);
+	sub->addr_hi = msc313_bach_field(dev, map, base + SUB_ADDR_HI, 0, 14, &err);
+	sub->size = msc313_bach_field(dev, map, base + SUB_SIZE, 0, 15, &err);
+	sub->trigger_level = msc313_bach_field(dev, map, base + SUB_TRIGGER, 0, 15, &err);
+	sub->overrun_thr = msc313_bach_field(dev, map, base + SUB_OVERRUN_THR, 0, 15, &err);
+	sub->underrun_thr = msc313_bach_field(dev, map, base + SUB_UNDERRUN_THR, 0, 15, &err);
+	sub->level = msc313_bach_field(dev, map, base + SUB_LEVEL, 0, 15, &err);
 
-		runtime = substream->runtime;
-		bach_runtime = runtime->private_data;
-
-		bach_runtime->irqs++;
-
-		regmap_field_read(bach->dma_channels[i].rd_empty_flag, &empty);
-		regmap_field_read(bach->dma_channels[i].rd_underrun_flag, &underrun);
-
-		/*
-		 * It looks like the interrupt has to be ack'd by setting clear high
-		 * it then needs to cleared to get it to trigger again.
-		 */
-		regmap_field_force_write(bach->dma_channels[i].rd_int_clear, 1);
-		regmap_field_force_write(bach->dma_channels[i].rd_int_clear, 0);
-
-		/*
-		 * Sometimes interrupts happen at odd times before expected.
-		 * Just ignore them.
-		 */
-		if (!bach_runtime->running) {
-			spin_unlock_irqrestore(&dma_channel->lock, flags);
-			continue;
-		}
-
-		/*
-		 * Sometimes an empty interrupt happens just between enabling
-		 * and queuing the first period.
-		 */
-		if (empty && level == 0) {
-			/* Disable the interrupt to stop it continually firing */
-			regmap_field_write(dma_channel->rd_empty_int_en, 0);
-
-			bach_runtime->empties++;
-			bach_runtime->processed_bytes = bach_runtime->total_bytes;
-			//msc313_bach_pcm_dumpruntime(bach->dev, bach_runtime);
-			spin_unlock_irqrestore(&dma_channel->lock, flags);
-			snd_pcm_stop_xrun(substream);
-			continue;
-		}
-
-		if (underrun && !empty) {
-			/*
-			 * Disable the underrun interrupt to stop it continually firing,
-			 * if something queues before empty happens it will be reenabled.
-			 */
-			regmap_field_write(dma_channel->rd_underrun_int_en, 0);
-
-			/*
-			 * update the stats and work out how far along in the buffer
-			 * we now are.
-			 */
-			bach_runtime->underruns++;
-			bach_runtime->processed_bytes +=
-					BACH_PMC_RUNTIME_BYTES_UNTIL_UNDERFLOW(bach_runtime);
-
-			msc313_bach_queue_update(bach, substream, bach_runtime);
-
-			spin_unlock_irqrestore(&dma_channel->lock, flags);
-			snd_pcm_period_elapsed(substream);
-			continue;
-		}
-
-		/* If we didn't need to do anything just unlock */
-		spin_unlock_irqrestore(&dma_channel->lock, flags);
+	if (writer) {
+		sub->int_clear = msc313_bach_field(dev, map, REG_DMA_CTRL, 9, 9, &err);
+		sub->int_edge_en = msc313_bach_field(dev, map, REG_DMA_CTRL, 11, 11, &err);
+		sub->int_thr_en = msc313_bach_field(dev, map, REG_DMA_CTRL, 14, 14, &err);
+		sub->flag_thr = msc313_bach_field(dev, map, REG_DMA_FLAGS, 1, 1, &err);
+		sub->flag_edge = msc313_bach_field(dev, map, REG_DMA_FLAGS, 5, 5, &err);
+		sub->mono = msc313_bach_field(dev, map, REG_DMA_TEST_CTRL7, 14, 14, &err);
+		sub->rate_sel = msc313_bach_field(dev, map, REG_SR_SEL, 8, 9, &err);
+		sub->rate_sel2 = msc313_bach_field(dev, map, REG_SR_SEL, 10, 11, &err);
+	} else {
+		sub->int_clear = msc313_bach_field(dev, map, REG_DMA_CTRL, 8, 8, &err);
+		sub->int_edge_en = msc313_bach_field(dev, map, REG_DMA_CTRL, 10, 10, &err);
+		sub->int_thr_en = msc313_bach_field(dev, map, REG_DMA_CTRL, 13, 13, &err);
+		sub->flag_thr = msc313_bach_field(dev, map, REG_DMA_FLAGS, 2, 2, &err);
+		sub->flag_edge = msc313_bach_field(dev, map, REG_DMA_FLAGS, 4, 4, &err);
+		sub->mono = msc313_bach_field(dev, map, REG_DMA_TEST_CTRL7, 15, 15, &err);
+		sub->mono2 = msc313_bach_field(dev, map, REG_DMA_TEST_CTRL7, 13, 13, &err);
+		sub->rate_sel = msc313_bach_field(dev, map, REG_SR_SEL, 4, 7, &err);
 	}
 
-	return IRQ_HANDLED;
+	if (!err) {
+		regmap_field_write(sub->en, 0);
+		msc313_bach_sub_disarm(sub);
+	}
+
+	return err;
 }
-
-static void msc313_bach_the_horror(struct msc313_bach *bach)
-{
-	regmap_write(bach->audiotop, 0x00, 0x00000A14);
-	regmap_write(bach->audiotop, 0x04, 0x00000030);
-	regmap_write(bach->audiotop, 0x08, 0x00000080);
-	// power downs?
-	regmap_write(bach->audiotop, 0x0C, 0x000001A5);
-	// dac/adc resets
-	regmap_write(bach->audiotop, 0x10, 0x00000000);
-	regmap_write(bach->audiotop, 0x14, 0x00000000);
-	regmap_write(bach->audiotop, 0x18, 0x00000000);
-	regmap_write(bach->audiotop, 0x1C, 0x00000000);
-	regmap_write(bach->audiotop, 0x20, 0x00003000);
-	regmap_write(bach->audiotop, 0x24, 0x00000000);
-	regmap_write(bach->audiotop, 0x28, 0x00000000);
-	regmap_write(bach->audiotop, 0x2C, 0x00000000);
-	regmap_write(bach->audiotop, 0x30, 0x00000000);
-	regmap_write(bach->audiotop, 0x34, 0x00000000);
-	regmap_write(bach->audiotop, 0x38, 0x00000000);
-	regmap_write(bach->audiotop, 0x3C, 0x00000000);
-	regmap_write(bach->audiotop, 0x40, 0x00000000);
-	regmap_write(bach->audiotop, 0x44, 0x00000000);
-	regmap_write(bach->audiotop, 0x48, 0x00000000);
-	regmap_write(bach->audiotop, 0x4C, 0x00000000);
-	regmap_write(bach->audiotop, 0x50, 0x00000000);
-	regmap_write(bach->audiotop, 0x54, 0x00000000);
-	regmap_write(bach->audiotop, 0x58, 0x00000000);
-	regmap_write(bach->audiotop, 0x5C, 0x00000000);
-	regmap_write(bach->audiotop, 0x60, 0x00000000);
-	regmap_write(bach->audiotop, 0x64, 0x00000000);
-	regmap_write(bach->audiotop, 0x68, 0x00000000);
-	regmap_write(bach->audiotop, 0x6C, 0x00000000);
-	regmap_write(bach->audiotop, 0x70, 0x00000000);
-	regmap_write(bach->audiotop, 0x74, 0x00000000);
-	regmap_write(bach->audiotop, 0x78, 0x00000000);
-	regmap_write(bach->audiotop, 0x7C, 0x00000000);
-	regmap_write(bach->audiotop, 0x80, 0x00000000);
-	regmap_write(bach->audiotop, 0x84, 0x00003C1E);
-	regmap_write(bach->audiotop, 0x88, 0x00000000);
-	regmap_write(bach->audiotop, 0x8C, 0x00000000);
-	regmap_write(bach->audiotop, 0x90, 0x00000000);
-	regmap_write(bach->audiotop, 0x94, 0x00000000);
-	regmap_write(bach->audiotop, 0x98, 0x00000000);
-	regmap_write(bach->audiotop, 0x9C, 0x00000000);
-	regmap_write(bach->audiotop, 0xA0, 0x00000000);
-	regmap_write(bach->audiotop, 0xA4, 0x00000000);
-	regmap_write(bach->audiotop, 0xA8, 0x00000000);
-	regmap_write(bach->audiotop, 0xAC, 0x00000000);
-	regmap_write(bach->audiotop, 0xB0, 0x00000000);
-	regmap_write(bach->audiotop, 0xB4, 0x00000000);
-	regmap_write(bach->audiotop, 0xB8, 0x00000000);
-	regmap_write(bach->audiotop, 0xBC, 0x00000000);
-	regmap_write(bach->audiotop, 0xC0, 0x00000000);
-	regmap_write(bach->audiotop, 0xC4, 0x00000000);
-	regmap_write(bach->audiotop, 0xC8, 0x00000000);
-	regmap_write(bach->audiotop, 0xCC, 0x00000000);
-	regmap_write(bach->audiotop, 0xD0, 0x00000000);
-	regmap_write(bach->audiotop, 0xD4, 0x00000000);
-	regmap_write(bach->audiotop, 0xD8, 0x00000000);
-	regmap_write(bach->audiotop, 0xDC, 0x00000000);
-	regmap_write(bach->audiotop, 0xE0, 0x00000000);
-	regmap_write(bach->audiotop, 0xE4, 0x00000000);
-	regmap_write(bach->audiotop, 0xE8, 0x00000000);
-	regmap_write(bach->audiotop, 0xEC, 0x00000000);
-	regmap_write(bach->audiotop, 0xF0, 0x00000000);
-	regmap_write(bach->audiotop, 0xF4, 0x00000000);
-	regmap_write(bach->audiotop, 0xF8, 0x00000000);
-	regmap_write(bach->audiotop, 0xFC, 0x00000000);
-
-	regmap_write(bach->bach, 0x00, 0x000089FF);
-
-	// sr_sel0
-	regmap_write(bach->bach, 0x04, 0x0000FF00);
-
-	regmap_write(bach->bach, 0x08, 0x00000003);
-	regmap_write(bach->bach, REG_MUX0SEL, 0x000019B4);
-	regmap_write(bach->bach, 0x10, 0x0000F000);
-	regmap_write(bach->bach, 0x14, 0x00008000);
-	regmap_write(bach->bach, 0x18, 0x0000C09A);
-	// MIX config?
-	regmap_write(bach->bach, 0x1C, 0x0000555A);
-	regmap_write(bach->bach, 0x20, 0x00000000);
-	regmap_write(bach->bach, 0x24, 0x00000209);
-	regmap_write(bach->bach, 0x28, 0x00000000);
-	regmap_write(bach->bach, 0x2C, 0x0000007D);
-	regmap_write(bach->bach, 0x30, 0x00000000);
-	regmap_write(bach->bach, 0x34, 0x00000000);
-	regmap_write(bach->bach, 0x38, 0x00003017);
-	regmap_write(bach->bach, 0x3C, 0x00000002);
-	regmap_write(bach->bach, 0x40, 0x00009400);
-	regmap_write(bach->bach, 0x44, 0x00009400);
-	regmap_write(bach->bach, 0x48, 0x00009400);
-	regmap_write(bach->bach, 0x4C, 0x0000D400);
-	regmap_write(bach->bach, 0x50, 0x00008400);
-	regmap_write(bach->bach, 0x54, 0x0000D000);
-	regmap_write(bach->bach, 0x58, 0x00009400);
-	regmap_write(bach->bach, 0x5C, 0x00009400);
-	regmap_write(bach->bach, 0x60, 0x00008400);
-	regmap_write(bach->bach, 0x64, 0x00000000);
-	regmap_write(bach->bach, 0x68, 0x00000000);
-	regmap_write(bach->bach, 0x6C, 0x00000000);
-	regmap_write(bach->bach, 0x70, 0x00000000);
-	regmap_write(bach->bach, 0x74, 0x00000000);
-	regmap_write(bach->bach, 0x78, 0x00000000);
-	regmap_write(bach->bach, 0x7C, 0x00000000);
-	regmap_write(bach->bach, 0x80, 0x00000005);
-	//regmap_write(bach->bach, 0x84, 0x0000ECEC;
-	regmap_write(bach->bach, 0x88, 0x00000007);
-	regmap_write(bach->bach, 0x8C, 0x00000000);
-	regmap_write(bach->bach, 0x90, 0x00000037);
-	regmap_write(bach->bach, 0x94, 0x00000000);
-	regmap_write(bach->bach, 0x98, 0x00000007);
-	regmap_write(bach->bach, 0x9C, 0x00000000);
-	regmap_write(bach->bach, 0xA0, 0x00000037);
-	regmap_write(bach->bach, 0xA4, 0x00000000);
-	regmap_write(bach->bach, 0xA8, 0x00000007);
-	regmap_write(bach->bach, 0xAC, 0x00000000);
-	regmap_write(bach->bach, 0xB0, 0x00000007);
-	regmap_write(bach->bach, 0xB4, 0x00000000);
-	regmap_write(bach->bach, 0xB8, 0x00000007);
-	regmap_write(bach->bach, 0xBC, 0x00000000);
-	regmap_write(bach->bach, 0xC0, 0x00000037);
-	regmap_write(bach->bach, 0xC4, 0x00000000);
-	regmap_write(bach->bach, 0xC8, 0x00000007);
-	regmap_write(bach->bach, 0xCC, 0x00000000);
-	regmap_write(bach->bach, 0xD0, 0x00000000);
-	regmap_write(bach->bach, 0xD4, 0x00000000);
-	regmap_write(bach->bach, 0xD8, 0x00000000);
-	regmap_write(bach->bach, 0xDC, 0x00000000);
-	regmap_write(bach->bach, 0xE0, 0x00000000);
-	regmap_write(bach->bach, 0xE4, 0x00000000);
-	regmap_write(bach->bach, 0xE8, 0x00000000);
-	regmap_write(bach->bach, 0xEC, 0x00000000);
-	regmap_write(bach->bach, 0xF0, 0x00000000);
-	regmap_write(bach->bach, 0xF4, 0x00000000);
-	regmap_write(bach->bach, 0xF8, 0x00000000);
-	regmap_write(bach->bach, 0xFC, 0x00000000);
-	//#regmap_write(bach->bach, 0x100, 0x00000496;
-	//#regmap_write(bach->bach, 0x104, 0x00008000);
-	regmap_write(bach->bach, 0x108, 0x00000FE8);
-	regmap_write(bach->bach, 0x10C, 0x00002000);
-	regmap_write(bach->bach, 0x110, 0x00000800);
-	regmap_write(bach->bach, 0x114, 0x00000000);
-	regmap_write(bach->bach, 0x118, 0x00001FE0);
-	regmap_write(bach->bach, 0x11C, 0x00000F88);
-	regmap_write(bach->bach, 0x120, 0x0000000F);
-	regmap_write(bach->bach, 0x124, 0x00000000);
-	regmap_write(bach->bach, 0x128, 0x00000000);
-	regmap_write(bach->bach, 0x12C, 0x00000000);
-	regmap_write(bach->bach, 0x130, 0x00000000);
-	regmap_write(bach->bach, 0x134, 0x00000000);
-	regmap_write(bach->bach, 0x138, 0x00000000);
-	regmap_write(bach->bach, 0x13C, 0x00000000);
-	regmap_write(bach->bach, 0x140, 0x00000000);
-	regmap_write(bach->bach, 0x144, 0x00000000);
-	regmap_write(bach->bach, 0x148, 0x00000000);
-	regmap_write(bach->bach, 0x14C, 0x00000000);
-	regmap_write(bach->bach, 0x150, 0x00000000);
-	regmap_write(bach->bach, 0x154, 0x00000000);
-	regmap_write(bach->bach, 0x158, 0x00000000);
-	regmap_write(bach->bach, 0x15C, 0x00000000);
-	regmap_write(bach->bach, 0x160, 0x00000000);
-	regmap_write(bach->bach, 0x164, 0x00000000);
-	regmap_write(bach->bach, 0x168, 0x00000000);
-	regmap_write(bach->bach, 0x16C, 0x00000000);
-	regmap_write(bach->bach, 0x170, 0x00000000);
-	regmap_write(bach->bach, 0x174, 0x00000000);
-	regmap_write(bach->bach, 0x178, 0x00000000);
-	regmap_write(bach->bach, 0x17C, 0x00000000);
-	regmap_write(bach->bach, 0x180, 0x00000000);
-	regmap_write(bach->bach, 0x184, 0x00000000);
-	regmap_write(bach->bach, 0x188, 0x00000000);
-	regmap_write(bach->bach, 0x18C, 0x00000000);
-	regmap_write(bach->bach, 0x190, 0x00000000);
-	regmap_write(bach->bach, 0x194, 0x00000000);
-	regmap_write(bach->bach, 0x198, 0x00000000);
-	regmap_write(bach->bach, 0x19C, 0x00000000);
-	regmap_write(bach->bach, 0x1A0, 0x00000000);
-	regmap_write(bach->bach, 0x1A4, 0x00000000);
-	regmap_write(bach->bach, 0x1A8, 0x00000000);
-	regmap_write(bach->bach, 0x1AC, 0x00000000);
-	regmap_write(bach->bach, 0x1B0, 0x00000000);
-	regmap_write(bach->bach, 0x1B4, 0x00000000);
-	regmap_write(bach->bach, 0x1B8, 0x00000000);
-	regmap_write(bach->bach, 0x1BC, 0x00000000);
-	regmap_write(bach->bach, 0x1C0, 0x00000000);
-	regmap_write(bach->bach, 0x1C4, 0x00000000);
-	regmap_write(bach->bach, 0x1C8, 0x00000000);
-	regmap_write(bach->bach, 0x1CC, 0x000000E3);
-	regmap_write(bach->bach, 0x1D0, 0x00000097);
-	regmap_write(bach->bach, 0x1D4, 0x00000000);
-	regmap_write(bach->bach, 0x1D8, 0x00000000);
-	regmap_write(bach->bach, 0x1DC, 0x00000400);
-	regmap_write(bach->bach, 0x1E0, 0x00000000);
-	regmap_write(bach->bach, 0x1E4, 0x00000000);
-	regmap_write(bach->bach, 0x1E8, 0x00000000);
-	regmap_write(bach->bach, 0x1EC, 0x00000000);
-	regmap_write(bach->bach, 0x1F0, 0x00000000);
-	regmap_write(bach->bach, 0x1F4, 0x00000000);
-	regmap_write(bach->bach, 0x1F8, 0x00000000);
-	regmap_write(bach->bach, 0x1FC, 0x00000000);
-	regmap_write(bach->bach, 0x200, 0x00000000);
-	regmap_write(bach->bach, 0x204, 0x00000000);
-	regmap_write(bach->bach, 0x208, 0x00000000);
-	regmap_write(bach->bach, 0x20C, 0x00000000);
-	regmap_write(bach->bach, 0x210, 0x00004000);
-	regmap_write(bach->bach, 0x214, 0x00000100);
-	regmap_write(bach->bach, 0x218, 0x000003E8);
-	//#regmap_write(bach->bach, 0x21C, 0x00000002;
-	regmap_write(bach->bach, 0x220, 0x00000000);
-	regmap_write(bach->bach, 0x224, 0x00000000);
-	regmap_write(bach->bach, 0x228, 0x00000000);
-	regmap_write(bach->bach, 0x22C, 0x00000000);
-	regmap_write(bach->bach, 0x230, 0x00000000);
-	regmap_write(bach->bach, 0x234, 0x00000000);
-	regmap_write(bach->bach, 0x238, 0x00000003);
-	regmap_write(bach->bach, 0x23C, 0x00000000);
-	regmap_write(bach->bach, 0x240, 0x000038C0);
-	regmap_write(bach->bach, 0x244, 0x00003838);
-	regmap_write(bach->bach, 0x248, 0x00000C04);
-	regmap_write(bach->bach, 0x24C, 0x00001C14);
-	regmap_write(bach->bach, 0x250, 0x00000001);
-	regmap_write(bach->bach, 0x254, 0x00000000);
-	regmap_write(bach->bach, 0x258, 0x00000003);
-	regmap_write(bach->bach, 0x25C, 0x00000000);
-	regmap_write(bach->bach, 0x260, 0x00000000);
-	regmap_write(bach->bach, 0x264, 0x00000000);
-	regmap_write(bach->bach, 0x268, 0x00000000);
-	regmap_write(bach->bach, 0x26C, 0x00000202);
-	regmap_write(bach->bach, 0x270, 0x00000000);
-	regmap_write(bach->bach, 0x274, 0x00000000);
-	regmap_write(bach->bach, 0x278, 0x00000000);
-	regmap_write(bach->bach, 0x27C, 0x00000000);
-	regmap_write(bach->bach, 0x280, 0x00000000);
-	regmap_write(bach->bach, 0x284, 0x00000000);
-	regmap_write(bach->bach, 0x288, 0x00000000);
-	regmap_write(bach->bach, 0x28C, 0x00000000);
-	regmap_write(bach->bach, 0x290, 0x00000000);
-	regmap_write(bach->bach, 0x294, 0x00001234);
-	regmap_write(bach->bach, 0x298, 0x00005678);
-	regmap_write(bach->bach, 0x29C, 0x00000000);
-	regmap_write(bach->bach, 0x2A0, 0x00000000);
-	regmap_write(bach->bach, 0x2A4, 0x00000000);
-	regmap_write(bach->bach, 0x2A8, 0x00000000);
-	regmap_write(bach->bach, 0x2AC, 0x00000000);
-	regmap_write(bach->bach, 0x2B0, 0x00000000);
-	regmap_write(bach->bach, 0x2B4, 0x00000000);
-	regmap_write(bach->bach, 0x2B8, 0x00000000);
-	regmap_write(bach->bach, 0x2BC, 0x00000000);
-	regmap_write(bach->bach, 0x2C0, 0x00000000);
-	regmap_write(bach->bach, 0x2C4, 0x00000000);
-	regmap_write(bach->bach, 0x2C8, 0x00000000);
-	regmap_write(bach->bach, 0x2CC, 0x00000000);
-	regmap_write(bach->bach, 0x2D0, 0x00000000);
-	regmap_write(bach->bach, 0x2D4, 0x00000000);
-	regmap_write(bach->bach, 0x2D8, 0x00000000);
-	regmap_write(bach->bach, 0x2DC, 0x00000000);
-	regmap_write(bach->bach, 0x2E0, 0x00000000);
-	regmap_write(bach->bach, 0x2E4, 0x00000000);
-	regmap_write(bach->bach, 0x2E8, 0x00000000);
-	regmap_write(bach->bach, 0x2EC, 0x00000000);
-	regmap_write(bach->bach, 0x2F0, 0x00000000);
-	regmap_write(bach->bach, 0x2F4, 0x00000000);
-	regmap_write(bach->bach, 0x2F8, 0x00000000);
-	regmap_write(bach->bach, 0x2FC, 0x00000000);
-	regmap_write(bach->bach, 0x300, 0x00000000);
-	regmap_write(bach->bach, 0x304, 0x00000000);
-	regmap_write(bach->bach, 0x308, 0x00000000);
-	regmap_write(bach->bach, 0x30C, 0x00000000);
-	regmap_write(bach->bach, 0x310, 0x00000000);
-	regmap_write(bach->bach, 0x314, 0x00000000);
-	regmap_write(bach->bach, 0x318, 0x00000000);
-	regmap_write(bach->bach, 0x31C, 0x00000000);
-	regmap_write(bach->bach, 0x320, 0x00000000);
-	regmap_write(bach->bach, 0x324, 0x00000000);
-	regmap_write(bach->bach, 0x328, 0x00000000);
-	regmap_write(bach->bach, 0x32C, 0x00000001);
-	regmap_write(bach->bach, 0x330, 0x00000000);
-	regmap_write(bach->bach, 0x334, 0x00000000);
-	regmap_write(bach->bach, 0x338, 0x00000000);
-	regmap_write(bach->bach, 0x33C, 0x00000000);
-	regmap_write(bach->bach, 0x340, 0x00000000);
-	regmap_write(bach->bach, 0x344, 0x00000000);
-	regmap_write(bach->bach, 0x348, 0x00000000);
-	regmap_write(bach->bach, 0x34C, 0x00000000);
-	regmap_write(bach->bach, 0x350, 0x00000000);
-	regmap_write(bach->bach, 0x354, 0x00000000);
-	regmap_write(bach->bach, 0x358, 0x00000000);
-	regmap_write(bach->bach, 0x35C, 0x00000000);
-	regmap_write(bach->bach, 0x360, 0x00000000);
-	regmap_write(bach->bach, 0x364, 0x00000000);
-	regmap_write(bach->bach, 0x368, 0x00000000);
-	regmap_write(bach->bach, 0x36C, 0x00000000);
-	regmap_write(bach->bach, 0x370, 0x00000000);
-	regmap_write(bach->bach, 0x374, 0x00000000);
-	regmap_write(bach->bach, 0x378, 0x00000000);
-	regmap_write(bach->bach, 0x37C, 0x00000080);
-	regmap_write(bach->bach, 0x380, 0x00000000);
-	regmap_write(bach->bach, 0x384, 0x00000000);
-	regmap_write(bach->bach, 0x388, 0x0000FF34);
-	regmap_write(bach->bach, 0x38C, 0x00000000);
-	regmap_write(bach->bach, 0x390, 0x00007FFF);
-	regmap_write(bach->bach, 0x394, 0x00007FE9);
-	regmap_write(bach->bach, 0x398, 0x00000000);
-	regmap_write(bach->bach, 0x39C, 0x00000000);
-	regmap_write(bach->bach, 0x3A0, 0x00000000);
-	regmap_write(bach->bach, 0x3A4, 0x00000000);
-	regmap_write(bach->bach, 0x3A8, 0x00000000);
-	regmap_write(bach->bach, 0x3AC, 0x0000FEA6);
-	regmap_write(bach->bach, 0x3B0, 0x0000019D);
-	regmap_write(bach->bach, 0x3B4, 0x00000000);
-	regmap_write(bach->bach, 0x3B8, 0x00000000);
-	regmap_write(bach->bach, 0x3BC, 0x000078F4);
-	regmap_write(bach->bach, 0x3C0, 0x00000000);
-	regmap_write(bach->bach, 0x3C4, 0x00000000);
-	regmap_write(bach->bach, 0x3C8, 0x000010D3);
-	regmap_write(bach->bach, 0x3CC, 0x00000942);
-	regmap_write(bach->bach, 0x3D0, 0x00000000);
-	regmap_write(bach->bach, 0x3D4, 0x00000000);
-	regmap_write(bach->bach, 0x3D8, 0x0000FDB6);
-	regmap_write(bach->bach, 0x3DC, 0x0000F291);
-	regmap_write(bach->bach, 0x3E0, 0x000078F4);
-	regmap_write(bach->bach, 0x3E4, 0x00000000);
-	regmap_write(bach->bach, 0x3E8, 0x00000000);
-	regmap_write(bach->bach, 0x3EC, 0x00000000);
-	regmap_write(bach->bach, 0x3F0, 0x00007FFF);
-	regmap_write(bach->bach, 0x3F4, 0x00000000);
-	regmap_write(bach->bach, 0x3F8, 0x00000001);
-	regmap_write(bach->bach, 0x3FC, 0x00000000);
-	regmap_write(bach->bach, 0x400, 0x00000000);
-	regmap_write(bach->bach, 0x404, 0x00000021);
-	regmap_write(bach->bach, 0x408, 0x00000000);
-	regmap_write(bach->bach, 0x40C, 0x00000000);
-	regmap_write(bach->bach, 0x410, 0x0000000A);
-	regmap_write(bach->bach, 0x414, 0x00008000);
-	regmap_write(bach->bach, 0x418, 0x0000011F);
-	regmap_write(bach->bach, 0x41C, 0x00000000);
-	regmap_write(bach->bach, 0x420, 0x00000000);
-	regmap_write(bach->bach, 0x424, 0x00000000);
-	regmap_write(bach->bach, 0x428, 0x00000000);
-	regmap_write(bach->bach, 0x42C, 0x00000000);
-	regmap_write(bach->bach, 0x430, 0x00000000);
-	regmap_write(bach->bach, 0x434, 0x00000000);
-	regmap_write(bach->bach, 0x438, 0x00000000);
-	regmap_write(bach->bach, 0x43C, 0x0000FFFF);
-	regmap_write(bach->bach, 0x440, 0x00000000);
-	regmap_write(bach->bach, 0x444, 0x00000001);
-	regmap_write(bach->bach, 0x448, 0x00008000);
-	regmap_write(bach->bach, 0x44C, 0x00000001);
-	regmap_write(bach->bach, 0x450, 0x00008000);
-	regmap_write(bach->bach, 0x454, 0x00000000);
-	regmap_write(bach->bach, 0x458, 0x00000000);
-	regmap_write(bach->bach, 0x45C, 0x00000000);
-	regmap_write(bach->bach, 0x460, 0x00000000);
-	regmap_write(bach->bach, 0x464, 0x00000000);
-	regmap_write(bach->bach, 0x468, 0x00000000);
-	regmap_write(bach->bach, 0x46C, 0x00000000);
-	regmap_write(bach->bach, 0x470, 0x00000000);
-	regmap_write(bach->bach, 0x474, 0x00000000);
-	regmap_write(bach->bach, 0x478, 0x00000000);
-	regmap_write(bach->bach, 0x47C, 0x00000000);
-	regmap_write(bach->bach, 0x480, 0x00000001);
-	regmap_write(bach->bach, 0x484, 0x00000000);
-	regmap_write(bach->bach, 0x488, 0x00000000);
-	regmap_write(bach->bach, 0x48C, 0x00000000);
-	regmap_write(bach->bach, 0x490, 0x00000000);
-	regmap_write(bach->bach, 0x494, 0x00000000);
-	regmap_write(bach->bach, 0x498, 0x00000000);
-	regmap_write(bach->bach, 0x49C, 0x00000000);
-	regmap_write(bach->bach, 0x4A0, 0x00000000);
-	regmap_write(bach->bach, 0x4A4, 0x00000000);
-	regmap_write(bach->bach, 0x4A8, 0x00000000);
-	regmap_write(bach->bach, 0x4AC, 0x00000000);
-	regmap_write(bach->bach, 0x4B0, 0x00000000);
-	regmap_write(bach->bach, 0x4B4, 0x00000000);
-	regmap_write(bach->bach, 0x4B8, 0x00000000);
-	regmap_write(bach->bach, 0x4BC, 0x00000000);
-	regmap_write(bach->bach, 0x4C0, 0x00000000);
-	regmap_write(bach->bach, 0x4C4, 0x00000000);
-	regmap_write(bach->bach, 0x4C8, 0x00000000);
-	regmap_write(bach->bach, 0x4CC, 0x00000000);
-	regmap_write(bach->bach, 0x4D0, 0x00000000);
-	regmap_write(bach->bach, 0x4D4, 0x00000000);
-	regmap_write(bach->bach, 0x4D8, 0x00000000);
-	regmap_write(bach->bach, 0x4DC, 0x00000000);
-	regmap_write(bach->bach, 0x4E0, 0x00000000);
-	regmap_write(bach->bach, 0x4E4, 0x00000000);
-	regmap_write(bach->bach, 0x4E8, 0x00000000);
-	regmap_write(bach->bach, 0x4EC, 0x00000000);
-	regmap_write(bach->bach, 0x4F0, 0x00000000);
-	regmap_write(bach->bach, 0x4F4, 0x00000000);
-	regmap_write(bach->bach, 0x4F8, 0x00000000);
-	regmap_write(bach->bach, 0x4FC, 0x00000000);
-	regmap_write(bach->bach, 0x500, 0x00000080);
-	regmap_write(bach->bach, 0x504, 0x00000078);
-	regmap_write(bach->bach, 0x508, 0x00000000);
-	regmap_write(bach->bach, 0x50C, 0x00000000);
-	regmap_write(bach->bach, 0x510, 0x00000000);
-	regmap_write(bach->bach, 0x514, 0x00000000);
-	regmap_write(bach->bach, 0x518, 0x00000000);
-	regmap_write(bach->bach, 0x51C, 0x00000000);
-	regmap_write(bach->bach, 0x520, 0x00000000);
-	regmap_write(bach->bach, 0x524, 0x00000000);
-	regmap_write(bach->bach, 0x528, 0x00000000);
-	regmap_write(bach->bach, 0x52C, 0x00000000);
-	regmap_write(bach->bach, 0x530, 0x00000000);
-	regmap_write(bach->bach, 0x534, 0x00000000);
-	regmap_write(bach->bach, 0x538, 0x00000000);
-	regmap_write(bach->bach, 0x53C, 0x00000000);
-	regmap_write(bach->bach, 0x540, 0x00000000);
-	regmap_write(bach->bach, 0x544, 0x00000000);
-	regmap_write(bach->bach, 0x548, 0x00000000);
-	regmap_write(bach->bach, 0x54C, 0x00000000);
-	regmap_write(bach->bach, 0x550, 0x00000000);
-	regmap_write(bach->bach, 0x554, 0x00000000);
-	regmap_write(bach->bach, 0x558, 0x00000000);
-	regmap_write(bach->bach, 0x55C, 0x00000000);
-	regmap_write(bach->bach, 0x560, 0x00000000);
-	regmap_write(bach->bach, 0x564, 0x00000000);
-	regmap_write(bach->bach, 0x568, 0x00000000);
-	regmap_write(bach->bach, 0x56C, 0x00000000);
-	regmap_write(bach->bach, 0x570, 0x00000000);
-	regmap_write(bach->bach, 0x574, 0x00000000);
-	regmap_write(bach->bach, 0x578, 0x00000000);
-	regmap_write(bach->bach, 0x57C, 0x00000000);
-	regmap_write(bach->bach, 0x580, 0x00000000);
-	regmap_write(bach->bach, 0x584, 0x00000000);
-	regmap_write(bach->bach, 0x588, 0x00000000);
-	regmap_write(bach->bach, 0x58C, 0x00000000);
-	regmap_write(bach->bach, 0x590, 0x00000000);
-	regmap_write(bach->bach, 0x594, 0x00000000);
-	regmap_write(bach->bach, 0x598, 0x00000000);
-	regmap_write(bach->bach, 0x59C, 0x00000000);
-	regmap_write(bach->bach, 0x5A0, 0x00000000);
-	regmap_write(bach->bach, 0x5A4, 0x00000000);
-	regmap_write(bach->bach, 0x5A8, 0x00000000);
-	regmap_write(bach->bach, 0x5AC, 0x00000000);
-	regmap_write(bach->bach, 0x5B0, 0x00000000);
-	regmap_write(bach->bach, 0x5B4, 0x00000000);
-	regmap_write(bach->bach, 0x5B8, 0x00000000);
-	regmap_write(bach->bach, 0x5BC, 0x00000000);
-	regmap_write(bach->bach, 0x5C0, 0x00000000);
-	regmap_write(bach->bach, 0x5C4, 0x00000B0B);
-	regmap_write(bach->bach, 0x5C8, 0x00000000);
-	regmap_write(bach->bach, 0x5CC, 0x00004A4A);
-	regmap_write(bach->bach, 0x5D0, 0x00004A4A);
-	regmap_write(bach->bach, 0x5D4, 0x00000000);
-	regmap_write(bach->bach, 0x5D8, 0x00000000);
-	regmap_write(bach->bach, 0x5DC, 0x00004949);
-	regmap_write(bach->bach, 0x5E0, 0x00004949);
-	regmap_write(bach->bach, 0x5E4, 0x00000000);
-	regmap_write(bach->bach, 0x5E8, 0x00000000);
-	regmap_write(bach->bach, 0x5EC, 0x00000000);
-	regmap_write(bach->bach, 0x5F0, 0x00000000);
-	regmap_write(bach->bach, 0x5F4, 0x00000000);
-	regmap_write(bach->bach, 0x5F8, 0x00000000);
-	regmap_write(bach->bach, 0x5FC, 0x00000000);
-
-}
-
-#define MSC313_BACH_SUBCHANNEL_OFFSET	0x4
-#define MSC313_BACH_SUBCHANNEL_SIZE	0x20
 
 static int msc313_bach_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct snd_soc_dai_link *link;
-	struct dma_device *dma_dev;
 	struct snd_soc_card *card;
 	struct msc313_bach *bach;
-	struct msc313_bach_data *match_data;
 	void __iomem *base;
-	int i, j, ret, irq;
-	/*
-	 * Arrays for per-channel controls that are embedded in registers with
-	 * controls for other channels.
-	 */
-	struct regmap_field *dma_rate_sels[ARRAY_SIZE(bach->dma_channels)];
+	int ret, irq, err = 0;
 
-	const struct reg_field src2_sel_field = REG_FIELD(MSC313_BACH_SR0_SEL, 0, 3);
-	const struct reg_field src1_sel_field = REG_FIELD(MSC313_BACH_SR0_SEL, 4, 7);
-	const struct reg_field dma1_rd_mono_field = REG_FIELD(MSC313_BACH_DMA_TEST_CTRL7, 15, 15);
-	const struct reg_field dma1_wr_mono_field = REG_FIELD(MSC313_BACH_DMA_TEST_CTRL7, 14, 14);
-	const struct reg_field dma1_rd_mono_copy_field = REG_FIELD(MSC313_BACH_DMA_TEST_CTRL7, 13, 13);
-	const struct reg_field dma_int_en_field = REG_FIELD(REG_DMA_INT, 1, 1);
-
-	match_data = device_get_match_data(dev);
-	if (!match_data)
-		return -EINVAL;
-
-	/* Get the resources we need to probe the components */
 	bach = devm_kzalloc(dev, sizeof(*bach), GFP_KERNEL);
 	if (!bach)
 		return -ENOMEM;
 
 	bach->dev = dev;
-	bach->data = match_data;
+	bach->data = device_get_match_data(dev);
+	if (!bach->data)
+		return -EINVAL;
+	spin_lock_init(&bach->lock);
 
-	bach->clk = devm_clk_get(&pdev->dev, NULL);
+	bach->clk = devm_clk_get_enabled(dev, NULL);
 	if (IS_ERR(bach->clk))
-		return PTR_ERR(bach->clk);
-	clk_prepare_enable(bach->clk);
+		return dev_err_probe(dev, PTR_ERR(bach->clk), "no clock\n");
 
 	base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(base))
@@ -1553,173 +1084,75 @@ static int msc313_bach_probe(struct platform_device *pdev)
 	if (IS_ERR(bach->bach))
 		return PTR_ERR(bach->bach);
 
-	dma_rate_sels[0] = devm_regmap_field_alloc(dev, bach->bach, src1_sel_field);
-	dma_rate_sels[1] = devm_regmap_field_alloc(dev, bach->bach, src2_sel_field);
-
-	bach->dma_int_en = devm_regmap_field_alloc(dev, bach->bach, dma_int_en_field);
-
 	bach->audiotop = syscon_regmap_lookup_by_phandle(dev->of_node, "mstar,audiotop");
-	if(IS_ERR(bach->audiotop))
-		return PTR_ERR(bach->audiotop);
+	if (IS_ERR(bach->audiotop))
+		return dev_err_probe(dev, PTR_ERR(bach->audiotop), "no audiotop\n");
 
-	for (i = 0; i < ARRAY_SIZE(bach->dma_channels); i++) {
-		struct msc313_bach_dma_channel *chan = &bach->dma_channels[i];
-		unsigned int chan_offset = 0x100 + (0x40 * i);
-		const struct reg_field chan_rst_field =
-				REG_FIELD(chan_offset + MSC313_BACH_DMA_CHANNEL_CTRL0, 0, 0);
-		const struct reg_field chan_en_field =
-				REG_FIELD(chan_offset + MSC313_BACH_DMA_CHANNEL_CTRL0, 1, 1);
-		const struct reg_field live_count_en_field =
-				REG_FIELD(chan_offset + MSC313_BACH_DMA_CHANNEL_CTRL0, 2, 2);
+	bach->amp_gpio = devm_gpiod_get_optional(dev, "amp", GPIOD_OUT_LOW);
+	if (IS_ERR(bach->amp_gpio))
+		return dev_err_probe(dev, PTR_ERR(bach->amp_gpio), "amp gpio\n");
 
-		/* interrupt controls */
-		const struct reg_field chan_rd_int_clear_field = REG_FIELD(chan_offset +
-				MSC313_BACH_DMA_CHANNEL_CTRL0, 8, 8);
-		const struct reg_field chan_rd_empty_int_en_field = REG_FIELD(chan_offset +
-				MSC313_BACH_DMA_CHANNEL_CTRL0, 10, 10);
-		const struct reg_field chan_rd_overrun_int_en_field = REG_FIELD(chan_offset +
-						MSC313_BACH_DMA_CHANNEL_CTRL0, 12, 12);
-		const struct reg_field chan_rd_underrun_int_en_field = REG_FIELD(chan_offset +
-						MSC313_BACH_DMA_CHANNEL_CTRL0, 13, 13);
+	bach->dma_rst = msc313_bach_field(dev, bach->bach, REG_DMA_CTRL, 0, 0, &err);
+	bach->dma_en = msc313_bach_field(dev, bach->bach, REG_DMA_CTRL, 1, 1, &err);
+	bach->dma_live_count_en = msc313_bach_field(dev, bach->bach, REG_DMA_CTRL, 2, 2, &err);
+	bach->dma_int_en = msc313_bach_field(dev, bach->bach, REG_DMA_INT, 1, 1, &err);
+	if (err)
+		return err;
 
-		/* flags */
-		const struct reg_field chan_wd_underrun_flag_field = REG_FIELD(chan_offset +
-				MSC313_BACH_DMA_CHANNEL_CTRL8, 0, 0);
-		const struct reg_field chan_wd_overrun_flag_field = REG_FIELD(chan_offset +
-				MSC313_BACH_DMA_CHANNEL_CTRL8, 1, 1);
-		const struct reg_field chan_rd_underrun_flag_field = REG_FIELD(chan_offset +
-				MSC313_BACH_DMA_CHANNEL_CTRL8, 2, 2);
-		const struct reg_field chan_rd_overrun_flag_field = REG_FIELD(chan_offset +
-				MSC313_BACH_DMA_CHANNEL_CTRL8, 3, 3);
-		const struct reg_field chan_rd_empty_flag_field = REG_FIELD(chan_offset +
-				MSC313_BACH_DMA_CHANNEL_CTRL8, 4, 4);
-		const struct reg_field chan_wr_full_flag_field = REG_FIELD(chan_offset +
-				MSC313_BACH_DMA_CHANNEL_CTRL8, 5, 5);
-		const struct reg_field chan_wr_localbuf_full_flag_field = REG_FIELD(chan_offset +
-				MSC313_BACH_DMA_CHANNEL_CTRL8, 6, 6);
-		const struct reg_field chan_rd_localbuf_empty_flag_field = REG_FIELD(chan_offset +
-				MSC313_BACH_DMA_CHANNEL_CTRL8, 7, 7);
-
-		chan->bach = bach;
-
-		spin_lock_init(&chan->lock);
-
-		chan->rst = devm_regmap_field_alloc(dev, bach->bach, chan_rst_field);
-		chan->en = devm_regmap_field_alloc(dev, bach->bach, chan_en_field);
-		chan->live_count_en = devm_regmap_field_alloc(dev, bach->bach, live_count_en_field);
-		chan->rd_int_clear = devm_regmap_field_alloc(dev, bach->bach, chan_rd_int_clear_field);
-		chan->rd_empty_int_en = devm_regmap_field_alloc(dev, bach->bach, chan_rd_empty_int_en_field);
-		chan->rd_overrun_int_en = devm_regmap_field_alloc(dev, bach->bach, chan_rd_overrun_int_en_field);
-		chan->rd_underrun_int_en = devm_regmap_field_alloc(dev, bach->bach, chan_rd_underrun_int_en_field);
-
-		chan->wr_underrun_flag = devm_regmap_field_alloc(dev, bach->bach, chan_wd_underrun_flag_field);
-		chan->wr_overrun_flag = devm_regmap_field_alloc(dev, bach->bach, chan_wd_overrun_flag_field);
-		chan->rd_underrun_flag = devm_regmap_field_alloc(dev, bach->bach, chan_rd_underrun_flag_field);
-		chan->rd_overrun_flag = devm_regmap_field_alloc(dev, bach->bach, chan_rd_overrun_flag_field);
-		chan->rd_empty_flag = devm_regmap_field_alloc(dev, bach->bach, chan_rd_empty_flag_field);
-		chan->wr_full_flag = devm_regmap_field_alloc(dev, bach->bach, chan_wr_full_flag_field);
-		chan->wr_localbuf_full_flag = devm_regmap_field_alloc(dev, bach->bach, chan_wr_localbuf_full_flag_field);
-		chan->rd_localbuf_empty_flag = devm_regmap_field_alloc(dev, bach->bach, chan_rd_localbuf_empty_flag_field);
-
-		/* Wire up the per-channel stuff that shares registers between channels*/
-		chan->rate_sel = dma_rate_sels[i];
-
-		if (i == 0) {
-			chan->dma_rd_mono = devm_regmap_field_alloc(dev, bach->bach, dma1_rd_mono_field);
-			chan->dma_wr_mono = devm_regmap_field_alloc(dev, bach->bach, dma1_wr_mono_field);
-			chan->dma_rd_mono_copy = devm_regmap_field_alloc(dev, bach->bach, dma1_rd_mono_copy_field);
-		}
-
-		for (j = 0; j < ARRAY_SIZE(chan->reader_writer); j++){
-			struct msc313_bach_dma_sub_channel *sub = &chan->reader_writer[j];
-			unsigned int sub_chan_offset = chan_offset +
-					MSC313_BACH_SUBCHANNEL_OFFSET +
-					(MSC313_BACH_SUBCHANNEL_SIZE * j);
-
-			sub->dma_channel = chan;
-
-			/* Sub channel ctrl  fields */
-			const struct reg_field sub_chan_count_field =
-					REG_FIELD(sub_chan_offset + MSC313_BACH_DMA_SUB_CHANNEL_EN, 12, 12);
-			const struct reg_field sub_chan_trigger_field =
-					REG_FIELD(sub_chan_offset + MSC313_BACH_DMA_SUB_CHANNEL_EN, 13, 13);
-			const struct reg_field sub_chan_init_field =
-					REG_FIELD(sub_chan_offset + MSC313_BACH_DMA_SUB_CHANNEL_EN, 14, 14);
-			const struct reg_field sub_chan_en_field =
-					REG_FIELD(sub_chan_offset + MSC313_BACH_DMA_SUB_CHANNEL_EN, 15, 15);
-			/* Buffer address */
-			const struct reg_field sub_chan_addr_lo_field =
-					REG_FIELD(sub_chan_offset + MSC313_BACH_DMA_SUB_CHANNEL_EN, 0, 11);
-			const struct reg_field sub_chan_addr_hi_field =
-					REG_FIELD(sub_chan_offset + MSC313_BACH_DMA_SUB_CHANNEL_ADDR, 0, 14);
-			/* The rest .. */
-			const struct reg_field sub_chan_size_field =
-					REG_FIELD(sub_chan_offset + MSC313_BACH_DMA_SUB_CHANNEL_SIZE, 0, 15);
-			const struct reg_field sub_chan_trigger_level_field =
-					REG_FIELD(sub_chan_offset + MSC313_BACH_DMA_SUB_CHANNEL_TRIGGER, 0, 15);
-			const struct reg_field sub_chan_overrunthreshold_field =
-					REG_FIELD(sub_chan_offset + 0x10, 0, 15);
-			const struct reg_field sub_chan_underrunthreshold_field =
-					REG_FIELD(sub_chan_offset + 0x14, 0, 15);
-			const struct reg_field sub_chan_level_field =
-					REG_FIELD(sub_chan_offset + MSC313_BACK_DMA_SUB_CHANNEL_LEVEL, 0, 15);
-
-			sub->count = devm_regmap_field_alloc(dev, bach->bach, sub_chan_count_field);
-			sub->trigger = devm_regmap_field_alloc(dev, bach->bach, sub_chan_trigger_field);
-			sub->init = devm_regmap_field_alloc(dev, bach->bach, sub_chan_init_field);
-			sub->en = devm_regmap_field_alloc(dev, bach->bach, sub_chan_en_field);
-			sub->addr_hi = devm_regmap_field_alloc(dev, bach->bach, sub_chan_addr_hi_field);
-			sub->addr_lo = devm_regmap_field_alloc(dev, bach->bach, sub_chan_addr_lo_field);
-			sub->size = devm_regmap_field_alloc(dev, bach->bach, sub_chan_size_field);
-			sub->trigger_level = devm_regmap_field_alloc(dev, bach->bach, sub_chan_trigger_level_field);
-			sub->overrunthreshold = devm_regmap_field_alloc(dev, bach->bach, sub_chan_overrunthreshold_field);
-			sub->underrunthreshold = devm_regmap_field_alloc(dev, bach->bach, sub_chan_underrunthreshold_field);
-			sub->level = devm_regmap_field_alloc(dev, bach->bach, sub_chan_level_field);
-
-			regmap_field_write(sub->en, 0);
-		}
-
-		regmap_field_write(chan->en, 0);
-		regmap_field_write(chan->rst, 1);
-	}
-
-	/* probe the components */
-	ret = devm_snd_soc_register_component(dev,
-			&msc313_bach_codec_drv,
-			&msc313_bach_codec_dai_drv,
-			1);
-	if(ret)
+	ret = regmap_multi_reg_write(bach->audiotop, msc313_bach_atop_init,
+				     ARRAY_SIZE(msc313_bach_atop_init));
+	if (ret)
+		return ret;
+	ret = regmap_multi_reg_write(bach->bach, msc313_bach_init,
+				     ARRAY_SIZE(msc313_bach_init));
+	if (ret)
 		return ret;
 
-	ret = devm_snd_soc_register_component(dev,
-			&msc313_bach_cpu_component,
-			&msc313_bach_cpu_dai_drv,
-			1);
-	if(ret)
+	/* reset the DMA engine once, then leave it to the streams */
+	regmap_field_force_write(bach->dma_rst, 1);
+	udelay(10);
+	regmap_field_force_write(bach->dma_rst, 0);
+	udelay(10);
+	regmap_field_write(bach->dma_en, 0);
+
+	ret = msc313_bach_sub_init(bach, &bach->reader, false);
+	if (ret)
+		return ret;
+	ret = msc313_bach_sub_init(bach, &bach->writer, true);
+	if (ret)
 		return ret;
 
-	ret = devm_snd_soc_register_component(dev,
-			&msc313_soc_pcm_drv,
-			NULL,
-			0);
-	if(ret)
+	irq = irq_of_parse_and_map(dev->of_node, 0);
+	if (!irq)
+		return -EINVAL;
+	ret = devm_request_irq(dev, irq, msc313_bach_irq, IRQF_SHARED, dev_name(dev), bach);
+	if (ret)
+		return ret;
+	regmap_field_write(bach->dma_int_en, 1);
+
+	ret = devm_snd_soc_register_component(dev, &msc313_bach_codec_drv,
+					      &msc313_bach_codec_dai_drv, 1);
+	if (ret)
+		return ret;
+	ret = devm_snd_soc_register_component(dev, &msc313_bach_cpu_component,
+					      &msc313_bach_cpu_dai_drv, 1);
+	if (ret)
+		return ret;
+	ret = devm_snd_soc_register_component(dev, &msc313_bach_pcm_component, NULL, 0);
+	if (ret)
 		return ret;
 
 	link = &bach->dai_link;
-
 	link->cpus = &bach->cpu_dai_component;
 	link->codecs = &bach->codec_component;
 	link->platforms = &bach->platform_component;
-
 	link->num_cpus = 1;
 	link->num_codecs = 1;
 	link->num_platforms = 1;
-
 	link->name = "cdc";
 	link->stream_name = "CDC PCM";
-	link->codecs->dai_name = "Codec";
-	//link->cpus->dai_name = dev_name(dev);
 	link->cpus->dai_name = "msc313-bach-cpu-dai";
+	link->codecs->dai_name = "Codec";
 	link->codecs->name = dev_name(dev);
 	link->platforms->name = dev_name(dev);
 
@@ -1729,29 +1162,19 @@ static int msc313_bach_probe(struct platform_device *pdev)
 	card->name = DRIVER_NAME;
 	card->dai_link = link;
 	card->num_links = 1;
+	card->dapm_widgets = msc313_bach_card_widgets;
+	card->num_dapm_widgets = ARRAY_SIZE(msc313_bach_card_widgets);
+	card->dapm_routes = msc313_bach_card_routes;
+	card->num_dapm_routes = ARRAY_SIZE(msc313_bach_card_routes);
+	card->late_probe = msc313_bach_card_late_probe;
 	card->fully_routed = true;
+	snd_soc_card_set_drvdata(card, bach);
 
-	snd_soc_card_set_drvdata(&bach->card, bach);
-
-	ret = snd_soc_of_parse_aux_devs(&bach->card, "audio-aux-devs");
-	if(ret)
+	ret = snd_soc_of_parse_aux_devs(card, "audio-aux-devs");
+	if (ret)
 		return ret;
 
-	ret = devm_snd_soc_register_card(dev, &bach->card);
-	if(ret)
-		return ret;
-
-	irq = irq_of_parse_and_map(pdev->dev.of_node, 0);
-	if (!irq)
-		return -EINVAL;
-	ret = devm_request_irq(&pdev->dev, irq, msc313_bach_irq, IRQF_SHARED,
-		dev_name(&pdev->dev), bach);
-
-	regmap_field_write(bach->dma_int_en, 1);
-
-	msc313_bach_the_horror(bach);
-
-	return ret;
+	return devm_snd_soc_register_card(dev, card);
 }
 
 static const struct msc313_bach_data msc313_data = {
@@ -1763,24 +1186,15 @@ static const struct msc313_bach_data ssd210_data = {
 };
 
 static const struct of_device_id msc313_bach_of_match[] = {
-		{
-			.compatible = "mstar,msc313-bach",
-			.data = &msc313_data,
-		},
-#ifdef CONFIG_MACH_PIONEER3
-		{
-			.compatible = "mstar,ssd210-bach",
-			.data = &ssd210_data,
-		},
-#endif
-		{ },
+	{ .compatible = "mstar,msc313-bach", .data = &msc313_data },
+	{ .compatible = "mstar,ssd210-bach", .data = &ssd210_data },
+	{ },
 };
 MODULE_DEVICE_TABLE(of, msc313_bach_of_match);
 
 static struct platform_driver msc313_bach_driver = {
 	.driver = {
 		.name = DRIVER_NAME,
-		.owner = THIS_MODULE,
 		.pm = &snd_soc_pm_ops,
 		.of_match_table = msc313_bach_of_match,
 	},
