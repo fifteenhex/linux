@@ -8,6 +8,7 @@
 #include <linux/of_device.h>
 #include <linux/pwm.h>
 #include <linux/regmap.h>
+#include <linux/platform_device.h>
 
 #define DRIVER_NAME "msc313e-pwm"
 
@@ -30,7 +31,6 @@ struct msc313e_pwm_channel {
 
 struct msc313e_pwm {
 	struct regmap *regmap;
-	struct pwm_chip pwmchip;
 	struct clk *clk;
 	struct msc313e_pwm_channel channels[];
 };
@@ -39,7 +39,7 @@ struct msc313e_pwm_info {
 	unsigned int channels;
 };
 
-#define to_msc313e_pwm(ptr) container_of(ptr, struct msc313e_pwm, pwmchip)
+#define to_msc313e_pwm(chip) ((struct msc313e_pwm *)pwmchip_get_drvdata(chip))
 
 static const struct regmap_config msc313e_pwm_regmap_config = {
 	.reg_bits = 16,
@@ -183,7 +183,6 @@ static int msc313e_get_state(struct pwm_chip *chip, struct pwm_device *device,
 static const struct pwm_ops msc313e_pwm_ops = {
 	.apply = msc313e_apply,
 	.get_state = msc313e_get_state,
-	.owner = THIS_MODULE
 };
 
 static int msc313e_pwm_probe(struct platform_device *pdev)
@@ -191,6 +190,7 @@ static int msc313e_pwm_probe(struct platform_device *pdev)
 	const struct msc313e_pwm_info *match_data;
 	struct device *dev = &pdev->dev;
 	struct msc313e_pwm *pwm;
+	struct pwm_chip *chip;
 	__iomem void *base;
 	int i;
 
@@ -202,9 +202,11 @@ static int msc313e_pwm_probe(struct platform_device *pdev)
 	if (IS_ERR(base))
 		return PTR_ERR(base);
 
-	pwm = devm_kzalloc(dev, struct_size(pwm, channels, match_data->channels), GFP_KERNEL);
-	if (!pwm)
-		return -ENOMEM;
+	chip = devm_pwmchip_alloc(dev, match_data->channels,
+				  struct_size(pwm, channels, match_data->channels));
+	if (IS_ERR(chip))
+		return PTR_ERR(chip);
+	pwm = pwmchip_get_drvdata(chip);
 
 	pwm->clk = devm_clk_get(dev, NULL);
 	if (IS_ERR(pwm->clk))
@@ -240,13 +242,11 @@ static int msc313e_pwm_probe(struct platform_device *pdev)
 		regmap_field_write(pwm->channels[i].swrst, 1);
 	}
 
-	pwm->pwmchip.dev = dev;
-	pwm->pwmchip.ops = &msc313e_pwm_ops;
-	pwm->pwmchip.npwm = match_data->channels;
+	chip->ops = &msc313e_pwm_ops;
 
 	platform_set_drvdata(pdev, pwm);
 
-	return devm_pwmchip_add(dev, &pwm->pwmchip);
+	return devm_pwmchip_add(dev, chip);
 }
 
 static const struct of_device_id msc313e_pwm_dt_ids[] = {
