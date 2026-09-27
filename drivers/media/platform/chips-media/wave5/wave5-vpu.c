@@ -552,7 +552,8 @@ static const struct wave5_match_data ti_wave521c_data = {
 static const struct wave5_match_data sstar_ssd20xd_data = {
 	.flags = WAVE5_IS_DEC,
 	.fw_name = "cnm/chagall.bin",
-	.sram_size = (64 * 1024),
+	/* the vendor lends it 16 KiB of the IMI SRAM; without that, none */
+	.sram_size = 0,
 	.product_code = WAVE511_CODE,
 };
 
