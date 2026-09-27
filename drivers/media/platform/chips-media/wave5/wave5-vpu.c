@@ -111,9 +111,38 @@ static void wave5_vpu_handle_irq(void *dev_id)
 		up(&dev->irq_sem);
 }
 
+/*
+ * On the SSD20xD the VPU sits behind a small wrapper (RIU bank 0x1137) that
+ * masks the interrupt until told otherwise and latches it: the vendor
+ * driver unmasks it with 0xfe once and pulses bit 0 of the next register
+ * from its interrupt handler before looking at the VPU itself.
+ */
+#define SSTAR_VDEC_IRQ_MASK	0x88
+#define SSTAR_VDEC_IRQ_CLEAR	0x8c
+
+static void wave5_vpu_wrapper_unmask_irq(struct vpu_device *dev)
+{
+	if (dev->wrapper)
+		writew(0xfe, dev->wrapper + SSTAR_VDEC_IRQ_MASK);
+}
+
+static void wave5_vpu_wrapper_clear_irq(struct vpu_device *dev)
+{
+	u16 val;
+
+	if (!dev->wrapper)
+		return;
+
+	val = readw(dev->wrapper + SSTAR_VDEC_IRQ_CLEAR);
+	writew(val | BIT(0), dev->wrapper + SSTAR_VDEC_IRQ_CLEAR);
+	writew(val & ~BIT(0), dev->wrapper + SSTAR_VDEC_IRQ_CLEAR);
+}
+
 static irqreturn_t wave5_vpu_irq(int irq, void *dev_id)
 {
 	struct vpu_device *dev = dev_id;
+
+	wave5_vpu_wrapper_clear_irq(dev);
 
 	if (wave5_vdi_read_register(dev, W5_VPU_VPU_INT_STS)) {
 		wave5_vpu_handle_irq(dev);
@@ -297,6 +326,11 @@ static int wave5_vpu_probe(struct platform_device *pdev)
 	dev->vdb_register = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(dev->vdb_register))
 		return PTR_ERR(dev->vdb_register);
+	if (platform_get_resource_byname(pdev, IORESOURCE_MEM, "wrapper")) {
+		dev->wrapper = devm_platform_ioremap_resource_byname(pdev, "wrapper");
+		if (IS_ERR(dev->wrapper))
+			return PTR_ERR(dev->wrapper);
+	}
 	ida_init(&dev->inst_ida);
 
 	mutex_init(&dev->dev_lock);
@@ -372,6 +406,7 @@ static int wave5_vpu_probe(struct platform_device *pdev)
 			dev_err(&pdev->dev, "Register interrupt handler, fail: %d\n", ret);
 			goto err_enc_unreg;
 		}
+		wave5_vpu_wrapper_unmask_irq(dev);
 	}
 
 	ret = v4l2_device_register(&pdev->dev, &dev->v4l2_dev);

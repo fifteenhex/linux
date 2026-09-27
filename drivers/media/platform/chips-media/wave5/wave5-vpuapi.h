@@ -756,6 +756,8 @@ struct vpu_device {
 	struct mutex hw_lock; /* lock hw configurations */
 	struct mutex irq_lock;
 	int irq;
+	/* SigmaStar SSD20xD: the wrapper that gates and latches the VPU interrupt */
+	void __iomem *wrapper;
 	enum product_id product;
 	struct vpu_attr attr;
 	struct vpu_buf common_mem;
