@@ -357,18 +357,6 @@ static u32 dw8250_serial_inmsc313(struct uart_port *p, unsigned int offset)
 	return value;
 }
 
-static unsigned int dw8250_serial_inmsc313(struct uart_port *p, int offset)
-{
-	struct uart_8250_port *up = up_to_u8250p(p);
-	int value;
-
-	msc313_pausedma(up);
-	value = dw8250_serial_in(p, offset);
-	msc313_resumedma(up);
-
-	return value;
-}
-
 #ifdef CONFIG_64BIT
 static u32 dw8250_serial_inq(struct uart_port *p, unsigned int offset)
 {
