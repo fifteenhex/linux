@@ -651,6 +651,11 @@ static void dw8250_quirks(struct uart_port *p, struct dw8250_data *data)
 		data->skip_autocfg = true;
 		/* According to the SSD202D uart module description */
 		p->fifosize = 32;
+		/*
+		 * No fractional divisor register: the DLF write at 0xc0
+		 * lands on an unrelated register of this block.
+		 */
+		p->set_divisor = NULL;
 
 		/*
 		 * Touching the registers while DMA is enabled
