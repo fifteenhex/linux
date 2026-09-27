@@ -731,14 +731,12 @@ static int msc313e_i2c_probe(struct platform_device *pdev)
 	return i2c_add_adapter(adap);
 }
 
-static int msc313e_i2c_remove(struct platform_device *pdev)
+static void msc313e_i2c_remove(struct platform_device *pdev)
 {
 	struct msc313e_i2c *bus = platform_get_drvdata(pdev);
 
 	i2c_del_adapter(&bus->i2c);
 	pm_runtime_force_suspend(bus->dev);
-
-	return 0;
 }
 
 static const struct of_device_id msc313e_i2c_dt_ids[] = {
