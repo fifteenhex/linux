@@ -73,6 +73,15 @@
 
 #define DRIVER_NAME "msc313e-i2c"
 
+/* How long the controller stays powered after the last transfer */
+#define MSC313_I2C_AUTOSUSPEND_MS	100
+/*
+ * Settling time after releasing a reset. The old driver waited 10ms
+ * here, three times per transfer, which made every transfer take
+ * ~17ms regardless of length. A few clock cycles is all it needs.
+ */
+#define MSC313_I2C_RESET_US		10
+
 #define REG_CTRL		0x00
 #define REG_STARTSTOP		0x04
 #define REG_WDATA		0x08
@@ -328,7 +337,7 @@ static int msc313e_i2c_waitforidle(struct msc313e_i2c *i2c, unsigned wantedint)
 	return 0;
 }
 
-static int msc313_i2c_xfer_dma(struct msc313e_i2c *i2c, struct i2c_msg *msg, u8 *dma_buf, bool last)
+static int __maybe_unused msc313_i2c_xfer_dma(struct msc313e_i2c *i2c, struct i2c_msg *msg, u8 *dma_buf, bool last)
 {
 	bool read = msg->flags & I2C_M_RD;
 	unsigned long flags;
@@ -464,8 +473,8 @@ static int msc313_i2c_xfer_pio(struct msc313e_i2c *i2c, struct i2c_msg *msg, boo
 
 	ret = msc313_i2c_txbyte(i2c, (msg->addr << 1) | (read ? 1 : 0));
 	if (ret) {
-		/* Making this an error makes i2cdetect very noisy */
-		dev_err(&i2c->i2c.dev, "Failed to send address\n");
+		/* A NACK here is normal when probing, don't spam the log */
+		dev_dbg(&i2c->i2c.dev, "Failed to send address\n");
 		goto error;
 	}
 	for (i = 0; i < msg->len; i++) {
@@ -502,7 +511,7 @@ error:
 
 #define DMA_THRESHOLD 8
 
-static void msc313_fixstuckbus(struct msc313e_i2c *bus)
+static void __maybe_unused msc313_fixstuckbus(struct msc313e_i2c *bus)
 {
 	unsigned int sdai;
 
@@ -524,10 +533,9 @@ static int msc313_i2c_xfer(struct i2c_adapter *i2c_adap, struct i2c_msg msgs[],
 	struct msc313e_i2c *bus = i2c_get_adapdata(i2c_adap);
 	int i, txed = 0, ret = 0;
 
-	ret = pm_runtime_get_sync(bus->dev);
+	ret = pm_runtime_resume_and_get(bus->dev);
 	if (ret < 0) {
 		dev_err(bus->dev, "runtime resume failed %d\n", ret);
-		pm_runtime_put_noidle(bus->dev);
 		return ret;
 	}
 
@@ -557,7 +565,8 @@ static int msc313_i2c_xfer(struct i2c_adapter *i2c_adap, struct i2c_msg msgs[],
 	ret = txed;
 
 abort:
-	pm_runtime_put(bus->dev);
+	pm_runtime_mark_last_busy(bus->dev);
+	pm_runtime_put_autosuspend(bus->dev);
 
 	return ret;
 }
@@ -587,8 +596,6 @@ static unsigned long msc313e_i2c_sclk_recalc_rate(struct clk_hw *hw,
 static int msc313_sclk_determine_rate(struct clk_hw *hw,
 		struct clk_rate_request *req)
 {
-	struct msc313e_i2c *i2c = container_of(hw, struct msc313e_i2c, sclk);
-
 	return 0;
 }
 
@@ -705,6 +712,8 @@ static int msc313e_i2c_probe(struct platform_device *pdev)
 		return -EINVAL;
 	ret = devm_request_irq(&pdev->dev, irq, msc313_i2c_irq, IRQF_SHARED,
 			dev_name(&pdev->dev), msc313ei2c);
+	if (ret)
+		return ret;
 
 	sclk_init.name = devm_kasprintf(dev, GFP_KERNEL, "%s_sclk", dev_name(dev));
 	msc313ei2c->sclk.init = &sclk_init;
@@ -716,11 +725,20 @@ static int msc313e_i2c_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, msc313ei2c);
 
-	pm_runtime_enable(dev);
+	/*
+	 * Suspending after every transfer costs a reset cycle and a clock
+	 * enable/disable each time, keep the controller up for a while
+	 * in case another transfer comes along.
+	 */
+	pm_runtime_set_autosuspend_delay(dev, MSC313_I2C_AUTOSUSPEND_MS);
+	pm_runtime_use_autosuspend(dev);
+	ret = devm_pm_runtime_enable(dev);
+	if (ret)
+		return ret;
 
 	adap = &msc313ei2c->i2c;
 	i2c_set_adapdata(adap, msc313ei2c);
-	snprintf(adap->name, sizeof(adap->name), dev_name(&pdev->dev));
+	snprintf(adap->name, sizeof(adap->name), "%s", dev_name(&pdev->dev));
 	adap->owner = THIS_MODULE;
 	adap->timeout = 2 * HZ;
 	adap->retries = 0;
@@ -736,7 +754,6 @@ static void msc313e_i2c_remove(struct platform_device *pdev)
 	struct msc313e_i2c *bus = platform_get_drvdata(pdev);
 
 	i2c_del_adapter(&bus->i2c);
-	pm_runtime_force_suspend(bus->dev);
 }
 
 static const struct of_device_id msc313e_i2c_dt_ids[] = {
@@ -753,7 +770,6 @@ static int __maybe_unused msc313_i2c_runtime_suspend(struct device *dev)
 	regmap_field_force_write(i2c->dma_miurst, 1);
 	regmap_field_force_write(i2c->dma_reset, 1);
 	regmap_field_force_write(i2c->rst, 1);
-	mdelay(10);
 
 	clk_disable_unprepare(i2c->clk);
 
@@ -779,10 +795,10 @@ static int __maybe_unused msc313_i2c_runtime_resume(struct device *dev)
 	clk_prepare_enable(i2c->clk);
 
 	regmap_field_force_write(i2c->rst, 0);
-	mdelay(10);
+	udelay(MSC313_I2C_RESET_US);
 	regmap_field_force_write(i2c->dma_reset, 0);
 	regmap_field_force_write(i2c->dma_miurst, 0);
-	mdelay(10);
+	udelay(MSC313_I2C_RESET_US);
 
 	regmap_field_write(i2c->enint, 1);
 	regmap_field_write(i2c->dma_inten, 1);
