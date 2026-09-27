@@ -61,10 +61,9 @@ static int mstar_moprot_probe(struct platform_device *pdev)
 	return component_add(&pdev->dev, &mstar_moprot_component_ops);
 }
 
-static int mstar_moprot_remove(struct platform_device *pdev)
+static void mstar_moprot_remove(struct platform_device *pdev)
 {
 	component_del(&pdev->dev, &mstar_moprot_component_ops);
-	return 0;
 }
 
 static const struct of_device_id mstar_moprot_ids[] = {

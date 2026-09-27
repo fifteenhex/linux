@@ -7,6 +7,7 @@
 #include <linux/of_device.h>
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
+#include <linux/of.h>
 
 #define DRIVER_NAME "mstar-mop"
 
@@ -121,13 +122,13 @@ static void mstar_mop_dump_window(struct device *dev, struct mstar_mop_window *w
 }
 
 static int mop_plane_atomic_check(struct drm_plane *plane,
-				    struct drm_atomic_state *state)
+				    struct drm_atomic_commit *state)
 {
 	return 0;
 }
 
 static void mstar_mop_plane_atomic_update(struct drm_plane *plane,
-				    struct drm_atomic_state *state)
+				    struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *new_state = drm_atomic_get_new_plane_state(state, plane);
 	struct mstar_mop_window *window = plane_to_mop_window(plane);
@@ -283,10 +284,9 @@ static int mstar_mop_probe(struct platform_device *pdev)
 	return component_add(&pdev->dev, &mstar_mop_component_ops);
 }
 
-static int mstar_mop_remove(struct platform_device *pdev)
+static void mstar_mop_remove(struct platform_device *pdev)
 {
 	component_del(&pdev->dev, &mstar_mop_component_ops);
-	return 0;
 }
 
 static const struct mstar_mop_data ssd20xd_mopg_data = {

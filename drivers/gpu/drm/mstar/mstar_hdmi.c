@@ -42,35 +42,33 @@ static inline struct mstar_hdmi *hdmi_ctx_from_bridge(struct drm_bridge *b)
 }
 
 static void mstar_hdmi_bridge_atomic_enable(struct drm_bridge *bridge,
-					  struct drm_bridge_state *old_state)
+					  struct drm_atomic_commit *state)
 {
-	struct drm_atomic_state *state = old_state->base.state;
 	struct mstar_hdmi *hdmi = hdmi_ctx_from_bridge(bridge);
 
 	printk("%s:%d\n", __func__, __LINE__);
 }
 
-static enum drm_connector_status mstar_hdmi_bridge_detect(struct drm_bridge *bridge)
+static enum drm_connector_status mstar_hdmi_bridge_detect(struct drm_bridge *bridge,
+							  struct drm_connector *connector)
 {
 	struct mstar_hdmi *hdmi = hdmi_ctx_from_bridge(bridge);
 
 	return connector_status_connected;
 }
 
-static struct edid *mstar_hdmi_bridge_get_edid(struct drm_bridge *bridge,
-					     struct drm_connector *connector)
+static const struct drm_edid *mstar_hdmi_bridge_edid_read(struct drm_bridge *bridge,
+							 struct drm_connector *connector)
 {
 	struct mstar_hdmi *hdmi = hdmi_ctx_from_bridge(bridge);
-	struct edid *edid;
-
-	printk("%s:%d\n", __func__, __LINE__);
+	const struct drm_edid *edid;
 
 	if (!hdmi->ddc_adpt)
 		return NULL;
-	edid = drm_get_edid(connector, hdmi->ddc_adpt);
+	edid = drm_edid_read_ddc(connector, hdmi->ddc_adpt);
 	if (!edid)
 		return NULL;
-	hdmi->dvi_mode = !drm_detect_monitor_audio(edid);
+	hdmi->dvi_mode = !drm_detect_monitor_audio(drm_edid_raw(edid));
 	return edid;
 }
 
@@ -80,7 +78,7 @@ static const struct drm_bridge_funcs mstar_hdmi_bridge_funcs = {
 	.atomic_reset		= drm_atomic_helper_bridge_reset,
 	.atomic_enable		= mstar_hdmi_bridge_atomic_enable,
 	.detect			= mstar_hdmi_bridge_detect,
-	.get_edid		= mstar_hdmi_bridge_get_edid,
+	.edid_read		= mstar_hdmi_bridge_edid_read,
 };
 
 static int mstar_hdmi_bind(struct device *dev, struct device *master, void *data)
@@ -176,14 +174,12 @@ static int mstar_hdmi_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int mstar_hdmi_remove(struct platform_device *pdev)
+static void mstar_hdmi_remove(struct platform_device *pdev)
 {
 	struct mstar_hdmi *hdmi = platform_get_drvdata(pdev);
 
 	drm_bridge_remove(&hdmi->bridge);
 	component_del(&pdev->dev, &mstar_hdmi_component_ops);
-
-	return 0;
 }
 
 static const struct of_device_id mstar_hdmi_of_match[] = {

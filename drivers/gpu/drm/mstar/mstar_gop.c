@@ -265,7 +265,7 @@ static int gop_ssd20xd_gop1_gop_color_to_drm(void)
 }
 
 static int gop_plane_atomic_check(struct drm_plane *plane,
-				  struct drm_atomic_state *state)
+				  struct drm_atomic_commit *state)
 {
 	struct mstar_gop_window *window = plane_to_gop_window(plane);
 	struct mstar_gop *gop = window->gop;
@@ -285,7 +285,7 @@ static int gop_plane_atomic_check(struct drm_plane *plane,
 }
 
 static void gop_plane_atomic_update(struct drm_plane *plane,
-				    struct drm_atomic_state *state)
+				    struct drm_atomic_commit *state)
 {
 	struct mstar_gop_window *window = plane_to_gop_window(plane);
 	struct mstar_gop *gop = window->gop;
@@ -486,10 +486,9 @@ no_irq:
 	return component_add(&pdev->dev, &mstar_gop_ops);
 }
 
-static int mstar_gop_remove(struct platform_device *pdev)
+static void mstar_gop_remove(struct platform_device *pdev)
 {
 	component_del(&pdev->dev, &mstar_gop_ops);
-	return 0;
 }
 
 static const uint32_t ssd20xd_gop0_formats[] = {

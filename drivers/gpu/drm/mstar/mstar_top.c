@@ -186,11 +186,9 @@ static int mstar_top_probe(struct platform_device *pdev)
 	return component_add(&pdev->dev, &mstar_top_ops);
 }
 
-static int mstar_top_remove(struct platform_device *pdev)
+static void mstar_top_remove(struct platform_device *pdev)
 {
 	component_del(&pdev->dev, &mstar_top_ops);
-
-	return 0;
 }
 
 static const struct of_device_id mstar_top_dt_ids[] = {

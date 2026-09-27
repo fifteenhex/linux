@@ -11,7 +11,9 @@
 
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_drv.h>
-#include <drm/drm_fbdev_generic.h>
+#include <drm/clients/drm_client_setup.h>
+#include <drm/drm_fbdev_dma.h>
+#include <drm/drm_fourcc.h>
 #include <drm/drm_fb_dma_helper.h>
 #include <drm/drm_fb_helper.h>
 #include <drm/drm_gem_dma_helper.h>
@@ -33,11 +35,11 @@ static const struct drm_driver mstar_drv_driver = {
 	.fops = &mstar_drv_fops,
 	.name = "mstar-drm",
 	.desc = "MStar DRM driver",
-	.date = "20210706",
 	.major = 1,
 	.minor = 0,
 
 	DRM_GEM_DMA_DRIVER_OPS,
+	DRM_FBDEV_DMA_DRIVER_OPS,
 };
 
 static const struct drm_mode_config_funcs drv_mode_config_funcs = {
@@ -110,7 +112,7 @@ static int mstar_drv_bind(struct device *dev)
 	if (ret)
 		goto finish_poll;
 
-	drm_fbdev_generic_setup(drm, 16);
+	drm_client_setup_with_fourcc(drm, DRM_FORMAT_RGB565);
 
 	return 0;
 
@@ -158,9 +160,9 @@ static int mstar_drm_probe(struct platform_device *pdev)
 	return drm_of_component_probe(&pdev->dev, compare_of, &mstar_drv_master_ops);
 }
 
-static int mstar_drm_remove(struct platform_device *pdev)
+static void mstar_drm_remove(struct platform_device *pdev)
 {
-	return 0;
+
 }
 
 static const struct of_device_id mstar_drm_dt_ids[] = {

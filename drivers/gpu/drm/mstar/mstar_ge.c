@@ -1771,7 +1771,7 @@ static int mstar_ge_probe(struct platform_device *pdev)
 	return misc_register(&ge->ge_dev);
 }
 
-static int mstar_ge_remove(struct platform_device *pdev)
+static void mstar_ge_remove(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct mstar_ge *ge = dev_get_drvdata(dev);
@@ -1781,8 +1781,6 @@ static int mstar_ge_remove(struct platform_device *pdev)
 	misc_deregister(&ge->ge_dev);
 
 	kmem_cache_destroy(ge->jobs);
-
-	return 0;
 }
 
 static const struct of_device_id mstar_ge_ids[] = {

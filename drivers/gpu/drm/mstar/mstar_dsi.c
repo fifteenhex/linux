@@ -738,6 +738,7 @@ static void mstar_output_dsi_disable(struct mstar_dsi *dsi)
 }
 
 static int mstar_dsi_bridge_attach(struct drm_bridge *bridge,
+				 struct drm_encoder *encoder,
 				 enum drm_bridge_attach_flags flags)
 {
 	struct mstar_dsi *dsi = bridge_to_dsi(bridge);
@@ -1138,7 +1139,7 @@ err_unregister_host:
 	return ret;
 }
 
-static int mstar_dsi_remove(struct platform_device *pdev)
+static void mstar_dsi_remove(struct platform_device *pdev)
 {
 	struct mstar_dsi *dsi = platform_get_drvdata(pdev);
 
@@ -1146,8 +1147,6 @@ static int mstar_dsi_remove(struct platform_device *pdev)
 	drm_bridge_remove(&dsi->bridge);
 	component_del(&pdev->dev, &mstar_dsi_component_ops);
 	mipi_dsi_host_unregister(&dsi->host);
-
-	return 0;
 }
 
 static const struct mstar_dsi_driver_data ssd20xd_dsi_driver_data = {

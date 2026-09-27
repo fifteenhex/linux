@@ -12,6 +12,7 @@
 #include "mstar_drm.h"
 #include "mstar_ttl.h"
 #include "mstar_top.h"
+#include <linux/of.h>
 
 #define DRIVER_NAME "mstar-op2"
 
@@ -227,17 +228,17 @@ static void mstar_op2_mode_set_nofb(struct drm_crtc *crtc)
 	mstar_op2_dump_config(op2);
 }
 
-static void mstar_op2_atomic_enable(struct drm_crtc *crtc, struct drm_atomic_state *state)
+static void mstar_op2_atomic_enable(struct drm_crtc *crtc, struct drm_atomic_commit *state)
 {
 	drm_crtc_vblank_on(crtc);
 }
 
-static void mstar_op2_atomic_disable(struct drm_crtc *crtc, struct drm_atomic_state *state)
+static void mstar_op2_atomic_disable(struct drm_crtc *crtc, struct drm_atomic_commit *state)
 {
 	drm_crtc_vblank_off(crtc);
 }
 
-static void mstar_op2_atomic_flush(struct drm_crtc *crtc, struct drm_atomic_state *state)
+static void mstar_op2_atomic_flush(struct drm_crtc *crtc, struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *crtc_state = drm_atomic_get_new_crtc_state(state, crtc);
 	struct drm_pending_vblank_event *event = crtc_state->event;
@@ -402,10 +403,9 @@ static int mstar_op2_probe(struct platform_device *pdev)
 	return component_add(&pdev->dev, &mstar_op2_component_ops);
 }
 
-static int mstar_op2_remove(struct platform_device *pdev)
+static void mstar_op2_remove(struct platform_device *pdev)
 {
 	component_del(&pdev->dev, &mstar_op2_component_ops);
-	return 0;
 }
 
 static const struct of_device_id mstar_op2_ids[] = {

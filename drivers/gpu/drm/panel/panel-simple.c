@@ -6139,13 +6139,10 @@ static const struct of_device_id platform_of_match[] = {
 	}, {
 		.compatible = "startek,kd070wvfpa",
 		.data = &startek_kd070wvfpa,
-	},
-#endif
-	{
+	}, {
 		.compatible = "std,std7.0tft1024600-13-f",
 		.data = &std_std70tft102460013f,
 	},
-#if 0
 	{
 		.compatible = "team-source-display,tst043015cmhx",
 		.data = &tsd_tst043015cmhx,
@@ -6525,6 +6522,9 @@ static const struct panel_desc_dsi tsd_tst070wsbe_196c = {
 	.flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_LPM |
 		 MIPI_DSI_MODE_VIDEO_BURST |
 		 MIPI_DSI_MODE_VIDEO_SYNC_PULSE,
+	.format = MIPI_DSI_FMT_RGB888,
+	.lanes = 4,
+};
 
 static const struct drm_display_mode samsung_lms279cc01_mode = {
 	/*
