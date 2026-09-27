@@ -22,6 +22,9 @@
 
 #define DRIVER_NAME			"msc313-isp"
 
+/* The slave width of the QSPI BDMA channel, see the dmas property */
+#define BDMA_QSPI_WIDTH			8
+
 #define REG_PASSWORD			0x0
 #define VAL_PASSWORD_UNLOCK		0xAAAA
 #define VAL_PASSWORD_LOCK		0x5555
@@ -347,7 +350,7 @@ static ssize_t msc313_isp_spi_mem_dirmap_read(struct spi_mem_dirmap_desc *desc,
 	const struct msc313_qspi_readmode *readmode = desc->priv;
 	const struct spi_mem_op *tmpl = desc->info.op_tmpl;
 	struct dma_async_tx_descriptor *dmadesc;
-	struct dma_slave_config config;
+	struct dma_slave_config config = { };
 	dma_addr_t dmaaddr = 0;
 
 	msc313_isp_disable(isp);
@@ -393,7 +396,13 @@ static ssize_t msc313_isp_spi_mem_dirmap_read(struct spi_mem_dirmap_desc *desc,
 	 */
 	regmap_field_write(isp->addrcontdis, 1);
 
-	if (isp->dmachan) {
+	/*
+	 * BDMA moves 8 bytes at a time from QSPI, so only hand it whole
+	 * units and let the caller come back for the rest; anything
+	 * shorter than one unit goes through the CPU path below.
+	 */
+	if (isp->dmachan && len >= BDMA_QSPI_WIDTH) {
+		len &= ~(BDMA_QSPI_WIDTH - 1);
 		dmaaddr = dma_map_single(isp->dev, buf, len, DMA_FROM_DEVICE);
 		if (dma_mapping_error(isp->dev, dmaaddr)){
 			dmaaddr = 0;
