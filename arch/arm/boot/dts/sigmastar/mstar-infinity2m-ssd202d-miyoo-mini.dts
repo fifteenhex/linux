@@ -235,7 +235,13 @@
 	nor: flash@0 {
 		compatible = "jedec,spi-nor";
 		reg = <0>;
-		spi-max-frequency = <40000000>;
+		/*
+		 * The flash clock mux can do 27, 54 or 108MHz. 108 is over the
+		 * 104MHz a W25Q128FV is rated for (a JV does 133) but has been
+		 * fine over hundreds of MiB of verified reads; quad output reads
+		 * run at 22MB/s there and 14MB/s at 54.
+		 */
+		spi-max-frequency = <108000000>;
 		spi-rx-bus-width = <4>;
 	};
 };
