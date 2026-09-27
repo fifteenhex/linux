@@ -20,6 +20,8 @@
 	aliases {
 		serial0 = &pm_uart;
 		serial1 = &fuart;
+		i2c0 = &i2c0;
+		i2c1 = &i2c1;
 	};
 
 	reserved-memory {
