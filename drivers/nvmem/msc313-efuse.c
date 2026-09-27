@@ -15,9 +15,50 @@ struct msc313_efuse_priv {
 	void __iomem *regs;
 };
 
+/*
+ * The fuse array is read through the controller: bit 8 of the register at
+ * 0x0c selects the bank (logical words 8..15 and 24..31 are in the second
+ * bank), and each logical 32-bit word is a pair of 16-bit registers at the
+ * row offsets below (low half, then +4 for the high half). This is the
+ * layout the vendor IPL's reader uses, so cell offsets are word * 4.
+ */
+#define MSC313_EFUSE_BANK	0x0c
+#define MSC313_EFUSE_BANK_SEL	BIT(8)
+
+static const unsigned int msc313_efuse_row_off[8] = {
+	0x10, 0x18, 0x20, 0x28, 0x58, 0x60, 0x68, 0x70,
+};
+
+static u16 msc313_efuse_read_half(struct msc313_efuse_priv *priv, unsigned int word, unsigned int half)
+{
+	void __iomem *bank = priv->regs + MSC313_EFUSE_BANK;
+	void __iomem *row = priv->regs + msc313_efuse_row_off[word & 7] + half * 4;
+	u16 ctrl = readw(bank);
+
+	if (word & 8)
+		writew(ctrl | MSC313_EFUSE_BANK_SEL, bank);
+	else
+		writew(ctrl & ~MSC313_EFUSE_BANK_SEL, bank);
+
+	return readw(row);
+}
+
 static int msc313_efuse_reg_read(void *context, unsigned int reg, void *val, size_t bytes)
 {
 	struct msc313_efuse_priv *priv = context;
+	u8 *out = val;
+
+	if (reg & 1 || bytes & 1)
+		return -EINVAL;
+
+	while (bytes) {
+		u16 half = msc313_efuse_read_half(priv, (reg / 4) & 0xf, (reg / 2) & 1);
+
+		*out++ = half & 0xff;
+		*out++ = half >> 8;
+		reg += 2;
+		bytes -= 2;
+	}
 
 	return 0;
 }
@@ -41,6 +82,7 @@ static int msc313_efuse_probe(struct platform_device *pdev)
 		.stride = 2,
 		.word_size = 2,
 		.reg_read = msc313_efuse_reg_read,
+		.add_legacy_fixed_of_cells = true,
 		.read_only = true,
 		.root_only = true,
 	};
