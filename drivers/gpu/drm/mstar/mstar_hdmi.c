@@ -90,8 +90,7 @@ static int mstar_hdmi_bind(struct device *dev, struct device *master, void *data
 	printk("%s:%d\n", __func__, __LINE__);
 	hdmi->drm_device = drm_device;
 
-	hdmi->bridge.funcs = &mstar_hdmi_bridge_funcs;
-	hdmi->bridge.of_node = dev->of_node;
+		hdmi->bridge.of_node = dev->of_node;
 	hdmi->bridge.ops = DRM_BRIDGE_OP_EDID | DRM_BRIDGE_OP_DETECT; //DRM_BRIDGE_OP_HPD;
 	hdmi->bridge.type = DRM_MODE_CONNECTOR_HDMIA;
 
@@ -144,9 +143,9 @@ static int mstar_hdmi_probe(struct platform_device *pdev)
 	struct mstar_hdmi *hdmi;
 	int ret;
 
-	hdmi = devm_kzalloc(dev, sizeof(*hdmi), GFP_KERNEL);
-	if (!hdmi)
-		return -ENOMEM;
+	hdmi = devm_drm_bridge_alloc(dev, struct mstar_hdmi, bridge, &mstar_hdmi_bridge_funcs);
+	if (IS_ERR(hdmi))
+		return PTR_ERR(hdmi);
 
 	hdmi->regs = devm_platform_ioremap_resource(pdev, 0);
 		if (IS_ERR(hdmi->regs))

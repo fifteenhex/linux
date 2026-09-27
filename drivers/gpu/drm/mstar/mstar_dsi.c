@@ -1049,9 +1049,9 @@ static int mstar_dsi_probe(struct platform_device *pdev)
 	int irq_num;
 	int ret;
 
-	dsi = devm_kzalloc(dev, sizeof(*dsi), GFP_KERNEL);
-	if (!dsi)
-		return -ENOMEM;
+	dsi = devm_drm_bridge_alloc(dev, struct mstar_dsi, bridge, &mstar_dsi_bridge_funcs);
+	if (IS_ERR(dsi))
+		return PTR_ERR(dsi);
 
 	dsi->host.ops = &mstar_dsi_ops;
 	dsi->host.dev = dev;
@@ -1134,8 +1134,7 @@ static int mstar_dsi_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, dsi);
 
-	dsi->bridge.funcs = &mstar_dsi_bridge_funcs;
-	dsi->bridge.of_node = dev->of_node;
+		dsi->bridge.of_node = dev->of_node;
 	dsi->bridge.type = DRM_MODE_CONNECTOR_DSI;
 
 	drm_bridge_add(&dsi->bridge);
