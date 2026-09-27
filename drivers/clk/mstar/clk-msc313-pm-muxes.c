@@ -58,8 +58,38 @@ static const struct clk_parent_data mcu_pm_parents[] = {
 	{ .fw_name = "mpll_div_4" },
 };
 
+/*
+ * This is the clock for the SPI flash controller and the QSPI read
+ * path. The order is from the vendor's clock tree (CLK_spi_pm), and
+ * matches the values their flash driver uses: 4 = 54MHz, 6 = 86MHz,
+ * 7 = 108MHz. The deglitch bit (14) switches between the 12MHz xtal
+ * and the selected parent, the boot ROM leaves it on the xtal.
+ *
+ * The names are in terms of the MPLL driver's outputs, where the
+ * MPLL is 864MHz so mpll_div_4 is the 216MHz the vendor tree calls
+ * mpll_216m. On SSD202D only the parents derived from that 216MHz
+ * output (27, 54 and 108MHz) produce a working clock; selecting any
+ * of the ones derived from the 144MHz or 86.4MHz outputs stops the
+ * flash controller dead. The DT only provides the ones that work,
+ * the rest are here so the indexes line up.
+ */
 static const struct clk_parent_data spi_pm_parents[] = {
 	{ .fw_name = "rtc_xtal" },
+	{ .fw_name = "mpll_div_4_div8" },	/* 27MHz */
+	{ .fw_name = "mpll_div_6_div4" },	/* 36MHz */
+	{ .fw_name = "mpll_div_10_div2" },	/* 43.2MHz */
+	{ .fw_name = "mpll_div_4_div4" },	/* 54MHz */
+	{ .fw_name = "mpll_div_6_div2" },	/* 72MHz */
+	{ .fw_name = "mpll_div_10" },		/* 86.4MHz */
+	{ .fw_name = "mpll_div_4_div2" },	/* 108MHz */
+	{ .fw_name = "xtal_div2_div8" },
+	{ .fw_name = "xtal_div2_div12" },
+	{ .fw_name = "rtc_xtal_div4" },
+	{ .fw_name = "xtal_div2_div16" },
+	{ .fw_name = "xtal_div2_div2" },
+	{ .fw_name = "xtal_div2_div4" },
+	{ .fw_name = "xtal_div2" },
+	{ .fw_name = "xtal" },
 };
 
 #define MCU_PM MSC313_MUX_CLK_PARENT_DATA(MSC313_PM_MUXES_MCU_PM, "mcu_pm", mcu_pm_parents, 0x80, 0, 2, 4, 7)
