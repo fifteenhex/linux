@@ -15,17 +15,34 @@ description:
 
 properties:
   compatible:
-    items:
-      - enum:
-          - ti,j721s2-wave521c
-      - const: cnm,wave521c
+    oneOf:
+      - items:
+          - enum:
+              - ti,j721s2-wave521c
+          - const: cnm,wave521c
+      - items:
+          - const: sstar,ssd20xd-vdec
+          - const: cnm,wave511
 
   reg:
-    maxItems: 1
+    minItems: 1
+    items:
+      - description: VPU registers
+      - description: SoC wrapper around the VPU, which gates its interrupt
+
+  reg-names:
+    minItems: 1
+    items:
+      - const: vpu
+      - const: wrapper
 
   clocks:
-    items:
-      - description: VCODEC clock
+    minItems: 1
+    maxItems: 4
+
+  clock-names:
+    minItems: 1
+    maxItems: 4
 
   interrupts:
     maxItems: 1
@@ -47,6 +64,35 @@ required:
   - compatible
   - reg
   - clocks
+
+allOf:
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: sstar,ssd20xd-vdec
+    then:
+      properties:
+        reg:
+          minItems: 2
+        reg-names:
+          minItems: 2
+        clocks:
+          minItems: 4
+          items:
+            - description: APB clock
+            - description: AXI clock
+            - description: BPU clock
+            - description: VCE clock
+    else:
+      properties:
+        reg:
+          maxItems: 1
+        reg-names:
+          maxItems: 1
+        clocks:
+          items:
+            - description: VCODEC clock
 
 additionalProperties: false
 
