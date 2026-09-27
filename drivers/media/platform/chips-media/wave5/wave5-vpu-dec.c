@@ -314,10 +314,22 @@ static unsigned int wave5_dec_reorder_keep(struct vpu_instance *inst)
 	unsigned int keep = inst->codec_info->dec_info.reorder_delay;
 
 	/* one buffer is being decoded into and the application needs one */
-	if (nbufs >= 2 && keep > nbufs - 2)
-		keep = nbufs - 2;
+	if (nbufs < 2)
+		return 0;
+	return min(keep, nbufs - 2);
+}
 
-	return keep;
+/*
+ * How many CAPTURE buffers the application has to give the decoder: on the
+ * WAVE511 the reference pictures live in the driver's own compressed
+ * buffers, so the application only covers the reordering delay, the
+ * picture being decoded and one to hold.
+ */
+static unsigned int wave5_dec_min_dst_bufs(struct vpu_instance *inst)
+{
+	if (wave5_dec_host_reorders(inst))
+		return inst->codec_info->dec_info.reorder_delay + 2;
+	return inst->fbc_buf_count;
 }
 
 static void wave5_dec_return_out_buf(struct vpu_instance *inst, enum vb2_buffer_state state)
@@ -416,7 +428,11 @@ static void wave5_update_min_bufs_ctrl(struct vpu_instance *inst, u32 fbc_buf_co
 	struct v4l2_m2m_ctx *m2m_ctx = inst->v4l2_fh.m2m_ctx;
 	struct v4l2_ctrl *ctrl;
 
-	if (!fbc_buf_count || fbc_buf_count == v4l2_m2m_num_dst_bufs_ready(m2m_ctx))
+	if (!fbc_buf_count)
+		return;
+	if (wave5_dec_host_reorders(inst))
+		fbc_buf_count = wave5_dec_min_dst_bufs(inst);
+	if (fbc_buf_count == v4l2_m2m_num_dst_bufs_ready(m2m_ctx))
 		return;
 
 	ctrl = v4l2_ctrl_find(&inst->v4l2_ctrl_hdl,
@@ -1143,8 +1159,8 @@ static int wave5_vpu_dec_queue_setup(struct vb2_queue *q, unsigned int *num_buff
 		sizes[0] = inst_format.plane_fmt[0].sizeimage;
 		dev_dbg(inst->dev->dev, "%s: size[0]: %u\n", __func__, sizes[0]);
 	} else if (q->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
-		if (*num_buffers < inst->fbc_buf_count)
-			*num_buffers = inst->fbc_buf_count;
+		if (*num_buffers < wave5_dec_min_dst_bufs(inst))
+			*num_buffers = wave5_dec_min_dst_bufs(inst);
 
 		for (i = 0; i < *num_planes; i++) {
 			sizes[i] = inst_format.plane_fmt[i].sizeimage;
