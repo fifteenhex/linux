@@ -22,6 +22,9 @@
 
 #define DRIVER_NAME			"msc313-isp"
 
+/* The fastest the ISP command engine has been seen to read correctly at */
+#define MSC313_ISP_PIO_MAX_HZ		54000000
+
 /* The slave width of the QSPI BDMA channel, see the dmas property */
 #define BDMA_QSPI_WIDTH			8
 
@@ -182,15 +185,28 @@ static int msc313_isp_setup(struct spi_device *spi)
 {
 	struct msc313_isp *isp = spi_controller_get_devdata(spi->controller);
 
-	clk_set_rate(isp->spi_div_clk, spi->max_speed_hz);
-
 	/*
-	 * Don't be tempted to clk_set_rate(isp->spi_clk, ...) here to speed
-	 * up the QSPI path: on SSD202D that reparents the deglitch stage to
-	 * the 12MHz xtal and reads via QSPI/BDMA then return garbage and
-	 * overrun memory. What the QSPI is actually clocked from needs
-	 * working out first.
+	 * There are three clocks involved here:
+	 *
+	 * - "mcu" via the divider in this block feeds the ISP (PIO)
+	 *   command path.
+	 * - "pm_spi", the SPI clock mux in the PM sleep bank, feeds the
+	 *   flash controller and the QSPI direct map/DMA read path. The
+	 *   boot ROM leaves it on the 12MHz xtal, which is where all the
+	 *   speed is.
+	 *   The PIO path can't keep up with a fast flash though: at 108MHz
+ *   it samples the JEDEC id a bit late (ef 40 18 comes back as
+ *   f7 20 0c), so it's capped at the rate the vendor driver uses.
+ * - "spi", the clkgen entry, is what the vendor calls ckg_spi_tmp
+	 *   and the IPL parks it on the MIU clock. Selecting anything
+	 *   slower there (the xtal, say) makes QSPI reads through BDMA
+	 *   return garbage, so leave it alone.
 	 */
+	clk_set_rate(isp->spi_div_clk, min_t(u32, spi->max_speed_hz, MSC313_ISP_PIO_MAX_HZ));
+	clk_set_rate(isp->pm_spi_clk, spi->max_speed_hz);
+
+	dev_dbg(&spi->dev, "isp clk %lu, flash clk %lu\n",
+		clk_get_rate(isp->spi_div_clk), clk_get_rate(isp->pm_spi_clk));
 
 	return 0;
 }
