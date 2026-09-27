@@ -80,7 +80,7 @@ struct msc313_isp {
 	spinlock_t lock;
 
 	struct device *dev;
-	struct spi_master *master;
+	struct spi_controller *master;
 	/* clock for the pm interface */
 	struct clk *pm_spi_clk;
 	/* clocks for the isp interface */
@@ -181,7 +181,13 @@ static int msc313_isp_setup(struct spi_device *spi)
 
 	clk_set_rate(isp->spi_div_clk, spi->max_speed_hz);
 
-	//clk_set_rate(isp->spi_clk, spi->max_speed_hz);
+	/*
+	 * Don't be tempted to clk_set_rate(isp->spi_clk, ...) here to speed
+	 * up the QSPI path: on SSD202D that reparents the deglitch stage to
+	 * the 12MHz xtal and reads via QSPI/BDMA then return garbage and
+	 * overrun memory. What the QSPI is actually clocked from needs
+	 * working out first.
+	 */
 
 	return 0;
 }
@@ -219,7 +225,7 @@ static int msc313_isp_transfer_one(struct spi_controller *ctlr, struct spi_devic
 static void msc313_isp_set_cs(struct spi_device *spi, bool enable)
 {
 	/* cs is asserted by the controller, we can only deassert it */
-	struct msc313_isp *isp = spi_master_get_devdata(spi->master);
+	struct msc313_isp *isp = spi_controller_get_devdata(spi->controller);
 	if(!enable)
 		msc313_isp_spi_clearcs(isp);
 }
@@ -286,7 +292,7 @@ static int msc313_isp_exec_op(struct spi_mem *mem, const struct spi_mem_op *op)
 static int msc313_isp_spi_mem_dirmap_create(struct spi_mem_dirmap_desc *desc)
 {
 	const struct msc313_qspi_readmode *readmode = NULL;
-	struct spi_mem_op *tmpl = &desc->info.op_tmpl;
+	const struct spi_mem_op *tmpl = desc->info.op_tmpl;
 
 	/*
 	 * The QSPI controller only supports reads, the FSP seems
@@ -303,14 +309,14 @@ static int msc313_isp_spi_mem_dirmap_create(struct spi_mem_dirmap_desc *desc)
 		return -ENOTSUPP;
 
 
-	readmode = msc313_isp_spi_mem_op_to_readmode(&desc->info.op_tmpl);
+	readmode = msc313_isp_spi_mem_op_to_readmode(desc->info.op_tmpl);
 	if (!readmode){
 		pr_info("Opcode %x isn't supported by QSPI\n",
-				(unsigned) desc->info.op_tmpl.cmd.opcode);
+				(unsigned) desc->info.op_tmpl->cmd.opcode);
 		return -ENOTSUPP;
 	}
 
-	desc->priv = readmode;
+	desc->priv = (void *)readmode;
 
 	pr_info("Opcode %x \n",
 			(unsigned) readmode->opcode);
@@ -339,7 +345,7 @@ static ssize_t msc313_isp_spi_mem_dirmap_read(struct spi_mem_dirmap_desc *desc,
 {
 	struct msc313_isp *isp = spi_controller_get_devdata(desc->mem->spi->controller);
 	const struct msc313_qspi_readmode *readmode = desc->priv;
-	struct spi_mem_op *tmpl = &desc->info.op_tmpl;
+	const struct spi_mem_op *tmpl = desc->info.op_tmpl;
 	struct dma_async_tx_descriptor *dmadesc;
 	struct dma_slave_config config;
 	dma_addr_t dmaaddr = 0;
@@ -453,7 +459,7 @@ static const struct clk_div_table div_table[] = {
 
 static int msc313_isp_probe(struct platform_device *pdev)
 {
-	struct spi_master *master;
+	struct spi_controller *master;
 	struct msc313_isp *isp;
 	struct device *dev = &pdev->dev;
 	void __iomem *base;
@@ -461,13 +467,13 @@ static int msc313_isp_probe(struct platform_device *pdev)
 	u32 max_freq;
 	int ret;
 
-	master = spi_alloc_master(dev, sizeof(struct msc313_isp));
+	master = spi_alloc_host(dev, sizeof(struct msc313_isp));
 	if (!master)
 		return -ENOMEM;
 
 	platform_set_drvdata(pdev, master);
 
-	isp = spi_master_get_devdata(master);
+	isp = spi_controller_get_devdata(master);
 
 	isp->dev = &pdev->dev;
 	isp->master = master;
@@ -563,7 +569,7 @@ static int msc313_isp_probe(struct platform_device *pdev)
 
 	msc313_isp_enable(isp);
 
-	ret = devm_spi_register_master(&pdev->dev, master);
+	ret = devm_spi_register_controller(&pdev->dev, master);
 	if (ret) {
 		dev_err(&pdev->dev, "spi master registration failed: %d\n", ret);
 		return ret;
@@ -572,15 +578,14 @@ static int msc313_isp_probe(struct platform_device *pdev)
 	return ret;
 }
 
-static int msc313_isp_remove(struct platform_device *pdev)
+static void msc313_isp_remove(struct platform_device *pdev)
 {
-	struct spi_master *master = platform_get_drvdata(pdev);
-	struct msc313_isp *isp = spi_master_get_devdata(master);
+	struct spi_controller *master = platform_get_drvdata(pdev);
+	struct msc313_isp *isp = spi_controller_get_devdata(master);
 
 	if(isp->dmachan)
 		dma_release_channel(isp->dmachan);
 
-	return 0;
 }
 
 static const struct of_device_id msc313_isp_match[] = {
@@ -591,8 +596,8 @@ MODULE_DEVICE_TABLE(of, msc313_isp_match);
 
 static int __maybe_unused msc313_isp_suspend(struct device *dev)
 {
-	struct spi_master *master = dev_get_drvdata(dev);
-	struct msc313_isp *isp = spi_master_get_devdata(master);
+	struct spi_controller *master = dev_get_drvdata(dev);
+	struct msc313_isp *isp = spi_controller_get_devdata(master);
 
 	/*
 	 * the boot rom wants everything to be at reset state otherwise it
