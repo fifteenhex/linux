@@ -302,11 +302,11 @@
 
 /*
  * On-chip BACH audio (codec + I2S), for the speaker/headphone output. The
- * speaker amplifier's enable is the pad the vendor firmware calls
- * PAD_FUART_RX (its "amp-gpio", active high).
+ * vendor firmware's generic audio node names PAD_FUART_RX as its amplifier
+ * enable, but on this board that pad is not the amplifier: the speaker
+ * plays without it, so nothing is driven here.
  */
 &bach {
-	amp-gpios = <&gpio SSD20XD_GPIO_FUART_RX GPIO_ACTIVE_HIGH>;
 	status = "okay";
 };
 
