@@ -300,8 +300,13 @@
         };
 };
 
-/* On-chip BACH audio (codec + I2S), for the speaker/headphone output. */
+/*
+ * On-chip BACH audio (codec + I2S), for the speaker/headphone output. The
+ * speaker amplifier's enable is the pad the vendor firmware calls
+ * PAD_FUART_RX (its "amp-gpio", active high).
+ */
 &bach {
+	amp-gpios = <&gpio SSD20XD_GPIO_FUART_RX GPIO_ACTIVE_HIGH>;
 	status = "okay";
 };
 
