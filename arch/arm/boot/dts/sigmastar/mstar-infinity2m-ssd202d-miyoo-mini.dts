@@ -229,6 +229,17 @@
 	status = "okay";
 };
 
+/* The 16 MiB SPI NOR (W25Q128) that holds the SPL, U-Boot and its environment. */
+&isp {
+	status = "okay";
+	nor: flash@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <40000000>;
+		spi-rx-bus-width = <4>;
+	};
+};
+
 &i2c1 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2c1_mode1_pins>;
