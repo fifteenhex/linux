@@ -12,6 +12,7 @@
 #include <linux/delay.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
+#include <linux/platform_device.h>
 #include <linux/of_irq.h>
 #include <linux/of_platform.h>
 #include <linux/regmap.h>
@@ -354,10 +355,9 @@ err:
 	return ret;
 }
 
-static int msc313_aesdma_remove(struct platform_device *pdev)
+static void msc313_aesdma_remove(struct platform_device *pdev)
 {
 	crypto_unregister_alg(&aes_alg);
-	return 0;
 }
 
 static struct platform_driver msc313_aesdma_driver = {

@@ -7,6 +7,7 @@
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/of_platform.h>
+#include <linux/platform_device.h>
 #include <linux/regmap.h>
 #include <linux/of_irq.h>
 #include <linux/dmaengine.h>
@@ -164,7 +165,7 @@ static irqreturn_t ssd20xd_movedma_irq(int irq, void *data)
 
 	ssd20xd_movedma_markinflightfinished(movedma);
 
-	del_timer(&movedma->watchdog);
+	timer_delete(&movedma->watchdog);
 
 	spin_unlock_irqrestore(&movedma->lock, flags);
 
@@ -279,7 +280,7 @@ static struct dma_async_tx_descriptor* ssd20xd_movedma_prep_slave_sg(struct dma_
 
 static void ssd20xd_movedma_watchdog(struct timer_list *t)
 {
-	struct ssd20xd_movedma *movedma = from_timer(movedma, t, watchdog);
+	struct ssd20xd_movedma *movedma = timer_container_of(movedma, t, watchdog);
 	unsigned long flags;
 
 	dev_warn(movedma->dma_device.dev, "timeout waiting for completion irq\n");

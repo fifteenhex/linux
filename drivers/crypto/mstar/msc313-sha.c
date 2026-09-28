@@ -10,6 +10,7 @@
 #include <linux/clk.h>
 #include <linux/dma-mapping.h>
 #include <linux/module.h>
+#include <linux/platform_device.h>
 #include <linux/of_platform.h>
 #include <linux/regmap.h>
 
@@ -427,11 +428,10 @@ out:
 	return ret;
 }
 
-static int msc313_sha_remove(struct platform_device *pdev)
+static void msc313_sha_remove(struct platform_device *pdev)
 {
 	crypto_unregister_shashes(msc313_algos, ARRAY_SIZE(msc313_algos));
 
-	return 0;
 }
 
 static const struct of_device_id msc313_sha_of_match[] = {

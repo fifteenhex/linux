@@ -12,6 +12,7 @@
 #include <linux/delay.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
+#include <linux/platform_device.h>
 #include <linux/of_platform.h>
 #include <linux/regmap.h>
 #include <linux/of_irq.h>
@@ -691,10 +692,9 @@ static int msc313_rsa_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int msc313_rsa_remove(struct platform_device *pdev)
+static void msc313_rsa_remove(struct platform_device *pdev)
 {
 	crypto_unregister_akcipher(&rsa_alg);
-	return 0;
 }
 
 static const struct of_device_id msc313_rsa_of_match[] = {

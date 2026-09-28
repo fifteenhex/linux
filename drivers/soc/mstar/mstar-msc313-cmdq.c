@@ -6,6 +6,7 @@
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/of_platform.h>
+#include <linux/platform_device.h>
 #include <linux/regmap.h>
 #include <linux/of_irq.h>
 
@@ -193,14 +194,8 @@ out:
 	return ret;
 }
 
-static int msc313_cmdq_remove(struct platform_device *pdev)
-{
-	return 0;
-}
-
 static struct platform_driver msc313_cmdq_driver = {
 	.probe = msc313_cmdq_probe,
-	.remove = msc313_cmdq_remove,
 	.driver = {
 		.name = DRIVER_NAME,
 		.of_match_table = msc313_cmdq_of_match,
