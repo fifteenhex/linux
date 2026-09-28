@@ -256,6 +256,21 @@
 	ddr-supply = <&reg_vcc_dram>;
 };
 
+/*
+ * The kernel command line puts ramoops at 0xa0001000 for 32KiB, in the
+ * on chip SRAM, so that a crash log survives a reset for the monitor to
+ * pick up. Keep the SRAM pool out of its way, otherwise the sram driver
+ * fails to claim the region and the suspend code and the video decoder
+ * have no pool at all. 28KiB is left, and suspend needs 16KiB of it.
+ */
+&imi {
+	reg = <0xa0009000 0x7000>;
+};
+
+&vpu {
+	sram = <&imi>;
+};
+
 &sdio {
 	vmmc-supply = <&reg_vdd_sd>;
 	vqmmc-supply = <&reg_vcc_io>;
