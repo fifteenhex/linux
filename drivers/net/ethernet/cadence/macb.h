@@ -74,6 +74,13 @@
 #define MACB_TBQPH		0x04C8
 #define MACB_RBQPH		0x04D4
 
+/* MStar EMAC extra registers */
+#define MACB_MSC313_JULIAN_100	0x100
+#define MACB_MSC313_JULIAN_104	0x104
+#define MACB_MSC313_JULIAN_108	0x108
+#define MACB_MSC313_JULIAN_10C	0x10C
+#define MACB_MSC313_13A		0x13A
+
 /* GEM register offsets. */
 #define GEM_NCR			0x0000 /* Network Control */
 #define GEM_NCFGR		0x0004 /* Network Config */
@@ -378,6 +385,8 @@
 /* Bitfields in TSR */
 #define MACB_UBR_OFFSET		0 /* Used bit read */
 #define MACB_UBR_SIZE		1
+#define MACB_RM9200_OVR_OFFSET	0 /* AT91RM9200 only */
+#define MACB_RM9200_OVR_SIZE	1 /* AT91RM9200 only */
 #define MACB_COL_OFFSET		1 /* Collision occurred */
 #define MACB_COL_SIZE		1
 #define MACB_TSR_RLE_OFFSET	2 /* Retry limit exceeded */
@@ -392,6 +401,15 @@
 #define MACB_COMP_SIZE		1
 #define MACB_UND_OFFSET		6 /* Trnasmit under run */
 #define MACB_UND_SIZE		1
+
+#define MACB_MSC313_FIFO1IDLE_OFFSET 9
+#define MACB_MSC313_FIFO1IDLE_SIZE   1
+#define MACB_MSC313_FIFO2IDLE_OFFSET 10
+#define MACB_MSC313_FIFO2IDLE_SIZE   1
+#define MACB_MSC313_FIFO3IDLE_OFFSET 11
+#define MACB_MSC313_FIFO3IDLE_SIZE   1
+#define MACB_MSC313_FIFO4IDLE_OFFSET 12
+#define MACB_MSC313_FIFO4IDLE_SIZE   1
 
 /* Bitfields in RSR */
 #define MACB_BNA_OFFSET		0 /* Buffer not available */
@@ -791,6 +809,9 @@
 #define MACB_CAPS_USRIO_HAS_MII			BIT(26)
 #define MACB_CAPS_USRIO_HAS_REFCLK_SOURCE	BIT(27)
 #define MACB_CAPS_USRIO_HAS_TSUCLK_SOURCE	BIT(28)
+#define MACB_CAPS_MSTAR_RIU			BIT(29)
+#define MACB_CAPS_MSTAR_XIU			BIT(30)
+#define MACB_CAPS_MSTAR_TXQ			BIT(31)
 
 /* LSO settings */
 #define MACB_LSO_UFO_ENABLE			0x01
@@ -1246,6 +1267,7 @@ struct macb_config {
 	unsigned int		max_tx_length;
 	int	jumbo_max_len;
 	const struct macb_usrio_config *usrio;
+	unsigned int rm9200_txq_len;
 };
 
 struct tsu_incr {
@@ -1347,8 +1369,14 @@ struct macb {
 
 	phy_interface_t		phy_interface;
 
-	/* AT91RM9200 transmit queue (1 on wire + 1 queued) */
-	struct macb_tx_skb	rm9200_txq[2];
+	/*
+	 * AT91RM9200 transmit queue 1 on wire + 1 queued for AT91RM9200,
+	 * 4 for MStar EMAC.
+	 */
+	unsigned int		rm9200_txq_len;
+	struct macb_tx_skb	*rm9200_txq;
+	unsigned int		rm9200_tx_tail;
+	unsigned int		rm9200_tx_len;
 	unsigned int		max_tx_length;
 
 	u64			ethtool_stats[GEM_STATS_LEN + QUEUE_STATS_LEN * MACB_MAX_QUEUES];
