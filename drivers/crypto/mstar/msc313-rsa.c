@@ -12,6 +12,7 @@
 #include <linux/delay.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/platform_device.h>
 #include <linux/of_platform.h>
 #include <linux/regmap.h>
@@ -58,7 +59,7 @@ struct msc313_rsa {
 	struct regmap *regmap;
 	bool quirk_dummyread;
 
-	spinlock_t lock;
+	struct mutex lock;
 
 	struct regmap_field *reset;
 
@@ -445,10 +446,12 @@ static int msc313_rsa_endecrypt(struct akcipher_request *req, bool decrypt)
 		return -ENOMEM;
 
 	out = kzalloc(keylen, GFP_KERNEL);
-	if (!out)
+	if (!out) {
+		kfree(in);
 		return -ENOMEM;
+	}
 
-	spin_lock(&rsa->lock);
+	mutex_lock(&rsa->lock);
 
 	msc313_rsa_reset(rsa);
 	ret = msc313_rsa_load_key(rsa, ctx, decrypt);
@@ -460,7 +463,7 @@ static int msc313_rsa_endecrypt(struct akcipher_request *req, bool decrypt)
 	ret = msc313_rsa_do_one(rsa, ctx, in, out, keylen);
 
 unlock:
-	spin_unlock(&rsa->lock);
+	mutex_unlock(&rsa->lock);
 
 	if (!ret)
 		sg_copy_from_buffer(req->dst, sg_nents(req->dst), out, keylen);
@@ -624,7 +627,7 @@ static int msc313_rsa_probe(struct platform_device *pdev)
 	if (!rsa)
 		return -ENOMEM;
 
-	spin_lock_init(&rsa->lock);
+	mutex_init(&rsa->lock);
 
 	// only for i2m?
 	rsa->quirk_dummyread = true;
