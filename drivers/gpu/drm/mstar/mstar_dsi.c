@@ -609,7 +609,7 @@ static void mstar_dsi_irq_data_clear(struct mstar_dsi *dsi, u32 irq_bit)
 }
 
 static s32 mstar_dsi_wait_for_irq_done(struct mstar_dsi *dsi, u32 irq_flag,
-				     unsigned int timeout)
+				     unsigned int timeout, bool quiet)
 {
 	s32 ret = 0;
 	unsigned long jiffies = msecs_to_jiffies(timeout);
@@ -618,7 +618,10 @@ static s32 mstar_dsi_wait_for_irq_done(struct mstar_dsi *dsi, u32 irq_flag,
 					       dsi->irq_data & irq_flag,
 					       jiffies);
 	if (ret == 0) {
-		DRM_WARN("Wait DSI IRQ(0x%08x) Timeout\n", irq_flag);
+		if (quiet)
+			DRM_DEBUG("Wait DSI IRQ(0x%08x) Timeout\n", irq_flag);
+		else
+			DRM_WARN("Wait DSI IRQ(0x%08x) Timeout\n", irq_flag);
 
 		mstar_dsi_enable(dsi);
 		mstar_dsi_reset_engine(dsi);
@@ -667,7 +670,7 @@ static s32 mstar_dsi_switch_to_cmd_mode(struct mstar_dsi *dsi, u8 irq_flag, u32 
 	mstar_dsi_irq_data_clear(dsi, irq_flag);
 	mstar_dsi_set_cmd_mode(dsi);
 
-	if (!mstar_dsi_wait_for_irq_done(dsi, irq_flag, t)) {
+	if (!mstar_dsi_wait_for_irq_done(dsi, irq_flag, t, false)) {
 		DRM_ERROR("failed to switch cmd mode\n");
 		return -ETIME;
 	} else {
@@ -1025,12 +1028,24 @@ static void mstar_dsi_cmdq(struct mstar_dsi *dsi, const struct mipi_dsi_msg *msg
 static ssize_t mstar_dsi_host_send_cmd(struct mstar_dsi *dsi,
 				     const struct mipi_dsi_msg *msg, u8 flag)
 {
+	bool read = MTK_DSI_HOST_IS_READ(msg->type);
+
 	mstar_dsi_wait_for_idle(dsi);
 	mstar_dsi_irq_data_clear(dsi, flag);
 	mstar_dsi_cmdq(dsi, msg);
 	mstar_dsi_start(dsi);
 
-	if (!mstar_dsi_wait_for_irq_done(dsi, flag, 2000))
+	/*
+	 * A read has never been seen to complete on the SSD202D: the
+	 * engine raises neither CMD_DONE nor LPRX_RD_RDY nor a BTA
+	 * timeout, and doesn't report busy, as if the turnaround was
+	 * never attempted. Whether that's the host, the PHY or the panel
+	 * wiring needs a scope on the lane. Until then a read that isn't
+	 * going to be answered shouldn't cost the 2s a write is allowed:
+	 * a BTA and a one byte answer in LP take well under a
+	 * millisecond.
+	 */
+	if (!mstar_dsi_wait_for_irq_done(dsi, flag, read ? 20 : 2000, read))
 		return -ETIME;
 	else
 		return 0;

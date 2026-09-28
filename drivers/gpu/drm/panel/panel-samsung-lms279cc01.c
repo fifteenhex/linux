@@ -87,7 +87,7 @@ static int lms279cc01_prepare(struct drm_panel *panel)
 	if (!ret)
 		ret = mipi_dsi_dcs_get_power_mode(ctx->dsi, &mode);
 	if (ret < 0)
-		dev_warn(dev, "panel did not answer get_power_mode (%d): link is one-way\n", ret);
+		dev_info(dev, "panel did not answer get_power_mode (%d): link is one-way\n", ret);
 	else
 		dev_info(dev, "panel power mode 0x%02x (sleep-out %s, display %s)\n", mode,
 			 mode & MIPI_DSI_DCS_POWER_MODE_SLEEP ? "yes" : "no",
