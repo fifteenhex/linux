@@ -350,6 +350,19 @@ static int mstar_op2_bind(struct device *dev, struct device *master,
 
 	drm_crtc_helper_add(&op2->drm_crtc, &mstar_op2_helper_funcs);
 
+	/*
+	 * The gop and mop components bind before this one (the master's ports
+	 * order), so every plane they created was initialised with an empty
+	 * possible_crtcs - there was no CRTC yet to point at. Only the primary
+	 * and the cursor get fixed up, by drm_crtc_init_with_planes() above,
+	 * which left the overlay planes impossible to attach to anything and so
+	 * unusable from userspace. There is only ever this one CRTC, so claim
+	 * whatever is still unclaimed.
+	 */
+	drm_for_each_plane(plane, drm)
+		if (!plane->possible_crtcs)
+			plane->possible_crtcs = drm_crtc_mask(&op2->drm_crtc);
+
 	/* Try to work out what is connected, default to TTL */
 	ret = of_property_read_u8(dev->of_node,"mstar,op2-output", &output);
 	if (!ret && output != 0)
