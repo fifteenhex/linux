@@ -10,6 +10,7 @@
 #include <linux/platform_device.h>
 
 #include <drm/drm_atomic_helper.h>
+#include <drm/drm_modeset_helper.h>
 #include <drm/drm_drv.h>
 #include <drm/clients/drm_client_setup.h>
 #include <drm/drm_fbdev_dma.h>
@@ -171,10 +172,30 @@ static const struct of_device_id mstar_drm_dt_ids[] = {
 };
 MODULE_DEVICE_TABLE(of, mstar_drm_dt_ids);
 
+/*
+ * Suspend to RAM ends in a soft reset, so the whole display pipeline has to
+ * be brought up from scratch on resume. The helpers redo the mode set, which
+ * is not enough yet: the CRTC produces no vblanks afterwards, so the panel
+ * stays dark and the next suspend spends its commit timeouts. The blocks
+ * need their probe time setup redone on resume.
+ */
+static int mstar_drv_suspend(struct device *dev)
+{
+	return drm_mode_config_helper_suspend(dev_get_drvdata(dev));
+}
+
+static int mstar_drv_resume(struct device *dev)
+{
+	return drm_mode_config_helper_resume(dev_get_drvdata(dev));
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(mstar_drm_pm_ops, mstar_drv_suspend, mstar_drv_resume);
+
 static struct platform_driver mstar_drm_driver = {
 	.probe = mstar_drm_probe,
 	.remove = mstar_drm_remove,
 	.driver = {
+		.pm = pm_sleep_ptr(&mstar_drm_pm_ops),
 		   .name = DRIVER_NAME,
 		   .of_match_table = mstar_drm_dt_ids,
 	},
