@@ -15,6 +15,8 @@
 #include <linux/interrupt.h>
 
 #include <soc/mstar/pmsleep.h>
+#include <linux/syscore_ops.h>
+#include <linux/io.h>
 
 #define NUM_IRQ		8
 
@@ -23,6 +25,9 @@ static struct reg_field type_field = REG_FIELD(MSTAR_PMSLEEP_REG24, 0, 7);
 static struct reg_field status_field = REG_FIELD(MSTAR_PMSLEEP_WAKEINT_STATUS, 0, 7);
 
 struct msc313_sleep_intc {
+	/* raw view of the same registers, for the syscore save and restore */
+	void __iomem *pmsleep_base;
+	u16 saved_mask, saved_type;
 	struct regmap_field *mask;
 	struct regmap_field *type;
 	struct regmap_field *status;
@@ -58,6 +63,8 @@ static struct irq_chip msc313_pm_wakeup_intc_chip = {
 	.irq_unmask	= msc313_pm_wakeup_intc_unmask_irq,
 	.irq_eoi	= msc313_pm_wakeup_intc_irq_eoi,
 	.irq_set_type	= msc313_pm_wakeup_intc_set_type_irq,
+	/* every source here is a wake source, the mask is all there is */
+	.flags		= IRQCHIP_SKIP_SET_WAKE,
 };
 
 static irqreturn_t msc313_pm_wakeup_intc_chainedhandler(int irq, void *data)
@@ -98,6 +105,40 @@ static int msc313_pm_wakeup_intc_domain_map(struct irq_domain *domain,
 	return 0;
 }
 
+/*
+ * Suspend to RAM ends in a soft reset that masks every wake source again,
+ * so the second sleep would never wake. Keep the mask and type registers.
+ */
+static struct msc313_sleep_intc *msc313_pm_wakeup_syscore_intc;
+
+static int msc313_pm_wakeup_intc_syscore_suspend(void *data)
+{
+	struct msc313_sleep_intc *intc = msc313_pm_wakeup_syscore_intc;
+
+	intc->saved_mask = readw_relaxed(intc->pmsleep_base + MSTAR_PMSLEEP_WAKEUPSOURCE);
+	intc->saved_type = readw_relaxed(intc->pmsleep_base + MSTAR_PMSLEEP_REG24);
+	return 0;
+}
+
+static void msc313_pm_wakeup_intc_syscore_resume(void *data)
+{
+	struct msc313_sleep_intc *intc = msc313_pm_wakeup_syscore_intc;
+	u16 type = readw_relaxed(intc->pmsleep_base + MSTAR_PMSLEEP_REG24);
+
+	writew_relaxed(intc->saved_mask, intc->pmsleep_base + MSTAR_PMSLEEP_WAKEUPSOURCE);
+	writew_relaxed((type & 0xff00) | (intc->saved_type & 0xff),
+		       intc->pmsleep_base + MSTAR_PMSLEEP_REG24);
+}
+
+static const struct syscore_ops msc313_pm_wakeup_intc_syscore_ops = {
+	.suspend	= msc313_pm_wakeup_intc_syscore_suspend,
+	.resume		= msc313_pm_wakeup_intc_syscore_resume,
+};
+
+static struct syscore msc313_pm_wakeup_intc_syscore = {
+	.ops = &msc313_pm_wakeup_intc_syscore_ops,
+};
+
 static const struct irq_domain_ops msc313_pm_wakeup_intc_domain_ops = {
 	.xlate = irq_domain_xlate_twocell,
 	.map = msc313_pm_wakeup_intc_domain_map,
@@ -126,6 +167,16 @@ static int __init msc313_pm_wakeup_intc_of_init(struct device_node *node,
 	intc->mask = regmap_field_alloc(pmsleep, mask_field);
 	intc->type = regmap_field_alloc(pmsleep, type_field);
 	intc->status = regmap_field_alloc(pmsleep, status_field);
+	{
+		struct device_node *np = of_parse_phandle(node, "mstar,pmsleep", 0);
+
+		intc->pmsleep_base = np ? of_iomap(np, 0) : NULL;
+		of_node_put(np);
+		if (intc->pmsleep_base && !msc313_pm_wakeup_syscore_intc) {
+			msc313_pm_wakeup_syscore_intc = intc;
+			register_syscore(&msc313_pm_wakeup_intc_syscore);
+		}
+	}
 
 	/* The masks survive deep sleep so clear them. */
 	regmap_field_write(intc->mask, ~0);
