@@ -264,7 +264,8 @@
  * have no pool at all. 28KiB is left, and suspend needs 16KiB of it.
  */
 &imi {
-	reg = <0xa0009000 0x7000>;
+	/* 0xa000ff00 up is the suspend to RAM handshake, see soc/mstar/str.h */
+	reg = <0xa0009000 0x6f00>;
 };
 
 &vpu {
