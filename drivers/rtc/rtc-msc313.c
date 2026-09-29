@@ -44,6 +44,7 @@
 struct msc313_rtc {
 	struct rtc_device *rtc_dev;
 	void __iomem *rtc_base;
+	int irq;
 	int wakeirq;
 };
 
@@ -211,12 +212,13 @@ static int msc313_rtc_probe(struct platform_device *pdev)
 		dev_err(dev, "Could not request IRQ\n");
 		return ret;
 	}
+	priv->irq = irq;
 
 	priv->wakeirq = platform_get_irq(pdev, 1);
 	if (priv->wakeirq == 0)
 		return -ENODEV;
 	ret = devm_request_irq(&pdev->dev, priv->wakeirq, msc313_rtc_interrupt,
-			       IRQF_SHARED, dev_name(&pdev->dev), &pdev->dev);
+			       IRQF_SHARED, dev_name(&pdev->dev), priv);
 	if (ret)
 		return ret;
 
@@ -241,11 +243,15 @@ static int __maybe_unused msc313_rtc_suspend(struct device *dev)
 {
 	struct msc313_rtc *rtc = dev_get_drvdata(dev);
 
-	if (rtc->wakeirq >= 0) {
-		if (device_may_wakeup(dev))
+	/*
+	 * The alarm has to get through while the rest of the interrupts are
+	 * masked for sleep: the PM wake line, and the ordinary one too since
+	 * that is the line that is seen to fire.
+	 */
+	if (device_may_wakeup(dev)) {
+		enable_irq_wake(rtc->irq);
+		if (rtc->wakeirq >= 0)
 			enable_irq_wake(rtc->wakeirq);
-		else
-			disable_irq_wake(rtc->wakeirq);
 	}
 
 	return 0;
@@ -255,8 +261,11 @@ static int __maybe_unused msc313_rtc_resume(struct device *dev)
 {
 	struct msc313_rtc *rtc = dev_get_drvdata(dev);
 
-	if (rtc->wakeirq >= 0 && device_may_wakeup(dev))
-		disable_irq_wake(rtc->wakeirq);
+	if (device_may_wakeup(dev)) {
+		disable_irq_wake(rtc->irq);
+		if (rtc->wakeirq >= 0)
+			disable_irq_wake(rtc->wakeirq);
+	}
 
 	return 0;
 }
