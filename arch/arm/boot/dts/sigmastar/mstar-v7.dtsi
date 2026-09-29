@@ -11,6 +11,7 @@
 #include <dt-bindings/clock/mstar-msc313-pm-muxes.h>
 #include <dt-bindings/clock/mstar-msc313-clkgen.h>
 #include <dt-bindings/dma/msc313-bdma.h>
+#include <dt-bindings/thermal/thermal.h>
 
 / {
 	#address-cells = <1>;
@@ -1229,10 +1230,20 @@
 					type = "critical";
 				};
 			};
+			/*
+			 * The whole cooling range, not a fixed state: the state
+			 * index counts down from the top of the OPP table, and
+			 * how many of those OPPs a board can actually reach
+			 * depends on its core regulator (the Miyoo Mini only
+			 * does 950mV/1.0V, so everything above 1296MHz is
+			 * dropped and the old fixed state 3 asked for a cap
+			 * above the achievable maximum - it throttled nothing).
+			 * With the full range step_wise ramps down as needed.
+			 */
 			cooling-maps {
 				map0 {
 					trip = <&cpu0_alert0>;
-					cooling-device = <&cpu0 3 3>;
+					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 				};
 			};
 		};
