@@ -248,6 +248,7 @@ static int irq_thread(void *data)
 static int wave5_vpu_load_firmware(struct device *dev, const char *fw_name,
 				   u32 *revision)
 {
+	struct vpu_device *vpu_dev = dev_get_drvdata(dev);
 	const struct firmware *fw;
 	int ret;
 	unsigned int product_id;
@@ -256,6 +257,19 @@ static int wave5_vpu_load_firmware(struct device *dev, const char *fw_name,
 	if (ret) {
 		dev_err(dev, "request_firmware, fail: %d\n", ret);
 		return ret;
+	}
+
+	/*
+	 * Keep a copy: a system resume has to load the bitcode again, and doing
+	 * that from a PM callback would mean a filesystem read at resume time.
+	 */
+	if (!vpu_dev->fw_bitcode) {
+		vpu_dev->fw_bitcode = devm_kmemdup(dev, fw->data, fw->size, GFP_KERNEL);
+		if (!vpu_dev->fw_bitcode) {
+			release_firmware(fw);
+			return -ENOMEM;
+		}
+		vpu_dev->fw_bitcode_size = fw->size;
 	}
 
 	ret = wave5_vpu_init_with_bitcode(dev, (u8 *)fw->data, fw->size);
@@ -319,8 +333,35 @@ static __maybe_unused int wave5_pm_resume(struct device *dev)
 	return ret;
 }
 
+/*
+ * Suspend to RAM on the SSD20xD ends in a soft reset of the whole SoC, which
+ * stops the VCPU and empties the wrapper's interrupt mask. Nothing else puts
+ * the firmware back: the WAVE511 is deliberately never runtime suspended (see
+ * wave5_pm_suspend()), so the driver has no reason to reload it and the next
+ * open just sees wave5_vpu_is_init() false and returns -ENODEV. Reload the
+ * cached bitcode and unmask the interrupt again.
+ */
+static __maybe_unused int wave5_system_resume(struct device *dev)
+{
+	struct vpu_device *vpu = dev_get_drvdata(dev);
+	int ret;
+
+	if (!vpu->fw_bitcode)
+		return 0;
+
+	if (vpu->irq >= 0)
+		wave5_vpu_wrapper_unmask_irq(vpu);
+
+	ret = wave5_vpu_init_with_bitcode(dev, vpu->fw_bitcode, vpu->fw_bitcode_size);
+	if (ret)
+		dev_err(dev, "reloading the firmware on resume failed: %d\n", ret);
+
+	return ret;
+}
+
 static const struct dev_pm_ops wave5_pm_ops = {
 	SET_RUNTIME_PM_OPS(wave5_pm_suspend, wave5_pm_resume, NULL)
+	SET_SYSTEM_SLEEP_PM_OPS(NULL, wave5_system_resume)
 };
 
 static int wave5_vpu_probe(struct platform_device *pdev)

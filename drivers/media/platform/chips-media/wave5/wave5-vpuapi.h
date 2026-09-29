@@ -779,6 +779,12 @@ struct vpu_device {
 	struct semaphore irq_sem; /* signal to irq_thread when interrupt happens*/
 	struct reset_control *resets;
 	spinlock_t irq_spinlock; /* protect instances list */
+	/*
+	 * A copy of the firmware bitcode, kept so a system resume can reload it
+	 * without reaching for the filesystem from a PM callback.
+	 */
+	u8 *fw_bitcode;
+	size_t fw_bitcode_size;
 };
 
 struct vpu_instance;
