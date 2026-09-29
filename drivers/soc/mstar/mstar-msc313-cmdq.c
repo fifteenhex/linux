@@ -14,18 +14,40 @@
  *
  * MSC313 CMDQ DMA controller
  *
- * The MSC313 has 1 of these. The MSC313e seems to have 3.
- * The vendor SDK seems to mostly use it for moving stuff to and from
- * the camera ip blocks. Apparently this thing can do registers writes,
- * polling for a bit to be set or cleared among other operations.
+ * The MSC313 has 1 of these. The MSC313e seems to have 3. The SSD20xD has
+ * exactly one: the vendor's HAL_CMDQ_Get_Cmdq_RiuAddr() rejects any index but 0,
+ * and the MIU has a single CMDQ0_R client. Its interrupt there is GIC SPI 49
+ * (from the vendor device tree's cmdq0 node, which carries no reg property - the
+ * register base is hardcoded in the vendor's mhal, so it is still unknown here).
  *
- * descriptors are apparently 8 bytes like this;
- * | 0 - 1 | 2 - 3 | 4 - 6                              | 7:0-3             | 7:4-7 |
- * | mask  | data  | addr                               | cmd               | dbg   |
- * |       |       | this is an address in io/riu space | 0x0 - nop         |       |
- * |       |       | which seems to be 4-byte addressed | 0x1 - write       |       |
- * |       |       |                                    | 0x3 - poll eq     |       |
- * |       |       |                                    | 0xb - poll not eq |       |
+ * The vendor SDK seems to mostly use it for moving stuff to and from
+ * the camera ip blocks. It writes registers, waits for a trigger event and
+ * polls a register until it matches or stops matching, which makes it a way to
+ * hand a whole batch of register writes to the hardware and have them applied
+ * without the CPU - synchronised to something, e.g. a vsync.
+ *
+ * Descriptors are 8 bytes. Confirmed against the vendor's builders
+ * (_MDrvCmdqInsertOneCommand writes the eight bytes one at a time, and
+ * _MDrvCmdqInsertOneWriteCommand assembles the arguments for a write), so as a
+ * little endian u64:
+ *
+ *   bits 15:0   ~mask   the mask is stored INVERTED: a set bit means leave
+ *                       that bit alone. mvns in the write builder.
+ *   bits 31:16  data
+ *   bits 55:32  addr    RIU *word* address, i.e. the byte address >> 1, 24
+ *                       bits. The builder does ubfx(addr, 1, 23).
+ *   bits 63:56  cmd     the whole top byte, not a nibble:
+ *                         0x00 - nop / dummy
+ *                         0x10 - write
+ *                         0x20 - wait for a trigger event
+ *                         0x30 - poll until equal
+ *                         0xb0 - poll until not equal
+ *                       (0x30 vs 0xb0 is one flag in
+ *                       MDrvCmdqPollEqCommandMask; the low nibble is unused.)
+ *
+ * The queue is a ring of these: the vendor advances its write pointer by 8 per
+ * command and wraps against the buffer end, and MDrvCmdqCheckBufferAvail() is
+ * what keeps it from overrunning the part the engine has not consumed yet.
  *
  * 0x004 -
  * 0
@@ -62,17 +84,6 @@
  * 0x128 - timer
  * 0x12c - ratio
  *
- * descriptors are 64 bits in length
- *
- * maybe 63 - 60?
- * 63 - 56 | 55 - 32 | 31 - 16 | 15 - 0
- *   cmd   |  addr   |  data   |  mask
- *         |
- *
- * 0x10
- * 0x20
- * 0x30
- * 0xb0
  */
 
 #define DRIVER_NAME "msc313-cmdq"
