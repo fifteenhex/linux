@@ -1053,6 +1053,36 @@ static int msc313_bach_sub_init(struct msc313_bach *bach, struct msc313_bach_sub
 	return err;
 }
 
+/*
+ * Both banks from scratch: the vendor defaults, then one reset of the DMA
+ * engine. Suspend to RAM ends in a soft reset of the whole SoC, so this has to
+ * be redone on resume - without it the analog top comes back with every path
+ * powered down and the digital side with none of the mixer, rate or DPGA setup,
+ * and nothing plays.
+ */
+static int msc313_bach_hw_init(struct msc313_bach *bach)
+{
+	int ret;
+
+	ret = regmap_multi_reg_write(bach->audiotop, msc313_bach_atop_init,
+				     ARRAY_SIZE(msc313_bach_atop_init));
+	if (ret)
+		return ret;
+	ret = regmap_multi_reg_write(bach->bach, msc313_bach_init,
+				     ARRAY_SIZE(msc313_bach_init));
+	if (ret)
+		return ret;
+
+	/* reset the DMA engine once, then leave it to the streams */
+	regmap_field_force_write(bach->dma_rst, 1);
+	udelay(10);
+	regmap_field_force_write(bach->dma_rst, 0);
+	udelay(10);
+	regmap_field_write(bach->dma_en, 0);
+
+	return 0;
+}
+
 static int msc313_bach_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -1099,21 +1129,9 @@ static int msc313_bach_probe(struct platform_device *pdev)
 	if (err)
 		return err;
 
-	ret = regmap_multi_reg_write(bach->audiotop, msc313_bach_atop_init,
-				     ARRAY_SIZE(msc313_bach_atop_init));
+	ret = msc313_bach_hw_init(bach);
 	if (ret)
 		return ret;
-	ret = regmap_multi_reg_write(bach->bach, msc313_bach_init,
-				     ARRAY_SIZE(msc313_bach_init));
-	if (ret)
-		return ret;
-
-	/* reset the DMA engine once, then leave it to the streams */
-	regmap_field_force_write(bach->dma_rst, 1);
-	udelay(10);
-	regmap_field_force_write(bach->dma_rst, 0);
-	udelay(10);
-	regmap_field_write(bach->dma_en, 0);
 
 	ret = msc313_bach_sub_init(bach, &bach->reader, false);
 	if (ret)
@@ -1177,6 +1195,37 @@ static int msc313_bach_probe(struct platform_device *pdev)
 	return devm_snd_soc_register_card(dev, card);
 }
 
+/*
+ * Redone in the noirq phase so both banks are back before snd_soc_resume()
+ * restores the DAPM state and restarts any stream on top of them.
+ */
+static int msc313_bach_resume_noirq(struct device *dev)
+{
+	struct snd_soc_card *card = dev_get_drvdata(dev);
+	struct msc313_bach *bach = snd_soc_card_get_drvdata(card);
+	int ret;
+
+	ret = msc313_bach_hw_init(bach);
+	if (ret)
+		return ret;
+
+	/* the handler is still registered, so the DMA interrupt can go back on */
+	regmap_field_write(bach->dma_int_en, 1);
+
+	return 0;
+}
+
+static const struct dev_pm_ops msc313_bach_pm_ops = {
+	/* what snd_soc_pm_ops does, plus getting the hardware back first */
+	.suspend	= pm_sleep_ptr(snd_soc_suspend),
+	.resume		= pm_sleep_ptr(snd_soc_resume),
+	.freeze		= pm_sleep_ptr(snd_soc_suspend),
+	.thaw		= pm_sleep_ptr(snd_soc_resume),
+	.poweroff	= pm_sleep_ptr(snd_soc_poweroff),
+	.restore	= pm_sleep_ptr(snd_soc_resume),
+	NOIRQ_SYSTEM_SLEEP_PM_OPS(NULL, msc313_bach_resume_noirq)
+};
+
 static const struct msc313_bach_data msc313_data = {
 	.addr_sz_shift = 3,
 };
@@ -1195,7 +1244,7 @@ MODULE_DEVICE_TABLE(of, msc313_bach_of_match);
 static struct platform_driver msc313_bach_driver = {
 	.driver = {
 		.name = DRIVER_NAME,
-		.pm = &snd_soc_pm_ops,
+		.pm = &msc313_bach_pm_ops,
 		.of_match_table = msc313_bach_of_match,
 	},
 	.probe = msc313_bach_probe,
