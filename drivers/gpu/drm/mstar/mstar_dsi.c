@@ -806,18 +806,17 @@ static void mstar_dsi_poweroff(struct mstar_dsi *dsi)
 	clk_disable_unprepare(dsi->engine_clk);
 }
 
+/*
+ * One poweron per poweroff: the reference belongs to pre_enable()/post_disable()
+ * and is not taken again here. Taking a second one left the refcount one higher
+ * after every mode set, and then poweron() returned early believing the host was
+ * already up - so after a suspend to RAM, which resets the whole SoC, neither
+ * the host nor the D-PHY were ever re-initialised and the panel stayed dark.
+ */
 static void mstar_output_dsi_enable(struct mstar_dsi *dsi)
 {
-	int ret;
-
 	if (dsi->enabled)
 		return;
-
-	ret = mstar_dsi_poweron(dsi);
-	if (ret < 0) {
-		DRM_ERROR("failed to power on dsi\n");
-		return;
-	}
 
 	/*
 	 * Video stream setup in the vendor's order: clock lane to HS, the
@@ -890,6 +889,11 @@ static void mstar_dsi_bridge_enable(struct drm_bridge *bridge)
 	mstar_output_dsi_enable(dsi);
 }
 
+/*
+ * Only the video stream is stopped here, the host stays powered and in command
+ * mode: the panel sets prepare_prev_first, so its unprepare() - which sends
+ * DCS SET_DISPLAY_OFF - runs after this and before post_disable().
+ */
 static void mstar_dsi_bridge_disable(struct drm_bridge *bridge)
 {
 	struct mstar_dsi *dsi = bridge_to_dsi(bridge);
