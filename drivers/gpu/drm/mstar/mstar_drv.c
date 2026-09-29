@@ -173,11 +173,11 @@ static const struct of_device_id mstar_drm_dt_ids[] = {
 MODULE_DEVICE_TABLE(of, mstar_drm_dt_ids);
 
 /*
- * Suspend to RAM ends in a soft reset, so the whole display pipeline has to
- * be brought up from scratch on resume. The helpers redo the mode set, which
- * is not enough yet: the CRTC produces no vblanks afterwards, so the panel
- * stays dark and the next suspend spends its commit timeouts. The blocks
- * need their probe time setup redone on resume.
+ * Suspend to RAM ends in a soft reset, so the whole display pipeline has to be
+ * brought up from scratch on resume. The helpers redo the mode set, which takes
+ * care of everything the atomic enable paths program. What they do not touch is
+ * the setup each block only does at probe or bind time; the components redo
+ * that themselves in their noirq resume, which runs before this one.
  */
 static int mstar_drv_suspend(struct device *dev)
 {
