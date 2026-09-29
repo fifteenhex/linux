@@ -210,6 +210,35 @@
 					 <&clkgen MSC313_CLKGEN_DIVIDERS MSC313_CLKGEN_GATE_8 2>;
 	};
 
+	/*
+	 * The JPEG encoder ("cedric-jpe" to the vendor). Same register base as the
+	 * one already described for the MSC313, but a different interrupt: the
+	 * vendor device tree for an SSD202D board gives SPI 61 where the MSC313 uses
+	 * 29. The block answers on the RIU with sensible reset values (0x00 0x0002,
+	 * 0x0c 0x0040, 0x58 0x07ff, 0x60 0x80f8, 0xc8 0x1000) whether its clock is
+	 * gated or not.
+	 *
+	 * There is no driver. The register semantics are not in reach from the
+	 * vendor blobs: mhal.ko reaches every other block through literal
+	 * 0xfd0xxxxx RIU addresses but has no such literal for this one, because the
+	 * JPE is driven entirely through CMDQ command lists built at runtime. Its
+	 * markers (SOI/DQT/SOF/DHT/SOS) are generated in software by
+	 * drv_jpegenc_marker_create_baseline(), so the hardware only produces the
+	 * entropy coded scan. Getting the register map needs an MMIO trace of the
+	 * vendor stack rather than static analysis - and note a blind write sweep is
+	 * a bad idea, this block is a MIU master and could be made to scribble over
+	 * DRAM.
+	 */
+	jpe@264000 {
+		reg = <0x264000 0x100>;
+		clocks = <&clkgen MSC313_CLKGEN_DEGLITCHES MSC313_CLKGEN_JPE 0>;
+		clock-names = "jpe";
+		interrupts-extended = <&intc_irq GIC_SPI 61 IRQ_TYPE_LEVEL_HIGH>;
+		interconnects = <&miu 0>;
+		interconnect-names = "dma-mem";
+		status = "disabled";
+	};
+
 	ge: ge@281200 {
 		compatible = "sstar,ssd20xd-ge";
 		reg = <0x281200 0x200>;
