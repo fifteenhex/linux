@@ -78,6 +78,8 @@ static void mstarv7_mb(void)
 }
 
 #ifdef CONFIG_SMP
+static void __iomem *mstarv7_smpctrl;
+
 static int mstarv7_boot_secondary(unsigned int cpu, struct task_struct *idle)
 {
 	struct device_node *np;
@@ -96,6 +98,10 @@ static int mstarv7_boot_secondary(unsigned int cpu, struct task_struct *idle)
 
 	if (!smpctrl)
 		return -ENODEV;
+#ifdef CONFIG_HOTPLUG_CPU
+	if (!mstarv7_smpctrl)
+		mstarv7_smpctrl = of_iomap(np, 0);
+#endif
 
 	/* set the boot address for the second cpu */
 	writew(bootaddr & 0xffff, smpctrl + MSTARV7_CPU1_BOOT_ADDR_LOW);
@@ -112,8 +118,42 @@ static int mstarv7_boot_secondary(unsigned int cpu, struct task_struct *idle)
 	return 0;
 }
 
+#ifdef CONFIG_HOTPLUG_CPU
+/*
+ * There is no power control over the second core, so it parks in WFI
+ * until boot_secondary() writes the unlock magic again. Returning from
+ * here makes the core re-enter secondary_start_kernel(). After a soft
+ * reset (suspend to RAM) the core is in the boot ROM's wait loop instead,
+ * and the same unlock takes it through secondary_startup.
+ */
+static void mstarv7_cpu_die(unsigned int cpu)
+{
+	void __iomem *smpctrl = mstarv7_smpctrl;
+
+	/* this runs with interrupts off on the dying core, no mapping here */
+	if (!smpctrl) {
+		for (;;)
+			wfi();
+	}
+
+	writew(0, smpctrl + MSTARV7_CPU1_UNLOCK);
+	do {
+		wfi();
+	} while (readw(smpctrl + MSTARV7_CPU1_UNLOCK) != MSTARV7_CPU1_UNLOCK_MAGIC);
+}
+
+static int mstarv7_cpu_kill(unsigned int cpu)
+{
+	return 1;
+}
+#endif
+
 static const struct smp_operations __initdata mstarv7_smp_ops = {
 	.smp_boot_secondary = mstarv7_boot_secondary,
+#ifdef CONFIG_HOTPLUG_CPU
+	.cpu_die	= mstarv7_cpu_die,
+	.cpu_kill	= mstarv7_cpu_kill,
+#endif
 };
 #endif
 
