@@ -491,6 +491,26 @@ static void mstar_gop_remove(struct platform_device *pdev)
 	component_del(&pdev->dev, &mstar_gop_ops);
 }
 
+/*
+ * The sleep reset leaves the GOP's soft reset (CONFIG bit0) asserted, so the
+ * plane never scans out again. The rest of CONFIG comes back as it was, and the
+ * window registers are rewritten by the plane update that follows the DRM
+ * master's resume, so releasing the reset is all that is needed - in the noirq
+ * phase, before that mode set.
+ */
+static int mstar_gop_resume_noirq(struct device *dev)
+{
+	struct mstar_gop *gop = dev_get_drvdata(dev);
+
+	mstar_gop_reset(gop);
+
+	return 0;
+}
+
+static const struct dev_pm_ops mstar_gop_pm_ops = {
+	NOIRQ_SYSTEM_SLEEP_PM_OPS(NULL, mstar_gop_resume_noirq)
+};
+
 static const uint32_t ssd20xd_gop0_formats[] = {
 	DRM_FORMAT_ARGB4444,
 	DRM_FORMAT_ARGB1555,
@@ -555,6 +575,7 @@ static struct platform_driver mstar_gop_driver = {
 	.driver = {
 		   .name = DRIVER_NAME,
 		   .of_match_table = mstar_gop_dt_ids,
+		   .pm = pm_sleep_ptr(&mstar_gop_pm_ops),
 	},
 };
 
