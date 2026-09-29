@@ -8,6 +8,7 @@
  */
 
 #include <linux/clk.h>
+#include <linux/syscore_ops.h>
 #include <linux/clockchips.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
@@ -47,6 +48,52 @@ static struct msc313e_delay msc313e_delay;
 #endif
 
 static void __iomem *msc313e_clksrc;
+
+/*
+ * Suspend to RAM ends in a soft reset that clears the timers, and the
+ * scheduler clock and the delay loop run off the clocksource timer, so
+ * they must get their divider and enable back before anything else runs.
+ */
+#define MSC313E_MAX_TIMERS	4
+static struct {
+	void __iomem *base;
+	bool divided;
+	bool clksrc;
+} msc313e_timers[MSC313E_MAX_TIMERS];
+static int msc313e_num_timers;
+
+static void msc313e_timer_remember(void __iomem *base, bool divided, bool clksrc)
+{
+	if (msc313e_num_timers >= MSC313E_MAX_TIMERS)
+		return;
+	msc313e_timers[msc313e_num_timers].base = base;
+	msc313e_timers[msc313e_num_timers].divided = divided;
+	msc313e_timers[msc313e_num_timers].clksrc = clksrc;
+	msc313e_num_timers++;
+}
+
+static void msc313e_timer_syscore_resume(void *data)
+{
+	int i;
+
+	for (i = 0; i < msc313e_num_timers; i++) {
+		void __iomem *base = msc313e_timers[i].base;
+
+		if (msc313e_timers[i].divided)
+			writew(MSC313E_CLK_DIVIDER - 1, base + MSC313E_REG_TIMER_DIVIDE);
+		if (msc313e_timers[i].clksrc)
+			writew(readw(base + MSC313E_REG_CTRL) | MSC313E_REG_CTRL_TIMER_EN,
+			       base + MSC313E_REG_CTRL);
+	}
+}
+
+static const struct syscore_ops msc313e_timer_syscore_ops = {
+	.resume		= msc313e_timer_syscore_resume,
+};
+
+static struct syscore msc313e_timer_syscore = {
+	.ops = &msc313e_timer_syscore_ops,
+};
 
 static void msc313e_timer_stop(void __iomem *base)
 {
@@ -187,6 +234,8 @@ static int __init msc313e_clkevt_init(struct device_node *np)
 		writew(MSC313E_CLK_DIVIDER - 1, timer_of_base(to) + MSC313E_REG_TIMER_DIVIDE);
 	}
 
+	msc313e_timer_remember(timer_of_base(to),
+			       of_device_is_compatible(np, "sstar,ssd20xd-timer"), false);
 	msc313e_clkevt.cpumask = cpu_possible_mask;
 	msc313e_clkevt.irq = to->of_irq.irq;
 	to->clkevt = msc313e_clkevt;
@@ -214,6 +263,9 @@ static int __init msc313e_clksrc_init(struct device_node *np)
 	}
 
 	msc313e_clksrc = timer_of_base(&to);
+	msc313e_timer_remember(msc313e_clksrc,
+			       of_device_is_compatible(np, "sstar,ssd20xd-timer"), true);
+	register_syscore(&msc313e_timer_syscore);
 	reg = readw(msc313e_clksrc + MSC313E_REG_CTRL);
 	reg |= MSC313E_REG_CTRL_TIMER_EN;
 	writew(reg, msc313e_clksrc + MSC313E_REG_CTRL);
