@@ -1,7 +1,12 @@
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
+#include <drm/drm_fb_dma_helper.h>
 #include <drm/drm_fourcc.h>
+#include <drm/drm_framebuffer.h>
+#include <drm/drm_gem_atomic_helper.h>
+#include <drm/drm_gem_dma_helper.h>
 #include <drm/drm_plane.h>
+#include <drm/drm_rect.h>
 #include <linux/clk.h>
 #include <linux/component.h>
 #include <linux/module.h>
@@ -39,6 +44,7 @@ struct mstar_mop_window {
 	struct regmap_field *src_height;
 	struct regmap_field *scale_h;
 	struct regmap_field *scale_v;
+	struct regmap_field *ctrl;
 	struct drm_plane drm_plane;
 };
 
@@ -48,11 +54,14 @@ struct mstar_mop_data {
 	unsigned int num_windows;
 	unsigned int windows_start;
 	unsigned int window_len;
+	/* the graphics plane (mopg) owns bank 0's global config; the sub plane does not */
+	bool has_global_cfg;
 };
 
 struct mstar_mop {
 	struct device *dev;
 	const struct mstar_mop_data *data;
+	struct regmap *regmap;
 	struct regmap_field *swrst;
 	struct regmap_field *gw_hsize;
 	struct regmap_field *gw_vsize;
@@ -64,6 +73,35 @@ static const struct reg_field swrst_field = REG_FIELD(0x0, 0, 0);
 static const struct reg_field gw_hsize_field = REG_FIELD(0x1c, 0, 12);
 static const struct reg_field gw_vsize_field = REG_FIELD(0x20, 0, 12);
 static const struct reg_field commit_all_field = REG_FIELD(0x1fc, 8, 8);
+
+/*
+ * Bank 0, the plane's global config. The MOP only fetches once the two clock
+ * gates in CFG are open, so without this block the windows can be programmed
+ * and enabled and still nothing is read from DRAM. Values are the vendor's
+ * HalDispMopgInit.
+ */
+#define MOP_REG_CFG		0x004
+#define  MOP_CFG_CLK_MIU	BIT(8)
+#define  MOP_CFG_CLK_GOP	BIT(9)
+#define  MOP_CFG_AUTOSTRETCH	BIT(10)
+#define  MOP_CFG_AUTOBLANK	BIT(11)
+#define MOP_REG_PIPEDLY		0x00c
+#define MOP_REG_YDMA_THD	0x010
+#define MOP_REG_CDMA_THD	0x014
+#define MOP_REG_Y_PRIO		0x018
+#define MOP_REG_C_PRIO		0x02c
+#define MOP_REG_GW_HEXT		0x054
+#define MOP_REG_4TAP		0x100
+
+/* Bank 1+, per window. Offsets from the window base; see mstar_mop_data. */
+#define MOP_WIN_CTRL		0x04	/* addr16 offset / line buffer / rblk */
+
+/*
+ * The plane's DMA addresses are relative to the MIU0 base and counted in
+ * 16-byte units, not CPU physical addresses.
+ */
+#define MOP_MIU0_BASE		0x20000000
+#define MOP_SCALE_1X		0x1000
 
 static const struct regmap_config mstar_mop_regmap_config = {
 	.reg_bits = 16,
@@ -122,28 +160,155 @@ static void mstar_mop_dump_window(struct device *dev, struct mstar_mop_window *w
 		      scaleh, scalev);
 }
 
+/*
+ * The shadowed window registers only take effect when the double-buffer write
+ * bit is pulsed, so a whole window can be reprogrammed and then latched in one
+ * go at the next vsync - which is what makes a per-frame update tear free.
+ */
+static void mstar_mop_latch(struct mstar_mop *mop)
+{
+	regmap_field_force_write(mop->commit_all, 1);
+	regmap_field_force_write(mop->commit_all, 0);
+}
+
+/*
+ * The vendor's HalDispMopgInit: a reset pulse, then the two clock gates that
+ * let the plane fetch from the MIU at all, auto stretch and auto blank, the
+ * pipe delay and the DMA thresholds and priorities. Nothing is fetched from
+ * DRAM until CFG's gates are open, so a window can otherwise be fully
+ * programmed and enabled and still show nothing.
+ */
+static void mstar_mop_hw_init(struct mstar_mop *mop)
+{
+	if (!mop->data->has_global_cfg)
+		return;
+
+	regmap_field_force_write(mop->swrst, 1);
+	regmap_field_force_write(mop->swrst, 0);
+
+	regmap_write(mop->regmap, MOP_REG_CFG,
+		     MOP_CFG_CLK_MIU | MOP_CFG_CLK_GOP |
+		     MOP_CFG_AUTOSTRETCH | MOP_CFG_AUTOBLANK);
+	regmap_write(mop->regmap, MOP_REG_PIPEDLY, 0x000a);
+	regmap_write(mop->regmap, MOP_REG_YDMA_THD, 0x00f8);
+	regmap_write(mop->regmap, MOP_REG_CDMA_THD, 0x00d0);
+	regmap_write(mop->regmap, MOP_REG_Y_PRIO, 0x00f0);
+	regmap_write(mop->regmap, MOP_REG_C_PRIO, 0x00f0);
+	regmap_write(mop->regmap, MOP_REG_GW_HEXT, 0x0080);
+	regmap_write(mop->regmap, MOP_REG_4TAP, 0x0689);
+
+	mstar_mop_latch(mop);
+}
+
 static int mop_plane_atomic_check(struct drm_plane *plane,
 				    struct drm_atomic_commit *state)
 {
-	return 0;
+	struct drm_plane_state *new_state = drm_atomic_get_new_plane_state(state, plane);
+	struct drm_crtc_state *crtc_state;
+
+	if (!new_state->crtc)
+		return 0;
+
+	crtc_state = drm_atomic_get_new_crtc_state(state, new_state->crtc);
+	if (!crtc_state)
+		return -EINVAL;
+
+	/*
+	 * The scaler takes source:destination as a 1/4096ths ratio, so it can
+	 * shrink by a lot but only ever stretch to 1x - let the helper reject
+	 * anything outside that rather than silently programming a bad ratio.
+	 */
+	return drm_atomic_helper_check_plane_state(new_state, crtc_state,
+						   DRM_PLANE_NO_SCALING,
+						   16 << 16, true, true);
+}
+
+static void mstar_mop_win_addr(struct mstar_mop_window *window,
+			       struct regmap_field *lo, struct regmap_field *hi,
+			       dma_addr_t addr)
+{
+	u32 a = ((u32)addr - MOP_MIU0_BASE) >> ADDR_SHIFT;
+
+	regmap_field_write(lo, a & 0xffff);
+	regmap_field_write(hi, (a >> 16) & 0xfff);
 }
 
 static void mstar_mop_plane_atomic_update(struct drm_plane *plane,
 				    struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *new_state = drm_atomic_get_new_plane_state(state, plane);
+	struct drm_plane_state *old_state = drm_atomic_get_old_plane_state(state, plane);
 	struct mstar_mop_window *window = plane_to_mop_window(plane);
 	struct mstar_mop *mop = window->mop;
+	struct drm_framebuffer *fb = new_state->fb;
+	u32 srcw, srch, dstw, dsth;
 
-	regmap_field_write(window->en, new_state->crtc ? 1 : 0);
+	if (!new_state->crtc || !fb) {
+		regmap_field_write(window->en, 0);
+		mstar_mop_latch(mop);
+		return;
+	}
 
-	regmap_field_force_write(mop->commit_all, 1);
-	regmap_field_force_write(mop->commit_all, 0);
+	srcw = drm_rect_width(&new_state->src) >> 16;
+	srch = drm_rect_height(&new_state->src) >> 16;
+	dstw = drm_rect_width(&new_state->dst);
+	dsth = drm_rect_height(&new_state->dst);
+	if (!srcw || !srch || !dstw || !dsth)
+		return;
+
+	/*
+	 * Coming from disabled, walk the sizes through zero first: that is the
+	 * vendor's order in HalDispMopgSetGwinParam/SetSourceParam and it is
+	 * what makes the plane pick up a new line-buffer allocation.
+	 */
+	if (!old_state->crtc || !old_state->fb) {
+		regmap_field_write(window->en, 0);
+		mstar_mop_latch(mop);
+		regmap_field_write(window->src_width, 0);
+		regmap_field_write(window->src_height, 0);
+		mstar_mop_latch(mop);
+		regmap_field_write(window->hst, 0);
+		regmap_field_write(window->hend, 0);
+		regmap_field_write(window->vst, 0);
+		regmap_field_write(window->vend, 0);
+		mstar_mop_latch(mop);
+	}
+
+	/* source geometry, then the window it lands in on the mixer */
+	regmap_field_write(window->src_width, srcw - 1);
+	regmap_field_write(window->src_height, srch - 1);
+	mstar_mop_latch(mop);
+
+	regmap_field_write(window->hst, new_state->dst.x1);
+	regmap_field_write(window->hend, new_state->dst.x2 - 1);
+	regmap_field_write(window->vst, new_state->dst.y1);
+	regmap_field_write(window->vend, new_state->dst.y2 - 1);
+	mstar_mop_latch(mop);
+
+	/* scale is source:destination in 1/4096ths, so equal sizes give 1x */
+	regmap_field_write(window->scale_h, (srcw * MOP_SCALE_1X) / dstw);
+	regmap_field_write(window->scale_v, (srch * MOP_SCALE_1X) / dsth);
+	mstar_mop_latch(mop);
+
+	/* NV12: plane 0 is the luma, plane 1 the interleaved chroma */
+	mstar_mop_win_addr(window, window->yaddrl, window->yaddrh,
+			   drm_fb_dma_get_gem_addr(fb, new_state, 0));
+	mstar_mop_win_addr(window, window->caddrl, window->caddrh,
+			   drm_fb_dma_get_gem_addr(fb, new_state, 1));
+	mstar_mop_latch(mop);
+
+	regmap_field_write(window->pitch, (fb->pitches[0] >> ADDR_SHIFT) & 0x1fff);
+	regmap_field_write(window->ctrl, 0);
+	mstar_mop_latch(mop);
+
+	regmap_field_write(window->en, 1);
+	mstar_mop_latch(mop);
 
 	mstar_mop_dump_window(mop->dev, window);
 }
 
 static const struct drm_plane_helper_funcs mop_plane_helper_funcs = {
+	.prepare_fb = drm_gem_plane_helper_prepare_fb,
 	.atomic_check = mop_plane_atomic_check,
 	.atomic_update = mstar_mop_plane_atomic_update,
 };
@@ -237,10 +402,13 @@ static int mstar_mop_probe(struct platform_device *pdev)
 			return dev_err_probe(dev, PTR_ERR(clk), "Failed to get the MOP clock\n");
 	}
 
+	mop->regmap = regmap;
 	mop->swrst = devm_regmap_field_alloc(dev, regmap, swrst_field);
 	mop->gw_hsize = devm_regmap_field_alloc(dev, regmap, gw_hsize_field);
 	mop->gw_vsize = devm_regmap_field_alloc(dev, regmap, gw_vsize_field);
 	mop->commit_all = devm_regmap_field_alloc(dev, regmap, commit_all_field);
+
+	mstar_mop_hw_init(mop);
 
 	regmap_field_read(mop->gw_hsize, &hsize);
 	regmap_field_read(mop->gw_vsize, &vsize);
@@ -263,6 +431,7 @@ static int mstar_mop_probe(struct platform_device *pdev)
 		struct reg_field vst_field = REG_FIELD(offset + 0x20, 0, 12);
 		struct reg_field vend_field = REG_FIELD(offset + 0x24, 0, 12);
 		struct reg_field pitch_field = REG_FIELD(offset + 0x28, 0, 12);
+		struct reg_field ctrl_field = REG_FIELD(offset + MOP_WIN_CTRL, 0, 15);
 		struct reg_field srcw_field = REG_FIELD(offset + 0x2c, 0, 12);
 		struct reg_field srch_field = REG_FIELD(offset + 0x30, 0, 12);
 		struct reg_field scaleh_field = REG_FIELD(offset + 0x34, 0, 12);
@@ -281,10 +450,11 @@ static int mstar_mop_probe(struct platform_device *pdev)
 		window->vst = devm_regmap_field_alloc(dev, regmap, vst_field);
 		window->vend = devm_regmap_field_alloc(dev, regmap, vend_field);
 		window->pitch = devm_regmap_field_alloc(dev, regmap, pitch_field);
-		window->src_height = devm_regmap_field_alloc(dev, regmap, srcw_field);
-		window->src_width = devm_regmap_field_alloc(dev, regmap, srch_field);
+		window->src_width = devm_regmap_field_alloc(dev, regmap, srcw_field);
+		window->src_height = devm_regmap_field_alloc(dev, regmap, srch_field);
 		window->scale_h = devm_regmap_field_alloc(dev, regmap, scaleh_field);
 		window->scale_v = devm_regmap_field_alloc(dev, regmap, scalev_field);
+		window->ctrl = devm_regmap_field_alloc(dev, regmap, ctrl_field);
 		mstar_mop_dump_window(dev, window);
 	}
 
@@ -302,6 +472,7 @@ static const struct mstar_mop_data ssd20xd_mopg_data = {
 	.num_windows = 16,
 	.windows_start = 0x200,
 	.window_len = 0x40,
+	.has_global_cfg = true,
 };
 
 static const struct mstar_mop_data ssd20xd_mops_data = {
