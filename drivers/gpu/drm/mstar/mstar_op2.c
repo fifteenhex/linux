@@ -182,6 +182,25 @@ static const struct drm_crtc_funcs mstar_op2_crtc_funcs = {
 #define REG_DITHER_CTRL		0x1d8	/* bit0 dither enable */
 
 /*
+ * The colour matrix, using the values the vendor code writes. Loaded on every
+ * mode set rather than once at probe: the suspend to RAM reset puts the
+ * coefficients back to their reset values, and the mode set the resume does is
+ * what brings the output stage up again.
+ */
+static void mstar_op2_color_matrix(struct mstar_op2 *op2)
+{
+	regmap_write(op2->regmap, REG_COLOR_MATRIX_0, 0x077f);
+	regmap_write(op2->regmap, REG_COLOR_MATRIX_1, 0x04a9);
+	regmap_write(op2->regmap, REG_COLOR_MATRIX_2, 0x0000);
+	regmap_write(op2->regmap, REG_COLOR_MATRIX_3, 0x129c);
+	regmap_write(op2->regmap, REG_COLOR_MATRIX_4, 0x04a9);
+	regmap_write(op2->regmap, REG_COLOR_MATRIX_5, 0x1178);
+	regmap_write(op2->regmap, REG_COLOR_MATRIX_6, 0x1070);
+	regmap_write(op2->regmap, REG_COLOR_MATRIX_7, 0x04a6);
+	regmap_write(op2->regmap, REG_COLOR_MATRIX_8, 0x08bb);
+}
+
+/*
  * The colour-processing / output stage the vendor's composite config
  * routines write before the raster timing: frame-colour and background
  * presets, the colour matrix control and the 0x118/0x11c setup, dither off,
@@ -195,6 +214,7 @@ static void mstar_op2_output_stage(struct mstar_op2 *op2)
 	regmap_write(op2->regmap, REG_WIN_BGCOLOR, 0x4010);
 	regmap_write(op2->regmap, REG_WIN_BGCOLOR, 0xc010);
 
+	mstar_op2_color_matrix(op2);
 	regmap_write(op2->regmap, REG_COLOR_MATRIX_CTRL, 0x000b);
 	regmap_write(op2->regmap, REG_COLOR_MATRIX_CTRL, 0x010b);
 	regmap_write(op2->regmap, REG_OUT_118, 0x0080);
@@ -429,16 +449,7 @@ static int mstar_op2_probe(struct platform_device *pdev)
 	/* no idea what this does, needed for dongshanpione screen */
 	//regmap_field_write(op2->swap_ml, 0);
 
-	/* Setup the color matrix, for now using values that the vendor code wrote */
-	regmap_write(regmap, REG_COLOR_MATRIX_0, 0x077f);
-	regmap_write(regmap, REG_COLOR_MATRIX_1, 0x04a9);
-	regmap_write(regmap, REG_COLOR_MATRIX_2, 0x0000);
-	regmap_write(regmap, REG_COLOR_MATRIX_3, 0x129c);
-	regmap_write(regmap, REG_COLOR_MATRIX_4, 0x04a9);
-	regmap_write(regmap, REG_COLOR_MATRIX_5, 0x1178);
-	regmap_write(regmap, REG_COLOR_MATRIX_6, 0x1070);
-	regmap_write(regmap, REG_COLOR_MATRIX_7, 0x04a6);
-	regmap_write(regmap, REG_COLOR_MATRIX_8, 0x08bb);
+	mstar_op2_color_matrix(op2);
 	regmap_write(regmap, REG_COLOR_MATRIX_CTRL, 0xb);
 
 	dev_set_drvdata(dev, op2);
