@@ -6,10 +6,59 @@
 #include <linux/clk-provider.h>
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
+#include <linux/mutex.h>
 
 #include "clk-msc313-mux.h"
 
 #define deglitch_to_mux(_hw) container_of(_hw, struct msc313_mux, deglitch_hw)
+
+/*
+ * Suspend to RAM ends in a soft reset that puts every mux back to its reset
+ * value while the clock framework still believes what it programmed. Keep
+ * the registers across sleep so the consumers find their clocks as they
+ * left them.
+ */
+static LIST_HEAD(msc313_muxes_list);
+static DEFINE_MUTEX(msc313_muxes_lock);
+
+static int msc313_mux_suspend_noirq(struct device *dev)
+{
+	struct msc313_muxes *muxes;
+
+	list_for_each_entry(muxes, &msc313_muxes_list, node) {
+		const struct msc313_mux_data *mux_data = muxes->muxes_data->muxes;
+		int i;
+
+		if (muxes->dev != dev)
+			continue;
+		for (i = 0; i < muxes->muxes_data->num_muxes; i++)
+			regmap_read(muxes->regmap, mux_data[i].offset, &muxes->saved[i]);
+	}
+
+	return 0;
+}
+
+static int msc313_mux_resume_noirq(struct device *dev)
+{
+	struct msc313_muxes *muxes;
+
+	list_for_each_entry(muxes, &msc313_muxes_list, node) {
+		const struct msc313_mux_data *mux_data = muxes->muxes_data->muxes;
+		int i;
+
+		if (muxes->dev != dev)
+			continue;
+		for (i = 0; i < muxes->muxes_data->num_muxes; i++)
+			regmap_write(muxes->regmap, mux_data[i].offset, muxes->saved[i]);
+	}
+
+	return 0;
+}
+
+const struct dev_pm_ops msc313_mux_pm_ops = {
+	NOIRQ_SYSTEM_SLEEP_PM_OPS(msc313_mux_suspend_noirq, msc313_mux_resume_noirq)
+};
+EXPORT_SYMBOL_GPL(msc313_mux_pm_ops);
 #define mux_to_mux(_hw) container_of(_hw, struct msc313_mux, mux_hw)
 
 static int msc313_mux_mux_set_parent(struct clk_hw *hw, u8 index)
@@ -157,6 +206,14 @@ struct msc313_muxes *msc313_mux_register_muxes(struct device *dev,
 		return ERR_PTR(-ENOMEM);
 
 	muxes->muxes_data = muxes_data;
+	muxes->dev = dev;
+	muxes->regmap = regmap;
+	muxes->saved = devm_kcalloc(dev, muxes_data->num_muxes, sizeof(*muxes->saved), GFP_KERNEL);
+	if (!muxes->saved)
+		return ERR_PTR(-ENOMEM);
+	mutex_lock(&msc313_muxes_lock);
+	list_add_tail(&muxes->node, &msc313_muxes_list);
+	mutex_unlock(&msc313_muxes_lock);
 	mux = muxes->muxes;
 
 	for (i = 0; i < muxes_data->num_muxes; i++, mux++, mux_data++) {

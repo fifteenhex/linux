@@ -9,8 +9,15 @@ struct msc313_mux {
 
 struct msc313_muxes {
 	const struct msc313_muxes_data* muxes_data;
+	/* the registers as they were before sleep, restored after a soft reset */
+	struct list_head node;
+	struct device *dev;
+	struct regmap *regmap;
+	unsigned int *saved;
 	struct msc313_mux muxes[];
 };
+
+extern const struct dev_pm_ops msc313_mux_pm_ops;
 
 struct msc313_mux_data {
 	/* index to match the DT bindings */

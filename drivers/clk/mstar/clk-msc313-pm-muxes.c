@@ -185,6 +185,7 @@ static int msc313_pm_muxes_probe(struct platform_device *pdev)
 
 static struct platform_driver msc313_pm_muxes_driver = {
 	.driver = {
+		.pm = &msc313_mux_pm_ops,
 		.name = "msc313-pm-muxes",
 		.of_match_table = msc313_pm_muxes_ids,
 	},

@@ -159,6 +159,7 @@ static int msc313e_clkgen_mux_probe(struct platform_device *pdev)
 
 static struct platform_driver msc313_sc_gp_ctrl_muxes_driver = {
 	.driver = {
+		.pm = &msc313_mux_pm_ops,
 		.name = "msc313-sc-gp-ctrl-muxes",
 		.of_match_table = msc313e_sc_gp_ctrl_muxes_of_match,
 	},

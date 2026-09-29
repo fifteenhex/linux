@@ -716,6 +716,7 @@ no_dividers:
 
 static struct platform_driver msc313_clkgen_driver = {
 	.driver = {
+		.pm = &msc313_mux_pm_ops,
 		.name = "msc313-clkgen",
 		.of_match_table = msc313_clkgen_ids,
 	},
