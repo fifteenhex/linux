@@ -553,10 +553,10 @@ static int msc313_bdma_resume(struct device *dev)
 	return 0;
 }
 
-static UNIVERSAL_DEV_PM_OPS(msc313_bdma_pm_ops,
-			    msc313_bdma_suspend,
-			    msc313_bdma_resume,
-			    NULL);
+static const struct dev_pm_ops msc313_bdma_pm_ops = {
+	SET_RUNTIME_PM_OPS(msc313_bdma_suspend, msc313_bdma_resume, NULL)
+	SET_SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend, pm_runtime_force_resume)
+};
 
 static int msc313_bdma_probe(struct platform_device *pdev)
 {
