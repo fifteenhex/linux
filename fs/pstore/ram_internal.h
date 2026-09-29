@@ -57,6 +57,7 @@
  *
  */
 struct persistent_ram_zone {
+	u32 sig;		/* the header signature, to restore a zone that was reused */
 	phys_addr_t paddr;
 	size_t size;
 	void *vaddr;
@@ -84,6 +85,7 @@ struct persistent_ram_zone *persistent_ram_new(phys_addr_t start, size_t size,
 			unsigned int memtype, u32 flags, char *label);
 void persistent_ram_free(struct persistent_ram_zone **_prz);
 void persistent_ram_zap(struct persistent_ram_zone *prz);
+void persistent_ram_reinit(struct persistent_ram_zone *prz);
 
 int persistent_ram_write(struct persistent_ram_zone *prz, const void *s,
 			 unsigned int count);

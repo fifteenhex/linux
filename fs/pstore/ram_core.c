@@ -405,6 +405,17 @@ void persistent_ram_zap(struct persistent_ram_zone *prz)
 	persistent_ram_update_header_ecc(prz);
 }
 
+/*
+ * Start a zone over after something else used its memory, for example a
+ * boot loader that ran through the same on chip SRAM on the way back from
+ * suspend to RAM.
+ */
+void persistent_ram_reinit(struct persistent_ram_zone *prz)
+{
+	prz->buffer->sig = prz->sig;
+	persistent_ram_zap(prz);
+}
+
 #define MEM_TYPE_WCOMBINE	0
 #define MEM_TYPE_NONCACHED	1
 #define MEM_TYPE_NORMAL		2
@@ -536,6 +547,7 @@ static int persistent_ram_post_init(struct persistent_ram_zone *prz, u32 sig,
 	}
 
 	sig ^= PERSISTENT_RAM_SIG;
+	prz->sig = sig;
 
 	if (prz->buffer->sig == sig) {
 		if (buffer_size(prz) == 0 && buffer_start(prz) == 0) {

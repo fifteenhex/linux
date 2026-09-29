@@ -900,12 +900,35 @@ static const struct of_device_id dt_match[] = {
 };
 MODULE_DEVICE_TABLE(of, dt_match);
 
+/* The memory may have been reused while we slept, start every zone over */
+static int ramoops_resume(struct device *dev)
+{
+	struct ramoops_context *cxt = &oops_cxt;
+	int i;
+
+	for (i = 0; i < cxt->max_dump_cnt; i++)
+		if (cxt->dprzs && cxt->dprzs[i])
+			persistent_ram_reinit(cxt->dprzs[i]);
+	for (i = 0; i < cxt->max_ftrace_cnt; i++)
+		if (cxt->fprzs && cxt->fprzs[i])
+			persistent_ram_reinit(cxt->fprzs[i]);
+	if (cxt->cprz)
+		persistent_ram_reinit(cxt->cprz);
+	if (cxt->mprz)
+		persistent_ram_reinit(cxt->mprz);
+
+	return 0;
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(ramoops_pm_ops, NULL, ramoops_resume);
+
 static struct platform_driver ramoops_driver = {
 	.probe		= ramoops_probe,
 	.remove		= ramoops_remove,
 	.driver		= {
 		.name		= "ramoops",
 		.of_match_table	= dt_match,
+		.pm		= pm_sleep_ptr(&ramoops_pm_ops),
 	},
 };
 
