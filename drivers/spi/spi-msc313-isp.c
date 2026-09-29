@@ -5,6 +5,7 @@
  */
 
 #include <linux/module.h>
+#include <soc/mstar/regsave.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/of_device.h>
@@ -97,6 +98,7 @@ struct msc313_isp {
 	struct regmap *isp;
 	struct regmap *qspi;
 	void __iomem *base;
+	struct mstar_regsave save_isp, save_qspi;
 
 	/* The memory mapped area and how big it is */
 	void __iomem *memorymapped;
@@ -524,6 +526,12 @@ static int msc313_isp_probe(struct platform_device *pdev)
 
 	isp->qspi = devm_regmap_init_mmio(&pdev->dev, base,
 			&msc313_isp_qspi_regmap_config);
+	ret = mstar_regsave_init(&pdev->dev, &isp->save_isp, isp->base, 0x400);
+	if (ret)
+		return ret;
+	ret = mstar_regsave_init(&pdev->dev, &isp->save_qspi, base, 0x200);
+	if (ret)
+		return ret;
 	isp->addrcontdis = devm_regmap_field_alloc(&pdev->dev, isp->qspi, addrcontdis_field);
 	isp->addr2 = devm_regmap_field_alloc(&pdev->dev, isp->qspi, addr2en_field);
 
@@ -624,6 +632,9 @@ static int __maybe_unused msc313_isp_suspend(struct device *dev)
 	struct spi_controller *master = dev_get_drvdata(dev);
 	struct msc313_isp *isp = spi_controller_get_devdata(master);
 
+	mstar_regsave_save(&isp->save_isp);
+	mstar_regsave_save(&isp->save_qspi);
+
 	/*
 	 * the boot rom wants everything to be at reset state otherwise it
 	 * will lock up..
@@ -643,6 +654,12 @@ static int __maybe_unused msc313_isp_suspend(struct device *dev)
 
 static int __maybe_unused msc313_isp_resume(struct device *dev)
 {
+	struct spi_controller *master = dev_get_drvdata(dev);
+	struct msc313_isp *isp = spi_controller_get_devdata(master);
+
+	/* the boot rom used the controller in the meantime */
+	mstar_regsave_restore(&isp->save_isp);
+	mstar_regsave_restore(&isp->save_qspi);
 	return 0;
 }
 

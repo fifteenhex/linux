@@ -23,6 +23,7 @@
  * written, which lets the DSI settle before it streams pixels.
  */
 #include <linux/platform_device.h>
+#include <soc/mstar/regsave.h>
 #include <linux/of.h>
 #include <linux/clk-provider.h>
 #include <linux/io.h>
@@ -63,6 +64,7 @@ static const u16 lpll_gain[LPLL_NBANDS]  = { 16, 8, 4, 2 };
 struct msc313_lpll {
 	struct clk_hw clk_hw;
 	void __iomem *base;
+	struct mstar_regsave save;
 	unsigned long rate;
 	struct clk_hw_onecell_data *clk_data;
 };
@@ -212,6 +214,10 @@ static int msc313_lpll_probe(struct platform_device *pdev)
 	lpll->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(lpll->base))
 		return PTR_ERR(lpll->base);
+	ret = mstar_regsave_init(&pdev->dev, &lpll->save, lpll->base, 0x40);
+	if (ret)
+		return ret;
+	platform_set_drvdata(pdev, lpll);
 
 	clk_init.name = dev_name(dev);
 	clk_init.ops = &msc313_lpll_ops;
@@ -236,10 +242,33 @@ static const struct of_device_id msc313_lpll_of_match[] = {
 	{}
 };
 
+
+/* The sleep reset wipes the registers, put them back the way they were */
+static int msc313_lpll_sleep_save(struct device *dev)
+{
+	struct msc313_lpll *priv = dev_get_drvdata(dev);
+
+	mstar_regsave_save(&priv->save);
+	return 0;
+}
+
+static int msc313_lpll_sleep_restore(struct device *dev)
+{
+	struct msc313_lpll *priv = dev_get_drvdata(dev);
+
+	mstar_regsave_restore(&priv->save);
+	return 0;
+}
+
+static const struct dev_pm_ops msc313_lpll_pm_ops = {
+	NOIRQ_SYSTEM_SLEEP_PM_OPS(msc313_lpll_sleep_save, msc313_lpll_sleep_restore)
+};
+
 static struct platform_driver msc313_lpll_driver = {
 	.driver = {
 		.name = "mstar-lpll",
 		.of_match_table = msc313_lpll_of_match,
+		.pm = pm_sleep_ptr(&msc313_lpll_pm_ops),
 	},
 	.probe = msc313_lpll_probe,
 };

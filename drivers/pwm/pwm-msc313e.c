@@ -5,6 +5,7 @@
  */
 
 #include <linux/clk.h>
+#include <soc/mstar/regsave.h>
 #include <linux/of_device.h>
 #include <linux/pwm.h>
 #include <linux/regmap.h>
@@ -31,6 +32,7 @@ struct msc313e_pwm_channel {
 
 struct msc313e_pwm {
 	struct regmap *regmap;
+	struct mstar_regsave save;
 	struct clk *clk;
 	struct msc313e_pwm_channel channels[];
 };
@@ -192,7 +194,7 @@ static int msc313e_pwm_probe(struct platform_device *pdev)
 	struct msc313e_pwm *pwm;
 	struct pwm_chip *chip;
 	__iomem void *base;
-	int i;
+	int i, ret;
 
 	match_data = of_device_get_match_data(dev);
 	if (!match_data)
@@ -213,6 +215,9 @@ static int msc313e_pwm_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, PTR_ERR(pwm->clk), "Cannot get clk\n");
 
 	pwm->regmap = devm_regmap_init_mmio(dev, base, &msc313e_pwm_regmap_config);
+	ret = mstar_regsave_init(dev, &pwm->save, base, 0x400);
+	if (ret)
+		return ret;
 	if (IS_ERR(pwm->regmap))
 		return dev_err_probe(dev, PTR_ERR(pwm->regmap), "Cannot get regmap\n");
 
@@ -256,11 +261,34 @@ static const struct of_device_id msc313e_pwm_dt_ids[] = {
 };
 MODULE_DEVICE_TABLE(of, msc313e_pwm_dt_ids);
 
+
+/* The sleep reset wipes the registers, put them back the way they were */
+static int msc313e_pwm_sleep_save(struct device *dev)
+{
+	struct msc313e_pwm *priv = dev_get_drvdata(dev);
+
+	mstar_regsave_save(&priv->save);
+	return 0;
+}
+
+static int msc313e_pwm_sleep_restore(struct device *dev)
+{
+	struct msc313e_pwm *priv = dev_get_drvdata(dev);
+
+	mstar_regsave_restore(&priv->save);
+	return 0;
+}
+
+static const struct dev_pm_ops msc313e_pwm_pm_ops = {
+	SYSTEM_SLEEP_PM_OPS(msc313e_pwm_sleep_save, msc313e_pwm_sleep_restore)
+};
+
 static struct platform_driver msc313e_pwm_driver = {
 	.probe = msc313e_pwm_probe,
 	.driver = {
 		.name = DRIVER_NAME,
 		.of_match_table = msc313e_pwm_dt_ids,
+		.pm = pm_sleep_ptr(&msc313e_pwm_pm_ops),
 	},
 };
 module_platform_driver(msc313e_pwm_driver);

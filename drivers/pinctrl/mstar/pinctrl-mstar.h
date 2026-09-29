@@ -3,6 +3,8 @@
  * Copyright (C) 2019 Daniel Palmer <daniel@thingy.jp>
  */
 
+#include <soc/mstar/regsave.h>
+
 #define MAKEMASK(_what) \
 	GENMASK((SHIFT_##_what + WIDTH_##_what) - 1, SHIFT_##_what)
 
@@ -299,6 +301,7 @@
 /* shared structures */
 struct msc313_pinctrl {
 	struct device *dev;
+	struct mstar_regsave save;
 	struct pinctrl_desc desc;
 	struct pinctrl_dev *pctl;
 	struct regmap *regmap;

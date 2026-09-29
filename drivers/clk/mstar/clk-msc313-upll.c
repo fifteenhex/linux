@@ -4,6 +4,7 @@
  */
 
 #include <linux/platform_device.h>
+#include <soc/mstar/regsave.h>
 #include <linux/of.h>
 #include <linux/clk-provider.h>
 #include <linux/clkdev.h>
@@ -53,6 +54,7 @@ struct mstar_pll_output {
 
 struct mstar_upll {
 	void __iomem *base;
+	struct mstar_regsave save;
 	struct clk_onecell_data clk_data;
 	struct mstar_pll_output *outputs;
 	unsigned numoutputs;
@@ -167,6 +169,9 @@ static int msc313_upll_probe(struct platform_device *pdev)
 	if (IS_ERR(regmap))
 		return PTR_ERR(regmap);
 
+	ret = mstar_regsave_init(dev, &upll->save, upll->base, 0x20);
+	if (ret)
+		return ret;
 	iowrite16(0x00c0, upll->base + REG_MAGIC);
 	iowrite8(0x01, upll->base + REG_ENABLED);
 
@@ -178,10 +183,33 @@ out:
 	return ret;
 }
 
+
+/* The sleep reset wipes the registers, put them back the way they were */
+static int msc313_upll_sleep_save(struct device *dev)
+{
+	struct mstar_upll *priv = dev_get_drvdata(dev);
+
+	mstar_regsave_save(&priv->save);
+	return 0;
+}
+
+static int msc313_upll_sleep_restore(struct device *dev)
+{
+	struct mstar_upll *priv = dev_get_drvdata(dev);
+
+	mstar_regsave_restore(&priv->save);
+	return 0;
+}
+
+static const struct dev_pm_ops msc313_upll_pm_ops = {
+	NOIRQ_SYSTEM_SLEEP_PM_OPS(msc313_upll_sleep_save, msc313_upll_sleep_restore)
+};
+
 static struct platform_driver msc313_upll_driver = {
 	.driver = {
 		.name = "msc313-upll",
 		.of_match_table = msc313_upll_of_match,
+		.pm = pm_sleep_ptr(&msc313_upll_pm_ops),
 	},
 	.probe = msc313_upll_probe,
 };

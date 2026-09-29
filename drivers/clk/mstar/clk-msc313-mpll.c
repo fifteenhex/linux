@@ -6,6 +6,7 @@
  */
 
 #include <linux/platform_device.h>
+#include <soc/mstar/regsave.h>
 #include <linux/of_address.h>
 #include <linux/clk-provider.h>
 #include <linux/regmap.h>
@@ -32,6 +33,7 @@ static const unsigned int output_dividers[] = {
 
 struct msc313_mpll {
 	struct clk_hw clk_hw;
+	struct mstar_regsave save;
 	struct regmap_field *input_div;
 	struct regmap_field *loop_div_first;
 	struct regmap_field *loop_div_second;
@@ -90,6 +92,9 @@ static int msc313_mpll_probe(struct platform_device *pdev)
 	regmap = devm_regmap_init_mmio(dev, base, &msc313_mpll_regmap_config);
 	if (IS_ERR(regmap))
 		return PTR_ERR(regmap);
+	ret = mstar_regsave_init(dev, &mpll->save, base, 0x40);
+	if (ret)
+		return ret;
 
 	mpll->input_div = devm_regmap_field_alloc(dev, regmap, config1_input_div_first);
 	if (IS_ERR(mpll->input_div))
@@ -145,10 +150,33 @@ static const struct of_device_id msc313_mpll_of_match[] = {
 	{}
 };
 
+
+/* The sleep reset wipes the registers, put them back the way they were */
+static int msc313_mpll_sleep_save(struct device *dev)
+{
+	struct msc313_mpll *priv = dev_get_drvdata(dev);
+
+	mstar_regsave_save(&priv->save);
+	return 0;
+}
+
+static int msc313_mpll_sleep_restore(struct device *dev)
+{
+	struct msc313_mpll *priv = dev_get_drvdata(dev);
+
+	mstar_regsave_restore(&priv->save);
+	return 0;
+}
+
+static const struct dev_pm_ops msc313_mpll_pm_ops = {
+	NOIRQ_SYSTEM_SLEEP_PM_OPS(msc313_mpll_sleep_save, msc313_mpll_sleep_restore)
+};
+
 static struct platform_driver msc313_mpll_driver = {
 	.driver = {
 		.name = "mstar-msc313-mpll",
 		.of_match_table = msc313_mpll_of_match,
+		.pm = pm_sleep_ptr(&msc313_mpll_pm_ops),
 	},
 	.probe = msc313_mpll_probe,
 };

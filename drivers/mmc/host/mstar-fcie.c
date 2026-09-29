@@ -4,6 +4,7 @@
  */
 
 #include <linux/bitfield.h>
+#include <soc/mstar/regsave.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
@@ -110,6 +111,7 @@
 struct msc313_fcie {
 	struct device *dev;
 	struct regmap *regmap;
+	struct mstar_regsave save;
 	struct clk *clk;
 	bool use_polling;
 
@@ -887,6 +889,9 @@ static int msc313_fcie_probe(struct platform_device *pdev)
 	fcie->regmap = devm_regmap_init_mmio(&pdev->dev, base, &msc313_fcie_regmap_config);
 	if(IS_ERR(fcie->regmap))
 		return PTR_ERR(fcie->regmap);
+	ret = mstar_regsave_init(&pdev->dev, &fcie->save, base, 0x200);
+	if (ret)
+		return ret;
 
 	fcie->clk_en = devm_regmap_field_alloc(&pdev->dev, fcie->regmap, sd_mode_clken_field);
 	fcie->bus_width = devm_regmap_field_alloc(&pdev->dev, fcie->regmap, sd_mode_buswidth_field);
@@ -966,12 +971,35 @@ static void msc313_fcie_remove(struct platform_device *pdev)
 	mmc_free_host(mmc);
 }
 
+
+/* The sleep reset wipes the registers, put them back the way they were */
+static int msc313_fcie_sleep_save(struct device *dev)
+{
+	struct msc313_fcie *priv = mmc_priv(dev_get_drvdata(dev));
+
+	mstar_regsave_save(&priv->save);
+	return 0;
+}
+
+static int msc313_fcie_sleep_restore(struct device *dev)
+{
+	struct msc313_fcie *priv = mmc_priv(dev_get_drvdata(dev));
+
+	mstar_regsave_restore(&priv->save);
+	return 0;
+}
+
+static const struct dev_pm_ops msc313_fcie_pm_ops = {
+	SYSTEM_SLEEP_PM_OPS(msc313_fcie_sleep_save, msc313_fcie_sleep_restore)
+};
+
 static struct platform_driver msc313_fcie_driver = {
 	.probe = msc313_fcie_probe,
 	.remove = msc313_fcie_remove,
 	.driver = {
 		   .name = DRIVER_NAME,
 		   .of_match_table = msc313_fcie_dt_ids,
+		   .pm = pm_sleep_ptr(&msc313_fcie_pm_ops),
 	},
 };
 module_platform_driver(msc313_fcie_driver);
