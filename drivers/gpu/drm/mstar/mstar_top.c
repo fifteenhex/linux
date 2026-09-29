@@ -67,6 +67,22 @@ void mstar_top_route_to_dsi(struct mstar_top *top)
 	regmap_field_force_write(top->fifo_rst, 0);
 	regmap_field_force_write(top->reset, 0);
 	regmap_field_write(top->disp_to_dsi, 1);
+
+	top->routed_to_dsi = true;
+}
+
+/*
+ * Take the displaytop out of reset and park its vsync interrupt: masked, with
+ * any latched flag cleared, so it stays quiet until the CRTC enables vblank.
+ */
+static void mstar_top_hw_init(struct mstar_top *top)
+{
+	regmap_field_force_write(top->reset, 1);
+	mdelay(10);
+	regmap_field_force_write(top->reset, 0);
+
+	regmap_field_write(top->vsync_pos_mask, 1);
+	regmap_field_force_write(top->vsync_pos_flag, 1);
 }
 
 static const struct regmap_config mstar_top_regmap_config = {
@@ -196,17 +212,8 @@ static int mstar_top_probe(struct platform_device *pdev)
 		top->front = NULL;
 	dev_dbg(dev, "front bank %s\n", top->front ? "mapped" : "absent");
 
-	regmap_field_force_write(top->reset, 1);
-	mdelay(10);
-	regmap_field_force_write(top->reset, 0);
-
-	/*
-	 * Mask the vsync interrupt and clear any latched flag before registering
-	 * the handler, so it stays quiet until the CRTC enables vblank (and so a
-	 * pending vsync can't fire the handler before probe is done).
-	 */
-	regmap_field_write(top->vsync_pos_mask, 1);
-	regmap_field_force_write(top->vsync_pos_flag, 1);
+	/* done before the handler is registered, so a pending vsync can't fire it */
+	mstar_top_hw_init(top);
 
 	irq = irq_of_parse_and_map(pdev->dev.of_node, 0);
 	if (!irq)
@@ -247,6 +254,28 @@ static void mstar_top_remove(struct platform_device *pdev)
 	component_del(&pdev->dev, &mstar_top_ops);
 }
 
+/*
+ * Suspend to RAM ends in a soft reset of the whole SoC, so the displaytop comes
+ * back held in reset with the DISP output unrouted and the front stage blank -
+ * all of it set up once at probe/bind time. Redo that here, in the noirq phase
+ * so it is done before the DRM master's resume redoes the mode set; without it
+ * nothing reaches the DSI host and the CRTC produces no vsync interrupt.
+ */
+static int mstar_top_resume_noirq(struct device *dev)
+{
+	struct mstar_top *top = dev_get_drvdata(dev);
+
+	mstar_top_hw_init(top);
+	if (top->routed_to_dsi)
+		mstar_top_route_to_dsi(top);
+
+	return 0;
+}
+
+static const struct dev_pm_ops mstar_top_pm_ops = {
+	NOIRQ_SYSTEM_SLEEP_PM_OPS(NULL, mstar_top_resume_noirq)
+};
+
 static const struct of_device_id mstar_top_dt_ids[] = {
 	{
 		.compatible = "sstar,ssd20xd-display-top",
@@ -261,6 +290,7 @@ static struct platform_driver mstar_top_driver = {
 	.driver = {
 		   .name = DRIVER_NAME,
 		   .of_match_table = mstar_top_dt_ids,
+		   .pm = pm_sleep_ptr(&mstar_top_pm_ops),
 	},
 };
 module_platform_driver(mstar_top_driver);
