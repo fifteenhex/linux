@@ -4,6 +4,7 @@
  */
 
 #include <linux/clk.h>
+#include <linux/delay.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/of_platform.h>
@@ -58,8 +59,16 @@ static const struct reg_field miudstsel_field		= REG_FIELD(REG_MIUCFG, 2, 2);
 /* dma settings */
 static const struct reg_field dmadir_field		= REG_FIELD(REG_DMADIR, 0, 0);
 static const struct reg_field dmamode_field		= REG_FIELD(REG_DMAMODE, 0, 0);
+#define DMAMODE_MEMORY	0
 #define DMAMODE_DEVICE	1
 static const struct reg_field devsel_field		= REG_FIELD(REG_DEVSEL, 0, 0);
+
+/*
+ * Addresses the engine takes are relative to the start of DRAM, not CPU
+ * physical - the same convention the bdma driver uses, which is the one engine
+ * here known to pass dmatest.
+ */
+#define MOVEDMA_MIU_BASE	0x20000000
 
 static const struct regmap_config ssd20xd_movedma_regmap_config = {
 	.reg_bits = 16,
@@ -70,7 +79,9 @@ static const struct regmap_config ssd20xd_movedma_regmap_config = {
 struct ssd20xd_movedma_desc {
 	struct dma_async_tx_descriptor tx;
 	size_t len;
-	dma_addr_t addr;
+	dma_addr_t addr;		/* the memory end of a slave transfer */
+	dma_addr_t src, dst;		/* both ends of a memcpy */
+	bool memcpy;
 	struct list_head queue_node;
 	bool success;
 };
@@ -177,7 +188,7 @@ static irqreturn_t ssd20xd_movedma_irq(int irq, void *data)
 static enum dma_status ssd20xd_movedma_tx_status(struct dma_chan *chan,
 		dma_cookie_t cookie, struct dma_tx_state *txstate)
 {
-	return DMA_ERROR;
+	return dma_cookie_status(chan, cookie, txstate);
 }
 
 static void ssd20xd_movedma_do_single(struct ssd20xd_movedma_chan *chan, struct ssd20xd_movedma_desc *desc)
@@ -193,19 +204,36 @@ static void ssd20xd_movedma_do_single(struct ssd20xd_movedma_chan *chan, struct 
 	movedma->inflight = desc;
 	spin_unlock_irqrestore(&movedma->lock, flags);
 
+	/*
+	 * A whole millisecond here caps the engine at a thousand transfers a
+	 * second, which for memcpy was most of the cost - 575 iops of a
+	 * theoretical 1000 before this, 64KB at a time. The reset itself is a
+	 * single register write to a block that is idle by now, so it does not
+	 * need anything like that long to settle.
+	 */
 	regmap_field_force_write(movedma->swrst, 1);
-	mdelay(1);
+	udelay(10);
 	regmap_field_write(movedma->offseten, 0);
 	regmap_field_write(movedma->miuselen, 1);
 	regmap_field_write(movedma->miusrcsel, 0);
 	regmap_field_write(movedma->miudstsel, 0);
-	regmap_field_write(movedma->dmamode, DMAMODE_DEVICE);
+	regmap_field_write(movedma->dmamode,
+			   desc->memcpy ? DMAMODE_MEMORY : DMAMODE_DEVICE);
 	regmap_field_write(movedma->devsel, 0);
 	regmap_field_write(movedma->irqmask, 0);
 
-	regmap_field_write(movedma->dmadir, read ? 1 : 0);
-	regmap_field_write(movedma->srcstartaddrl, desc->addr);
-	regmap_field_write(movedma->srcstartaddrh, desc->addr >> 16);
+	if (desc->memcpy) {
+		/* memory to memory: both ends are addresses we supply */
+		regmap_field_write(movedma->dmadir, 0);
+		regmap_field_write(movedma->srcstartaddrl, desc->src);
+		regmap_field_write(movedma->srcstartaddrh, desc->src >> 16);
+		regmap_field_write(movedma->dststartaddrl, desc->dst);
+		regmap_field_write(movedma->dststartaddrh, desc->dst >> 16);
+	} else {
+		regmap_field_write(movedma->dmadir, read ? 1 : 0);
+		regmap_field_write(movedma->srcstartaddrl, desc->addr);
+		regmap_field_write(movedma->srcstartaddrh, desc->addr >> 16);
+	}
 	regmap_field_write(movedma->bytecntl, desc->len);
 	regmap_field_write(movedma->bytecnth, desc->len >> 16);
 
@@ -278,6 +306,35 @@ static struct dma_async_tx_descriptor* ssd20xd_movedma_prep_slave_sg(struct dma_
 	return &desc->tx;
 }
 
+/*
+ * Memory to memory. The register set has both a source and a destination
+ * address and a byte count, so this is what the engine can do without a
+ * peripheral on one end - and it is what makes it testable with dmatest.
+ */
+static struct dma_async_tx_descriptor *ssd20xd_movedma_prep_dma_memcpy(
+		struct dma_chan *chan, dma_addr_t dst, dma_addr_t src,
+		size_t len, unsigned long flags)
+{
+	struct ssd20xd_movedma_desc *desc;
+
+	if (!len)
+		return NULL;
+
+	desc = kzalloc(sizeof(*desc), GFP_NOWAIT);
+	if (!desc)
+		return NULL;
+
+	dma_async_tx_descriptor_init(&desc->tx, chan);
+	desc->memcpy = true;
+	desc->len = len;
+	desc->src = src - MOVEDMA_MIU_BASE;
+	desc->dst = dst - MOVEDMA_MIU_BASE;
+	desc->tx.tx_submit = ssd20xd_movedma_tx_submit;
+	desc->tx.flags = flags;
+
+	return &desc->tx;
+}
+
 static void ssd20xd_movedma_watchdog(struct timer_list *t)
 {
 	struct ssd20xd_movedma *movedma = timer_container_of(movedma, t, watchdog);
@@ -338,6 +395,9 @@ static int ssd20xd_movedma_probe(struct platform_device *pdev)
 	movedma->dma_device.directions = BIT(DMA_DEV_TO_MEM) |
 					 BIT(DMA_MEM_TO_DEV);
 	movedma->dma_device.device_prep_slave_sg = ssd20xd_movedma_prep_slave_sg;
+	movedma->dma_device.device_prep_dma_memcpy = ssd20xd_movedma_prep_dma_memcpy;
+	dma_cap_set(DMA_MEMCPY, movedma->dma_device.cap_mask);
+	dma_cap_set(DMA_SLAVE, movedma->dma_device.cap_mask);
 
 	INIT_LIST_HEAD(&movedma->dma_device.channels);
 
