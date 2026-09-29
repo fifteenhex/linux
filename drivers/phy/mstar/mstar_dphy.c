@@ -171,22 +171,45 @@ static const struct phy_ops mstar_dphy_ops = {
  * bit in [15] and LP_RTERM in [14:13]; the cells hand us those fields
  * already shifted down: "hs-rterm" is 2 bits, "lp-rterm" is 3 bits with the
  * valid bit on top.
+ *
+ * Read with the "variable" accessor: these are 2 and 3 bit fields, so the cells
+ * are smaller than a u32 and nvmem_cell_read_u32() rejects them outright with
+ * -EINVAL, while this one trims a bit field cell to its real length.
+ *
+ * The eFuse provider lives in drivers/nvmem, which is linked long after
+ * drivers/phy, so the first probe always runs before it has registered and the
+ * cell read comes back -EPROBE_DEFER. Hand that to the caller instead of
+ * swallowing it, or the lanes silently run untrimmed forever. A board whose DT
+ * does not name the cells gets -ENOENT and simply has no trims.
  */
-static void mstar_dphy_read_trims(struct mstar_dphy *dphy)
+static int mstar_dphy_read_trims(struct mstar_dphy *dphy)
 {
 	u32 hs, lp;
+	int ret;
 
-	if (nvmem_cell_read_u32(dphy->dev, "hs-rterm", &hs))
-		return;
-	if (nvmem_cell_read_u32(dphy->dev, "lp-rterm", &lp))
-		return;
+	ret = nvmem_cell_read_variable_le_u32(dphy->dev, "hs-rterm", &hs);
+	if (!ret)
+		ret = nvmem_cell_read_variable_le_u32(dphy->dev, "lp-rterm", &lp);
+	if (ret) {
+		if (ret == -EPROBE_DEFER)
+			return ret;
+		dev_dbg(dphy->dev, "no MIPI eFuse trim cells (%d)\n", ret);
+		return 0;
+	}
+
 	if (!(lp & BIT(2))) {
 		dev_dbg(dphy->dev, "no MIPI eFuse trim (valid bit clear)\n");
-		return;
+		return 0;
 	}
+
 	dphy->hs_rterm = hs & 0x3;
 	dphy->lp_rterm = lp & 0x3;
 	dphy->have_trims = true;
+
+	dev_info(dphy->dev, "eFuse trims: HS_RTERM %u, LP_RTERM %u\n",
+		 dphy->hs_rterm, dphy->lp_rterm);
+
+	return 0;
 }
 
 static int mstar_dphy_probe(struct platform_device *pdev)
@@ -215,7 +238,9 @@ static int mstar_dphy_probe(struct platform_device *pdev)
 		if (dphy->lane_map[i] >= DPHY_NCHANNELS)
 			return dev_err_probe(dev, -EINVAL, "bad lane in mstar,lane-map\n");
 
-	mstar_dphy_read_trims(dphy);
+	ret = mstar_dphy_read_trims(dphy);
+	if (ret)
+		return ret;
 
 	dphy->phy = devm_phy_create(dev, NULL, &mstar_dphy_ops);
 	if (IS_ERR(dphy->phy)) {
