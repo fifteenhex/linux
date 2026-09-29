@@ -33,6 +33,7 @@ struct mst_intc_chip_data {
 #ifdef CONFIG_PM_SLEEP
 	struct list_head entry;
 	u16 saved_polarity_conf[DIV_ROUND_UP(MST_INTC_MAX_IRQS, 16)];
+	u16 saved_mask_conf[DIV_ROUND_UP(MST_INTC_MAX_IRQS, 16)];
 #endif
 };
 
@@ -132,6 +133,10 @@ static void mst_intc_polarity_save(struct mst_intc_chip_data *cd)
 
 	for (i = 0; i < DIV_ROUND_UP(cd->nr_irqs, 16); i++)
 		cd->saved_polarity_conf[i] = readw_relaxed(addr + i * 4);
+	/* the masks too: after a soft reset the wake sources come back masked */
+	addr = cd->base + INTC_MASK;
+	for (i = 0; i < DIV_ROUND_UP(cd->nr_irqs, 16); i++)
+		cd->saved_mask_conf[i] = readw_relaxed(addr + i * 4);
 }
 
 static void mst_intc_polarity_restore(struct mst_intc_chip_data *cd)
@@ -141,6 +146,9 @@ static void mst_intc_polarity_restore(struct mst_intc_chip_data *cd)
 
 	for (i = 0; i < DIV_ROUND_UP(cd->nr_irqs, 16); i++)
 		writew_relaxed(cd->saved_polarity_conf[i], addr + i * 4);
+	addr = cd->base + INTC_MASK;
+	for (i = 0; i < DIV_ROUND_UP(cd->nr_irqs, 16); i++)
+		writew_relaxed(cd->saved_mask_conf[i], addr + i * 4);
 }
 
 static void mst_irq_resume(void *data)
