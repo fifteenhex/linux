@@ -301,7 +301,6 @@ static void mstar_mop_plane_atomic_update(struct drm_plane *plane,
 				    struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *new_state = drm_atomic_get_new_plane_state(state, plane);
-	struct drm_plane_state *old_state = drm_atomic_get_old_plane_state(state, plane);
 	struct mstar_mop_window *window = plane_to_mop_window(plane);
 	struct mstar_mop *mop = window->mop;
 	struct drm_framebuffer *fb = new_state->fb;
@@ -321,24 +320,6 @@ static void mstar_mop_plane_atomic_update(struct drm_plane *plane,
 	dsth = drm_rect_height(&new_state->dst);
 	if (!srcw || !srch || !dstw || !dsth)
 		return;
-
-	/*
-	 * Coming from disabled, walk the sizes through zero first: that is the
-	 * vendor's order in HalDispMopgSetGwinParam/SetSourceParam and it is
-	 * what makes the plane pick up a new line-buffer allocation.
-	 */
-	if (!old_state->crtc || !old_state->fb) {
-		regmap_field_write(window->en, 0);
-		mstar_mop_latch(mop);
-		regmap_field_write(window->src_width, 0);
-		regmap_field_write(window->src_height, 0);
-		mstar_mop_latch(mop);
-		regmap_field_write(window->hst, 0);
-		regmap_field_write(window->hend, 0);
-		regmap_field_write(window->vst, 0);
-		regmap_field_write(window->vend, 0);
-		mstar_mop_latch(mop);
-	}
 
 	/* source geometry, then the window it lands in on the mixer */
 	regmap_field_write(window->src_width, srcw - 1);
