@@ -58,8 +58,6 @@ struct mstar_mop_data {
 	unsigned int num_windows;
 	unsigned int windows_start;
 	unsigned int window_len;
-	/* the graphics plane (mopg) owns bank 0's global config; the sub plane does not */
-	bool has_global_cfg;
 };
 
 struct mstar_mop {
@@ -193,12 +191,13 @@ static void mstar_mop_latch(struct mstar_mop *mop)
  * pipe delay and the DMA thresholds and priorities. Nothing is fetched from
  * DRAM until CFG's gates are open, so a window can otherwise be fully
  * programmed and enabled and still show nothing.
+ *
+ * This is run for the sub plane too. HalDispMopsInit is instruction for
+ * instruction the same sequence at the sub plane's own base, and skipping it was
+ * leaving that block's clock gates shut.
  */
 static void mstar_mop_hw_init(struct mstar_mop *mop)
 {
-	if (!mop->data->has_global_cfg)
-		return;
-
 	regmap_field_force_write(mop->swrst, 1);
 	regmap_field_force_write(mop->swrst, 0);
 
@@ -556,12 +555,19 @@ static const struct mstar_mop_data ssd20xd_mopg_data = {
 	.num_windows = 16,
 	.windows_start = 0x200,
 	.window_len = 0x40,
-	.has_global_cfg = true,
 };
 
+/*
+ * The sub plane's window block is at 0x80, not 0x20: the vendor reaches window 0
+ * at 0xfd281080 (enable), 0xfd281084 (ctrl), 0xfd281088/8c and 0xfd281090/94
+ * (luma and chroma address), 0xfd281098/9c/a0/a4 (the rectangle), 0xfd2810a8
+ * (pitch), 0xfd2810ac/b0 (source size) and 0xfd2810b4/b8 (scale), which is the
+ * same layout mopg's windows have, at base + 0x80. At 0x20 the driver was
+ * writing windows into the global config registers instead.
+ */
 static const struct mstar_mop_data ssd20xd_mops_data = {
 	.num_windows = 1,
-	.windows_start = 0x20,
+	.windows_start = 0x80,
 	.window_len = 0x40,
 };
 
