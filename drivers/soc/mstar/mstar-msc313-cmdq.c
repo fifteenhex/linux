@@ -3,12 +3,10 @@
 
 #include <linux/clk.h>
 #include <linux/delay.h>
-#include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
-#include <linux/of_irq.h>
 
 /*
  *
@@ -157,28 +155,37 @@ static const struct of_device_id msc313_cmdq_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, msc313_cmdq_of_match);
 
-static irqreturn_t msc313_cmdq_irq(int irq, void *data)
+/*
+ * Leave the engine reset and silent.
+ *
+ * The interrupt is deliberately not requested. The vendor device tree gives
+ * cmdq0 GIC SPI 49, but in this tree that line is the MIU's - see the miu node
+ * in mstar-v7.dtsi - and it is asserted permanently with nothing to clear it,
+ * which is why the MIU driver's own devm_request_irq() is commented out.
+ * Registering a handler there enables the line and the box does nothing but
+ * service it: measured as one interrupt per console line, i.e. as fast as the
+ * handler could be printed. Until the real number is known, completion is
+ * polled through REG_RAW_IRQ_FINAL_IRQ bit 3.
+ *
+ * Masking this block's own sources as well means it cannot contribute to that
+ * line whoever else ends up owning it.
+ */
+static void msc313_cmdq_hw_init(struct msc313_cmdq *cmdq)
 {
-	struct msc313_cmdq *cmdq = data;
+	regmap_field_write(cmdq->nrst, 0);
+	regmap_field_write(cmdq->nrst, 1);
 
-	printk("%s:%d\n", __func__, __LINE__);
-
+	regmap_write(cmdq->regmap, REG_IRQ_MASK, 0xffff);
 	regmap_write(cmdq->regmap, REG_IRQ_FORCE, 0);
-	regmap_write(cmdq->regmap, REG_IRQ_CLEAR, ~0);
-
-	return IRQ_HANDLED;
+	regmap_write(cmdq->regmap, REG_IRQ_CLEAR, 0xffff);
 }
 
 static int msc313_cmdq_probe(struct platform_device *pdev)
 {
 	struct msc313_cmdq *cmdq;
 	struct device *dev = &pdev->dev;
-	struct msc313_cmdq_chan *chan;
 	void __iomem *base;
-	int i, ret;
-	int irq;
-
-	printk("cmdq probe\n");
+	int ret;
 
 	cmdq = devm_kzalloc(&pdev->dev, sizeof(*cmdq), GFP_KERNEL);
 	if (!cmdq)
@@ -194,24 +201,22 @@ static int msc313_cmdq_probe(struct platform_device *pdev)
 		return PTR_ERR(cmdq->regmap);
 
 	cmdq->clk = devm_clk_get(dev, NULL);
-	if (IS_ERR(cmdq->clk)) {
+	if (IS_ERR(cmdq->clk))
 		return PTR_ERR(cmdq->clk);
-	}
-
-	irq = irq_of_parse_and_map(pdev->dev.of_node, 0);
-	if (!irq)
-		return -EINVAL;
-	ret = devm_request_irq(dev, irq, msc313_cmdq_irq,
-			IRQF_SHARED, dev_name(dev), cmdq);
 
 	cmdq->nrst = devm_regmap_field_alloc(dev, cmdq->regmap, rst_nrst_field);
+	if (IS_ERR(cmdq->nrst))
+		return PTR_ERR(cmdq->nrst);
 
 	ret = clk_prepare_enable(cmdq->clk);
 	if (ret)
-		goto out;
+		return ret;
 
-out:
-	return ret;
+	msc313_cmdq_hw_init(cmdq);
+
+	dev_info(dev, "MStar CMDQ\n");
+
+	return 0;
 }
 
 static struct platform_driver msc313_cmdq_driver = {

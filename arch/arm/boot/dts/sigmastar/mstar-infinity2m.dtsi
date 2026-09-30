@@ -585,3 +585,18 @@
 	interconnects = <&miu 0>;
 	interconnect-names = "dma-mem";
 };
+
+/*
+ * The command queue node comes from mstar-infinity.dtsi with the MSC313's
+ * interrupt. This SoC puts it on GIC SPI 49, which is what the vendor device
+ * tree's cmdq0 node says (interrupts = <0 0x31 4>); that node carries no reg
+ * because the base is compiled into mhal, where gHalRegCmdCtlBase gives RIU word
+ * 0x00112000, i.e. the 0x1f224000 the inherited node already has.
+ *
+ * The vendor points it at CLK_mcu rather than the MIU clock the inherited node
+ * uses. Left alone: this driver only ever enables its clock, and the MCU clock is
+ * the one thing on the chip that is certainly already running.
+ */
+&cmdq {
+	interrupts-extended = <&intc_irq GIC_SPI 49 IRQ_TYPE_LEVEL_HIGH>;
+};
