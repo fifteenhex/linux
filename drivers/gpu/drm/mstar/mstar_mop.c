@@ -7,6 +7,7 @@
 #include <drm/drm_gem_dma_helper.h>
 #include <drm/drm_plane.h>
 #include <drm/drm_rect.h>
+#include <linux/bitops.h>
 #include <linux/clk.h>
 #include <linux/component.h>
 #include <linux/module.h>
@@ -45,6 +46,9 @@ struct mstar_mop_window {
 	struct regmap_field *scale_h;
 	struct regmap_field *scale_v;
 	struct regmap_field *ctrl;
+	/* what this window was last programmed with, for the line buffer split */
+	bool enabled;
+	unsigned int hstart;
 	struct drm_plane drm_plane;
 };
 
@@ -93,8 +97,20 @@ static const struct reg_field commit_all_field = REG_FIELD(0x1fc, 8, 8);
 #define MOP_REG_GW_HEXT		0x054
 #define MOP_REG_4TAP		0x100
 
-/* Bank 1+, per window. Offsets from the window base; see mstar_mop_data. */
-#define MOP_WIN_CTRL		0x04	/* addr16 offset / line buffer / rblk */
+/*
+ * Bank 1+, per window. Offsets from the window base; see mstar_mop_data.
+ *
+ * CTRL holds three fields that the vendor sets one at a time through a software
+ * shadow: bits 7:0 are the line buffer start (HalDispMopgSetLineBufStr), 12:9
+ * the addr16 offset (HalDispMopgSetAddr16Offset) and 15:9 the rblk horizontal
+ * start (HalDispMopgSetRblkHstr). Only the line buffer start is used here, and
+ * it is written whole rather than read-modify-written: mhal shadows this
+ * register in software instead of reading it, and the window registers do read
+ * back as zero once a window has been taken down and put up again.
+ */
+#define MOP_WIN_CTRL		0x04
+#define  MOP_WIN_LB_UNIT	8	/* line buffer start is in 8-pixel units */
+#define  MOP_WIN_LB_GAP		2	/* and gets a 2-unit gap per window */
 
 /*
  * The plane's DMA addresses are relative to the MIU0 base and counted in
@@ -200,6 +216,54 @@ static void mstar_mop_hw_init(struct mstar_mop *mop)
 	mstar_mop_latch(mop);
 }
 
+/*
+ * All of the windows fetch through one shared horizontal line buffer and each
+ * has to be told where its own slice of it starts. Left at slice 0, only one of
+ * any set of windows that share scanlines gets drawn - which is what limited a
+ * screen full of windows to four horizontal bands, one window each.
+ *
+ * The split is the vendor's, from _HalDispIfSetMopgLineBufOrder() and
+ * _HalDispIfSetAllMopgLineBufVal(): take the enabled windows in order of
+ * horizontal start, number them as you go (windows starting at the same place
+ * share a number), and give each one order * gap + hstart / unit, except that
+ * the first one gets 0. Every window is rewritten whenever any of them changes,
+ * as the vendor does, since adding a window can renumber the rest.
+ */
+static void mstar_mop_line_buffers(struct mstar_mop *mop)
+{
+	unsigned long done = 0;
+	unsigned int i, n, order = 0;
+	unsigned int prev = 0;
+
+	for (n = 0; n < mop->data->num_windows; n++) {
+		struct mstar_mop_window *best = NULL;
+		unsigned int besti = 0;
+
+		for (i = 0; i < mop->data->num_windows; i++) {
+			struct mstar_mop_window *window = &mop->windows[i];
+
+			if (!window->enabled || test_bit(i, &done))
+				continue;
+			if (!best || window->hstart < best->hstart) {
+				best = window;
+				besti = i;
+			}
+		}
+		if (!best)
+			break;
+
+		__set_bit(besti, &done);
+		if (n && best->hstart != prev)
+			order++;
+		regmap_field_write(best->ctrl, order ?
+				   order * MOP_WIN_LB_GAP +
+				   best->hstart / MOP_WIN_LB_UNIT : 0);
+		prev = best->hstart;
+	}
+
+	mstar_mop_latch(mop);
+}
+
 static int mop_plane_atomic_check(struct drm_plane *plane,
 				    struct drm_atomic_commit *state)
 {
@@ -246,6 +310,8 @@ static void mstar_mop_plane_atomic_update(struct drm_plane *plane,
 	if (!new_state->crtc || !fb) {
 		regmap_field_write(window->en, 0);
 		mstar_mop_latch(mop);
+		window->enabled = false;
+		mstar_mop_line_buffers(mop);
 		return;
 	}
 
@@ -298,8 +364,16 @@ static void mstar_mop_plane_atomic_update(struct drm_plane *plane,
 	mstar_mop_latch(mop);
 
 	regmap_field_write(window->pitch, (fb->pitches[0] >> ADDR_SHIFT) & 0x1fff);
-	regmap_field_write(window->ctrl, 0);
 	mstar_mop_latch(mop);
+
+	/*
+	 * Slice up the line buffer before enabling, which is the vendor's order:
+	 * it does this from SetInputPortAttr, and SetInputPortEnable only turns
+	 * the window on afterwards.
+	 */
+	window->hstart = new_state->dst.x1;
+	window->enabled = true;
+	mstar_mop_line_buffers(mop);
 
 	regmap_field_write(window->en, 1);
 	mstar_mop_latch(mop);
@@ -455,6 +529,10 @@ static int mstar_mop_probe(struct platform_device *pdev)
 		window->scale_h = devm_regmap_field_alloc(dev, regmap, scaleh_field);
 		window->scale_v = devm_regmap_field_alloc(dev, regmap, scalev_field);
 		window->ctrl = devm_regmap_field_alloc(dev, regmap, ctrl_field);
+
+		/* no window is on yet, so no line buffer is claimed either */
+		regmap_field_write(window->ctrl, 0);
+
 		mstar_mop_dump_window(dev, window);
 	}
 
