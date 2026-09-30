@@ -250,6 +250,19 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2c1_mode1_pins>;
 	status = "okay";
+
+	/*
+	 * The authentication chip the vendor device tree has here as gi,alpu.
+	 * It acks and returns data that changes from one read to the next, and
+	 * nothing else on the bus answers above 0x44. There is no driver for it
+	 * in Linux and nothing needs one - it is recorded so that whoever finds
+	 * an unexplained device at this address knows what it is, and knows not
+	 * to write to it.
+	 */
+	alpu@3d {
+		compatible = "gi,alpu";
+		reg = <0x3d>;
+	};
 };
 
 &miu {
