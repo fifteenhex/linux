@@ -527,6 +527,31 @@ static void mstar_mop_remove(struct platform_device *pdev)
 	component_del(&pdev->dev, &mstar_mop_component_ops);
 }
 
+/*
+ * The sleep reset takes the whole block down - every register reads back as zero
+ * afterwards, including the CFG clock gates, so windows programmed after a
+ * resume are written into dead hardware and nothing is fetched. Put the global
+ * config back in the noirq phase, before the DRM master's resume redoes the mode
+ * set and reprograms the windows. Nothing here needs the windows' own state: the
+ * mode set brings that back, and no window is on until it does.
+ */
+static int mstar_mop_resume_noirq(struct device *dev)
+{
+	struct mstar_mop *mop = dev_get_drvdata(dev);
+	unsigned int i;
+
+	mstar_mop_hw_init(mop);
+
+	for (i = 0; i < mop->data->num_windows; i++)
+		mop->windows[i].enabled = false;
+
+	return 0;
+}
+
+static const struct dev_pm_ops mstar_mop_pm_ops = {
+	NOIRQ_SYSTEM_SLEEP_PM_OPS(NULL, mstar_mop_resume_noirq)
+};
+
 static const struct mstar_mop_data ssd20xd_mopg_data = {
 	.num_windows = 16,
 	.windows_start = 0x200,
@@ -559,6 +584,7 @@ static struct platform_driver mstar_mop_driver = {
 	.driver = {
 		   .name = DRIVER_NAME,
 		   .of_match_table = mstar_mop_ids,
+		   .pm = pm_sleep_ptr(&mstar_mop_pm_ops),
 	},
 };
 
