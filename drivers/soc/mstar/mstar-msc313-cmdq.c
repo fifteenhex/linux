@@ -69,9 +69,33 @@
  *   1
  * start?
  *
- * 0x010 - start pointer
- * 0x018 - end pointer
- * 0x020 - offset pointer
+ * The ring pointers, from mhal's own accessors:
+ *
+ * 0x010/0x014 - start pointer        HAL_CMDQ_Set_Start_Pointer
+ * 0x018/0x01c - end pointer          HAL_CMDQ_Set_End_Pointer, and
+ *                                    HAL_CMDQ_Set_Offset_Pointer writes the same
+ *                                    pair, so this is the producer's position
+ *                                    that the engine is chasing rather than a
+ *                                    fixed limit
+ * 0x020/0x024 - write pointer        HAL_CMDQ_Get_Write_Pointer, read only:
+ *                                    where the engine itself has got to
+ *
+ * That is worth knowing because 0x020 looks like a pointer to program and is
+ * not. It also means the pointer unit cannot be the sixteen byte one the rest of
+ * this chip uses, since that could not address an eight byte descriptor
+ * boundary.
+ *
+ * What has been tried and does not start it, on an SSD202D: the reset released,
+ * interrupts masked, 0x004 enable set, 0x008 given 0, 1, 3, 4 and 5, the start
+ * and end pointers written in byte, eight byte and sixteen byte units, 0x00c bit
+ * 3 pulsed to load the start pointer and then bit 0 pulsed to go. Every register
+ * reads back what was written and 0x00c self clears, so the block is clocked and
+ * accepting configuration, but the write pointer never moves off zero, the done
+ * bit in 0x110 never sets and the two registers at 0x108/0x10c stay clear. The
+ * descriptors themselves are well formed - 0x101120f0be000000 writes 0xbe00 to
+ * the engine's own dummy register. Something else is needed to arm it; a trace of
+ * the vendor stack driving it would settle it.
+ *
  * 0x040 - miu sel
  * 0x044 - ??
  * 0x080 - ??
@@ -112,6 +136,8 @@ static struct reg_field		rst_cmd_st_ptr_trig_field = REG_FIELD(REG_TRIG1, 3, 3);
 #define REG_CMD_ST_PTR1		0x14
 #define REG_CMD_END_PTR0	0x18
 #define REG_CMD_END_PTR1	0x1c
+#define REG_CMD_WR_PTR0		0x20	/* read only, where the engine has got to */
+#define REG_CMD_WR_PTR1		0x24
 
 
 #define REG_SKIPFORCE		0x90
