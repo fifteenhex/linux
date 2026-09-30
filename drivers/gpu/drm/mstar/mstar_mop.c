@@ -12,6 +12,7 @@
 #include <linux/component.h>
 #include <linux/module.h>
 #include <linux/of_device.h>
+#include <linux/of_platform.h>
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
 #include <linux/of.h>
@@ -64,6 +65,8 @@ struct mstar_mop {
 	struct device *dev;
 	const struct mstar_mop_data *data;
 	struct regmap *regmap;
+	/* the shared double buffer trigger, which may live in another instance */
+	struct regmap *latch_regmap;
 	struct regmap_field *swrst;
 	struct regmap_field *gw_hsize;
 	struct regmap_field *gw_vsize;
@@ -116,6 +119,39 @@ static const struct reg_field commit_all_field = REG_FIELD(0x1fc, 8, 8);
  */
 #define MOP_MIU0_BASE		0x20000000
 #define MOP_SCALE_1X		0x1000
+
+/*
+ * There is one double buffer trigger for the whole MOP and it sits in the
+ * graphics plane's page, at 0xfd280bfc. mhal's HalDispMopDbBfWr() writes that
+ * one address after programming anything, the sub plane included, and the sub
+ * plane's own page has no equivalent: the sub plane was drawing nothing at all
+ * until it was pointed at the real trigger, and pulsing the same offset in its
+ * own page - 0xfd2811fc - latches nothing.
+ *
+ * So an instance whose trigger is somewhere else names the instance that has it.
+ */
+static struct regmap *mstar_mop_latch_regmap(struct device *dev, struct regmap *own)
+{
+	struct platform_device *pdev;
+	struct device_node *np;
+	struct mstar_mop *owner;
+
+	np = of_parse_phandle(dev->of_node, "sstar,mop-latch", 0);
+	if (!np)
+		return own;
+
+	pdev = of_find_device_by_node(np);
+	of_node_put(np);
+	if (!pdev)
+		return ERR_PTR(-EPROBE_DEFER);
+
+	owner = platform_get_drvdata(pdev);
+	put_device(&pdev->dev);
+	if (!owner)
+		return ERR_PTR(-EPROBE_DEFER);
+
+	return owner->regmap;
+}
 
 static const struct regmap_config mstar_mop_regmap_config = {
 	.reg_bits = 16,
@@ -457,10 +493,17 @@ static int mstar_mop_probe(struct platform_device *pdev)
 	}
 
 	mop->regmap = regmap;
+
+	mop->latch_regmap = mstar_mop_latch_regmap(dev, regmap);
+	if (IS_ERR(mop->latch_regmap))
+		return dev_err_probe(dev, PTR_ERR(mop->latch_regmap),
+				     "Failed to find the MOP double buffer trigger\n");
+
 	mop->swrst = devm_regmap_field_alloc(dev, regmap, swrst_field);
 	mop->gw_hsize = devm_regmap_field_alloc(dev, regmap, gw_hsize_field);
 	mop->gw_vsize = devm_regmap_field_alloc(dev, regmap, gw_vsize_field);
-	mop->commit_all = devm_regmap_field_alloc(dev, regmap, commit_all_field);
+	mop->commit_all = devm_regmap_field_alloc(dev, mop->latch_regmap,
+						  commit_all_field);
 
 	mstar_mop_hw_init(mop);
 
