@@ -16,9 +16,18 @@
  *
  * The MSC313 has 1 of these. The MSC313e seems to have 3. The SSD20xD has
  * exactly one: the vendor's HAL_CMDQ_Get_Cmdq_RiuAddr() rejects any index but 0,
- * and the MIU has a single CMDQ0_R client. Its interrupt there is GIC SPI 49
- * (from the vendor device tree's cmdq0 node, which carries no reg property - the
- * register base is hardcoded in the vendor's mhal, so it is still unknown here).
+ * and the MIU has a single CMDQ0_R client. Its interrupt is GIC SPI 49, from the
+ * vendor device tree's cmdq0 node, which carries no reg property because the
+ * base is compiled into mhal: gHalRegCmdCtlBase in its .data is 0x00112000, a
+ * RIU word address, so byte 0x224000 and 0x1f224000 to the CPU - the same place
+ * the MSC313 has it. Confirmed on an SSD202D: that block reads a sane reset
+ * state, with the reset bit at 0x0c4 released and the timeouts at 0x0a0/0x0a4
+ * holding 0xffff/0x1080.
+ *
+ * The two dummy registers and the trigger clear that the vendor hands out as
+ * targets for a command to poke are base | 0xf0, | 0xee and | 0xa8 in word
+ * addresses - byte 0x1e0, 0x1dc and 0x150 - from
+ * HAL_CMDQ_Get_Dummy_Register_RiuAddr(), _Dummy2_ and _TriggerClr_.
  *
  * The vendor SDK seems to mostly use it for moving stuff to and from
  * the camera ip blocks. It writes registers, waits for a trigger event and
