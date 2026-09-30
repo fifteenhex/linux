@@ -15,15 +15,63 @@ struct mstar_moprot {
 };
 
 /*
- * The MOP output stage. Without this the MOP's windows can be programmed and
- * enabled and the plane still never reaches the display mixer, so nothing of it
- * appears on the panel - which is why the graphics plane looked dead in Linux
- * while the GOP worked.
+ * The MOP output stage, and the two NV12 rotators that live in the same page.
  *
- * Four channels 0x40 apart, each given the same three values, then the enable
- * in two steps. Taken from the vendor bring-up and not fully decoded, so it is
- * replayed verbatim; the same block is in u-boot's mstar_mop.c (mop_output[]),
- * where it is what makes the MOP path work.
+ * Without this init the MOP's windows can be programmed and enabled and the
+ * plane still never reaches the display mixer, so nothing of it appears on the
+ * panel - which is why the graphics plane looked dead in Linux while the GOP
+ * worked. The same block is in u-boot's mstar_mop.c (mop_output[]).
+ *
+ * It is HalDispMopRotInit(): four register groups 0x40 apart, each given the
+ * same three values at +0x08, +0x0c and +0x18, then HalDispMopRot0DbfEn(1) and
+ * HalDispMopRot1DbfEn(1), which are bits 0 and 1 of 0x004. So the four groups
+ * are the rotators, and the reason this makes the output path work is that the
+ * MOP's output runs through them whether or not anything is being rotated.
+ *
+ * The rotators, from mhal's HalDispMopRot0 and Rot1 accessors, confirmed on an SSD202D:
+ *
+ *   0x004  bit 0  rotator 0 double buffering enable
+ *          bit 1  rotator 1 double buffering enable
+ *          bit 2  rotator 0 latch: set then clear (HalDispMopRotDbBfWr)
+ *          bit 3  rotator 1 latch
+ *
+ * Each rotator is two groups of registers 0x40 apart, one per NV12 plane -
+ * rotator 0 at 0x040 and 0x080, rotator 1 at 0x0c0 and 0x100. The second group
+ * is the chroma half and is given half the width and half the height, which is
+ * what identifies it. Within a group:
+ *
+ *   +0x00  bits 10:0  source width, and bit 15 enables the engine
+ *   +0x04  bits 10:0  source height
+ *   +0x10  read address, low  (bits 19:4 of the address)
+ *   +0x14  read address, high (bits 31:20)
+ *   +0x18  pixel dummy
+ *   +0x1c  write address, low
+ *   +0x20  write address, high
+ *
+ * Addresses are encoded exactly as the MOP windows' are, MIU relative in sixteen
+ * byte units. The enables and the direction are not in this page at all: rotator
+ * 0's enable is bit 0 of 0x1f281028, and rotator 1's enable and both direction
+ * bits are in 0x1f281144 - bit 0 rotator 1 enable, bit 1 rotator 0 direction,
+ * bit 2 rotator 1 direction. Both of those are in the sub plane's page, and
+ * 0x1f281144 is the one register mhal keeps a software shadow of, so it cannot be
+ * read back and has to be written whole.
+ *
+ * Two things about them that decide how they can be used:
+ *
+ * They only rotate by a quarter turn. HalDispMopRot0SetRotateMode() takes 1 and
+ * 3 and prints "Rotate ID %d not support" for 2, so there is no 180 degrees -
+ * which is the one this panel would want, it being mounted upside down.
+ *
+ * They are not a memory to memory engine. Their write port only reaches the on
+ * chip SRAM: pointed at an SRAM address the engine runs and the SRAM changes,
+ * pointed at DRAM it runs and the DRAM is untouched. And the vendor only ever
+ * gives them SRAM - _HalDispIfSetInputPortFlip() allocates height * 16 bytes of
+ * luma, which is sixteen output lines rather than a frame, points the rotator's
+ * write address at it and then points the MOP window's own read address at the
+ * same place. So this is an in line stage of the display path that transposes a
+ * window's source through a rolling strip of SRAM, and using it means a rotation
+ * property on the MOP planes plus an allocation from the sram node, not a V4L2
+ * mem2mem device.
  */
 static const struct reg_sequence mstar_moprot_output_init[] = {
 	{ 0x048, 0x0820 }, { 0x04c, 0xa01f }, { 0x058, 0x0801 },
