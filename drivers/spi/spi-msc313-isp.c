@@ -558,7 +558,15 @@ static int msc313_isp_probe(struct platform_device *pdev)
 		return PTR_ERR(isp->mcu_clk);
 	}
 
-	isp->spi_clk = devm_clk_get(&pdev->dev, "spi");
+	/*
+	 * Held, not just looked up. This is the clock the comment in
+	 * msc313_isp_prepare_message() is about: the IPL parks it on the MIU clock
+	 * and QSPI reads through BDMA only work at that rate. Nothing was keeping
+	 * it enabled, so the unused-clock sweep gated it and a flash read fell back
+	 * to PIO after the BDMA timed out. It only ever worked because every board
+	 * here booted with clk_ignore_unused.
+	 */
+	isp->spi_clk = devm_clk_get_enabled(&pdev->dev, "spi");
 	if (IS_ERR(isp->spi_clk)) {
 		return PTR_ERR(isp->spi_clk);
 	}
