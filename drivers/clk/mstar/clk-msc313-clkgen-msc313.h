@@ -16,7 +16,12 @@ static const struct msc313_clkgen_parent_data mcu_msc313_parents[] = {
 static const struct msc313_clkgen_parent_data riubrdg_parents[] = {
 	PARENT_OF("unknown"),
 };
-#define RIUBRDG MSC313_MUX_PARENT_DATA(MSC313_CLKGEN_RIUBRDG, "riubrdg", riubrdg_parents, 0x4, 8, 10, 2, -1)
+/*
+ * The bridge every peripheral register on the chip is reached through, and nothing
+ * claims it, so the unused-clock sweep gates it and the next register access never
+ * comes back. Critical.
+ */
+#define RIUBRDG MSC313_MUX_PARENT_DATA_FLAGS(MSC313_CLKGEN_RIUBRDG, "riubrdg", riubrdg_parents, 0x4, 8, 10, 2, -1, CLK_IS_CRITICAL, 0)
 
 static const struct msc313_clkgen_parent_data miu_parents[] = {
 	PARENT_OF("ddrpll"),
