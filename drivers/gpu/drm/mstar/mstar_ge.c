@@ -1304,6 +1304,42 @@ static void mstar_ge_start_job(struct mstar_ge *ge, struct mstar_ge_job *job)
 
 }
 
+/*
+ * Make the register cache agree with the hardware.
+ *
+ * REGCACHE_FLAT starts out claiming every register is zero, and regmap skips a
+ * write whose result equals the cached value - so any field a job wants to set
+ * to zero is silently not written, and the engine keeps whatever was there
+ * before. That is harmless only while nothing else has used the engine, which
+ * stopped being true when U-Boot started rotating the boot logo with it: after
+ * that the GE comes up with the bootloader's geometry and addresses still in it,
+ * every job's zero-valued field is skipped, and the engine sits idle with a
+ * mixture of two jobs' programming and nothing anybody asked for.
+ *
+ * So read the file once and put what is really there into the cache.
+ */
+static void mstar_ge_sync_cache(struct mstar_ge *ge)
+{
+	unsigned int reg, val;
+
+	for (reg = 0; reg <= mstar_ge_regmap_config.max_register;
+	     reg += mstar_ge_regmap_config.reg_stride) {
+		if (mstar_ge_volatile_reg(ge->dev, reg))
+			continue;
+
+		regcache_cache_bypass(ge->regmap, true);
+		if (regmap_read(ge->regmap, reg, &val)) {
+			regcache_cache_bypass(ge->regmap, false);
+			continue;
+		}
+		regcache_cache_bypass(ge->regmap, false);
+
+		regcache_cache_only(ge->regmap, true);
+		regmap_write(ge->regmap, reg, val);
+		regcache_cache_only(ge->regmap, false);
+	}
+}
+
 /* Dump the GE register state so a stuck/failing job can be diagnosed. */
 static void mstar_ge_dump_regs(const struct mstar_ge *ge)
 {
@@ -1424,11 +1460,11 @@ static int mstar_ge_wait_for_idle(struct mstar_ge *ge)
  * Queue a compiled job; the caller must have filled job->prog.
  *
  * The engine is resumed here, before the lock is taken, because this runs in the
- * submitter's context and resuming sleeps. Doing it where the job is actually
- * pushed to the engine would mean sleeping with ge->lock held and interrupts
- * off, and in the interrupt handler besides: that is a "BUG: sleeping function
- * called from invalid context", which is what happened the first time anything
- * in Linux used this engine.
+ * submitter's context and resuming sleeps - it enables a clock. Doing it where
+ * the job is actually pushed to the engine would mean sleeping with ge->lock
+ * held and interrupts off, and in the interrupt handler besides: that is a
+ * "BUG: sleeping function called from invalid context", which is what happened
+ * the first time anything in Linux used this engine.
  *
  * One reference per queued job, released by that job's completion interrupt or
  * by mstar_ge_recover(). A batch therefore keeps the engine resumed from the
@@ -3080,6 +3116,9 @@ static int mstar_ge_probe(struct platform_device *pdev)
 	ret = devm_request_irq(dev, irq, mstar_ge_irq, IRQF_SHARED, dev_name(dev), ge);
 	if (ret)
 		return ret;
+
+	/* before anything is written through the cache, see what is really there */
+	mstar_ge_sync_cache(ge);
 
 	regmap_field_write(ge->irq_mask, 0);
 	regmap_field_write(ge->clk_en, 1);
