@@ -1264,20 +1264,17 @@ static int mstar_ge_compile_job(struct mstar_ge *ge, struct mstar_ge_job *job)
 /*
  * Push a compiled job to the engine: replay its register program and fire.
  * This is the whole submit hot path - no per-op derivation happens here.
- * Called with ge->lock held (from the queue path or the completion IRQ).
+ *
+ * Called with ge->lock held, and from the completion interrupt when one job's
+ * completion starts the next, so nothing here may sleep. In particular the
+ * engine is not resumed here: every queued job holds a runtime PM reference
+ * taken by mstar_ge_queue_job(), which runs in the submitter's context where
+ * sleeping is allowed.
  */
-static int mstar_ge_start_job(struct mstar_ge *ge, struct mstar_ge_job *job)
+static void mstar_ge_start_job(struct mstar_ge *ge, struct mstar_ge_job *job)
 {
 	const struct mstar_ge_prog *prog = &job->prog;
-	struct device *dev = ge->dev;
-	int i, ret;
-
-	ret = pm_runtime_get_sync(dev);
-	if (ret < 0) {
-		dev_err(dev, "runtime resume failed %d\n", ret);
-		pm_runtime_put_noidle(dev);
-		goto abort;
-	}
+	int i;
 
 	mstar_ge_tag(ge);
 
@@ -1298,19 +1295,6 @@ static int mstar_ge_start_job(struct mstar_ge *ge, struct mstar_ge_job *job)
 
 	regmap_write_bits(ge->regmap, REG_CMD, prog->cmd_mask, prog->cmd_val);
 
-	return 0;
-
-abort:
-	/*
-	 * The job never made it onto the engine so no completion interrupt
-	 * will retire it: take it off the queue here, otherwise the IRQ
-	 * handler would later complete this dead job instead of the one
-	 * actually running (and the list would end up referencing freed
-	 * memory once the submitter frees its jobs).
-	 */
-	list_del_init(&job->queue);
-	ge->inflight--;
-	return ret;
 }
 
 /* Dump the GE register state so a stuck/failing job can be diagnosed. */
@@ -1356,18 +1340,18 @@ static void mstar_ge_dump_regs(const struct mstar_ge *ge)
  * cached CMD value would write prim_type and fire the engine).
  *
  * Cleanup: every queued job is dropped, inflight forced to 0 and dma_wait
- * woken so concurrent waiters get unstuck. While a job is on the engine it
- * holds exactly one pm_runtime reference (put by the IRQ on completion or by
- * the abort path in mstar_ge_run_job); its completion IRQ will never arrive,
- * so that reference is dropped here. A very late completion IRQ racing this
- * sees inflight == 0 and bails out without touching PM or the queue.
+ * woken so concurrent waiters get unstuck. Each of those jobs holds a
+ * pm_runtime reference taken when it was queued, and no completion interrupt is
+ * coming to release it, so one is dropped here per job. A very late completion
+ * IRQ racing this sees inflight == 0 and bails out without touching PM or the
+ * queue.
  */
 static void mstar_ge_recover(struct mstar_ge *ge)
 {
 	struct mstar_ge_job *job, *tmp;
 	unsigned long flags;
-	bool had_running;
 	int dropped = 0;
+	int i;
 
 	/* Soft-reset the engine and clear any latched interrupt */
 	regmap_field_force_write(ge->en, 0);
@@ -1381,7 +1365,6 @@ static void mstar_ge_recover(struct mstar_ge *ge)
 			     mstar_ge_regmap_config.max_register);
 
 	spin_lock_irqsave(&ge->lock, flags);
-	had_running = ge->inflight > 0;
 	list_for_each_entry_safe(job, tmp, &ge->queue, queue) {
 		list_del_init(&job->queue);
 		dropped++;
@@ -1389,7 +1372,7 @@ static void mstar_ge_recover(struct mstar_ge *ge)
 	ge->inflight = 0;
 	spin_unlock_irqrestore(&ge->lock, flags);
 
-	if (had_running) {
+	for (i = 0; i < dropped; i++) {
 		pm_runtime_mark_last_busy(ge->dev);
 		pm_runtime_put_autosuspend(ge->dev);
 	}
@@ -1419,11 +1402,30 @@ static int mstar_ge_wait_for_idle(struct mstar_ge *ge)
 	return -ETIMEDOUT;
 }
 
-/* Queue a compiled job; the caller must have filled job->prog */
+/*
+ * Queue a compiled job; the caller must have filled job->prog.
+ *
+ * The engine is resumed here, before the lock is taken, because this runs in the
+ * submitter's context and resuming sleeps. Doing it where the job is actually
+ * pushed to the engine would mean sleeping with ge->lock held and interrupts
+ * off, and in the interrupt handler besides: that is a "BUG: sleeping function
+ * called from invalid context", which is what happened the first time anything
+ * in Linux used this engine.
+ *
+ * One reference per queued job, released by that job's completion interrupt or
+ * by mstar_ge_recover(). A batch therefore keeps the engine resumed from the
+ * first job being queued until the last has retired.
+ */
 static int mstar_ge_queue_job(struct mstar_ge *ge, struct mstar_ge_job *job)
 {
 	unsigned long flags;
-	int ret = 0;
+	int ret;
+
+	ret = pm_runtime_resume_and_get(ge->dev);
+	if (ret < 0) {
+		dev_err(ge->dev, "runtime resume failed %d\n", ret);
+		return ret;
+	}
 
 	spin_lock_irqsave(&ge->lock, flags);
 	ge->inflight++;
@@ -1431,13 +1433,11 @@ static int mstar_ge_queue_job(struct mstar_ge *ge, struct mstar_ge_job *job)
 
 	/* Start the first job */
 	if (ge->inflight == 1)
-		ret = mstar_ge_start_job(ge, job);
+		mstar_ge_start_job(ge, job);
 
 	spin_unlock_irqrestore(&ge->lock, flags);
 
-
-
-	return ret;
+	return 0;
 }
 
 static irqreturn_t mstar_ge_irq(int irq, void *data)
@@ -1478,15 +1478,10 @@ static irqreturn_t mstar_ge_irq(int irq, void *data)
 	list_del(&job->queue);
 	ge->inflight--;
 
-	/*
-	 * Run the next job. If starting a job fails (bad parameters), it has
-	 * already been dropped from the queue and inflight; keep going so one
-	 * rejected op doesn't strand the ops queued behind it.
-	 */
-	while (ge->inflight) {
+	/* Run the next job, if the batch has more */
+	if (ge->inflight) {
 		job = list_first_entry(&ge->queue, struct mstar_ge_job, queue);
-		if (!mstar_ge_start_job(ge, job))
-			break;
+		mstar_ge_start_job(ge, job);
 	}
 
 	/*
