@@ -1,1 +1,2 @@
 obj-$(CONFIG_VIDEO_MSTAR_VIF) += mstar_vif.o
+obj-$(CONFIG_VIDEO_MSTAR_DIP) += mstar_dip.o

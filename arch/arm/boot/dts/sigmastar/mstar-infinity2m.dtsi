@@ -323,8 +323,23 @@
 	scl_to_gop@243400 {
 	};
 
-	dip_to_gop@247400 {
-
+	/*
+	 * The DRAM to DRAM image processor, which the vendor stack drives as
+	 * DIVP. Its registers run from 0x247204 to 0x2479c0; the vendor device
+	 * tree gives its node no reg at all because the base is compiled into
+	 * mhal, and gives its interrupt as 95. Interrupt cells here are relative
+	 * to intc_irq, which maps GIC 32 and up, so that is 63.
+	 *
+	 * Disabled: the driver binds and programs the block but it does not move
+	 * data yet, and enabling it would take /dev/video0 from the decoder for
+	 * nothing. See the driver for what has been ruled out.
+	 */
+	dip: dip@247200 {
+		compatible = "sstar,ssd20xd-dip";
+		reg = <0x247200 0x800>;
+		interrupts-extended = <&intc_irq GIC_SPI 63 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&clkgen MSC313_CLKGEN_DEGLITCHES SSD20XD_CLKGEN_DIP 0>;
+		status = "disabled";
 	};
 
 	gop1: gop@246800 {

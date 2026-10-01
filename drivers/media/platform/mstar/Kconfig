@@ -4,3 +4,17 @@ config VIDEO_MSTAR_VIF
 	depends on ARCH_MSTAR || COMPILE_TEST
 	help
 	  xx
+
+config VIDEO_MSTAR_DIP
+	tristate "SigmaStar SSD20xD DIP image processor"
+	depends on V4L_MEM2MEM_DRIVERS
+	depends on VIDEO_DEV && COMMON_CLK && HAS_DMA
+	depends on ARCH_MSTARV7 || COMPILE_TEST
+	select VIDEOBUF2_DMA_CONTIG
+	select V4L2_MEM2MEM_DEV
+	help
+	  A memory to memory video processor: it converts between NV12, packed
+	  YUV422, RGB565 and ARGB8888, mirrors horizontally, scales and crops.
+	  The useful thing about it on this SoC is that it is the only block that
+	  reads the video decoder's NV12 and writes something the 2D engine can
+	  rotate.
