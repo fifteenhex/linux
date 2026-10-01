@@ -75,6 +75,7 @@ static const struct msc313_mux_data ssd20xd_muxes[] = {
 	JPE,
 	GE,
 	MOP,
+	DIP,
 	SATA,
 	DEC_PCLK,
 	DEC_ACLK,

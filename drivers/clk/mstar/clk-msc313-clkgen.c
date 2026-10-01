@@ -500,6 +500,29 @@ static const struct msc313_clkgen_parent_data jpe_parents[] = {
 };
 #define JPE	MSC313_MUX_PARENT_DATA(MSC313_CLKGEN_JPE, "jpe", jpe_parents, 0x1a8, 0, 2, 2, -1)
 
+/*
+ * DIP, the DRAM to DRAM image processor the vendor stack drives as DIVP. The
+ * parents and the register layout are the vendor device tree's CLK_dip: register
+ * 0x148, gate at bit 0, three bit mux at bit 2, and upll 320, upll 384, mpll 216,
+ * utmi 192, mpll 172, utmi 160 in that order. The vendor lists two more entries
+ * and both are its CLK_VOID, so they are left out.
+ */
+static const struct msc313_clkgen_parent_data dip_parents[] = {
+	/* upll 320 */
+	PARENT_GATE(1),
+	/* upll 384 */
+	PARENT_GATE(0),
+	/* mpll 216 */
+	PARENT_GATE(9),
+	/* utmi 192 */
+	PARENT_GATE(3),
+	/* mpll 172 */
+	PARENT_GATE(10),
+	/* utmi 160 */
+	PARENT_GATE(2),
+};
+#define DIP	MSC313_MUX_PARENT_DATA(SSD20XD_CLKGEN_DIP, "dip", dip_parents, 0x148, 0, 2, 3, -1)
+
 /* SATA */
 static const struct msc313_clkgen_parent_data sata_parents[] = {
 	PARENT_GATE(9), // incorrect, should be utmi 240m
