@@ -92,7 +92,12 @@ static const struct clk_parent_data spi_pm_parents[] = {
 	{ .fw_name = "xtal" },
 };
 
-#define MCU_PM MSC313_MUX_CLK_PARENT_DATA(MSC313_PM_MUXES_MCU_PM, "mcu_pm", mcu_pm_parents, 0x80, 0, 2, 4, 7)
+/*
+ * Nothing claims this clock, so the unused-clock sweep gates it and the machine
+ * stops dead - which is the whole reason every board here has had
+ * clk_ignore_unused on its command line. Marked critical so the core keeps it on.
+ */
+#define MCU_PM MSC313_MUX_CLK_PARENT_DATA_FLAGS(MSC313_PM_MUXES_MCU_PM, "mcu_pm", mcu_pm_parents, 0x80, 0, 2, 4, 7, CLK_IS_CRITICAL, 0)
 #define SPI_PM MSC313_MUX_CLK_PARENT_DATA(MSC313_PM_MUXES_SPI_PM, "spi_pm", spi_pm_parents, 0x80, 8, 10, 4, 14)
 
 static const struct clk_parent_data ir_parents[] = {
