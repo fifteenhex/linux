@@ -233,7 +233,7 @@
 		reg = <0x264000 0x100>;
 		clocks = <&clkgen MSC313_CLKGEN_DEGLITCHES MSC313_CLKGEN_JPE 0>;
 		clock-names = "jpe";
-		interrupts-extended = <&intc_irq GIC_SPI 61 IRQ_TYPE_LEVEL_HIGH>;
+		interrupts-extended = <&intc_irq GIC_SPI 29 IRQ_TYPE_LEVEL_HIGH>;
 		interconnects = <&miu 0>;
 		interconnect-names = "dma-mem";
 		status = "disabled";
@@ -587,16 +587,9 @@
 };
 
 /*
- * The command queue node comes from mstar-infinity.dtsi with the MSC313's
- * interrupt. This SoC puts it on GIC SPI 49, which is what the vendor device
- * tree's cmdq0 node says (interrupts = <0 0x31 4>); that node carries no reg
- * because the base is compiled into mhal, where gHalRegCmdCtlBase gives RIU word
- * 0x00112000, i.e. the 0x1f224000 the inherited node already has.
- *
- * The vendor points it at CLK_mcu rather than the MIU clock the inherited node
- * uses. Left alone: this driver only ever enables its clock, and the MCU clock is
- * the one thing on the chip that is certainly already running.
+ * The command queue's base is right in the inherited node: mhal's
+ * gHalRegCmdCtlBase is RIU word 0x00112000, which is the 0x1f224000 it already
+ * has. Its interrupt is right too - the vendor gives cmdq0 GIC 49, and interrupt
+ * cells here are relative to intc_irq, which maps GIC 32 and up, so the
+ * inherited 17 is exactly that. Nothing to override.
  */
-&cmdq {
-	interrupts-extended = <&intc_irq GIC_SPI 49 IRQ_TYPE_LEVEL_HIGH>;
-};

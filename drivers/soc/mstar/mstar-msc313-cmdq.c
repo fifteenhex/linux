@@ -184,17 +184,20 @@ MODULE_DEVICE_TABLE(of, msc313_cmdq_of_match);
 /*
  * Leave the engine reset and silent.
  *
- * The interrupt is deliberately not requested. The vendor device tree gives
- * cmdq0 GIC SPI 49, but in this tree that line is the MIU's - see the miu node
- * in mstar-v7.dtsi - and it is asserted permanently with nothing to clear it,
- * which is why the MIU driver's own devm_request_irq() is commented out.
- * Registering a handler there enables the line and the box does nothing but
- * service it: measured as one interrupt per console line, i.e. as fast as the
- * handler could be printed. Until the real number is known, completion is
- * polled through REG_RAW_IRQ_FINAL_IRQ bit 3.
+ * The interrupt is not requested, simply because the engine does not execute
+ * anything yet so there is nothing to be told about. The node's own number is
+ * fine: the vendor gives cmdq0 GIC 49 and interrupt cells in this device tree
+ * are relative to intc_irq, which maps GIC 32 upwards, so the inherited 17 is
+ * that same line.
  *
- * Masking this block's own sources as well means it cannot contribute to that
- * line whoever else ends up owning it.
+ * Worth knowing if a handler is added later: writing 49 in the cell instead of
+ * 17 lands on GIC 81, which is the MIU's, and that line is asserted permanently
+ * with nothing here able to clear it - which is why the MIU driver's own
+ * devm_request_irq() sits commented out. A shared handler there turns the board
+ * into nothing but an interrupt service routine, one per line of console output.
+ *
+ * Masking this block's own sources means it cannot contribute to any shared line
+ * either way.
  */
 static void msc313_cmdq_hw_init(struct msc313_cmdq *cmdq)
 {
