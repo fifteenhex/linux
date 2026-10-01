@@ -424,6 +424,13 @@ static bool mstar_ge_volatile_reg(struct device *dev, unsigned int reg)
 
 	switch(reg) {
 	case REG_IRQ:
+	/*
+	 * The engine maintains this one: whether it is idle and how many command
+	 * FIFO slots are free. Served from the cache it reads as zero for ever,
+	 * which looks exactly like a full queue on a dead engine - and that is
+	 * what it was taken for the first time anything used the GE.
+	 */
+	case REG_CMQ_STATUS:
 	//case REG_CMD:
 		return true;
 	default:
@@ -1320,11 +1327,22 @@ static void mstar_ge_dump_regs(const struct mstar_ge *ge)
 	unsigned int v;
 	int i;
 
+	/*
+	 * Past the cache. Most of this register file is write-only as far as the
+	 * cache is concerned - that is why there is a cache at all, so that
+	 * read-modify-write of a field works - but a dump served from it only
+	 * says what the driver believes, and the point of dumping is to find out
+	 * where that stopped being true.
+	 */
+	regcache_cache_bypass(ge->regmap, true);
+
 	for (i = 0; i < ARRAY_SIZE(r); i++) {
 		if (regmap_read(ge->regmap, r[i].reg, &v) == 0)
 			dev_err(ge->dev, "  GE %-12s [0x%03x] = 0x%04x\n",
 				r[i].name, r[i].reg, v);
 	}
+
+	regcache_cache_bypass(ge->regmap, false);
 }
 
 /*
