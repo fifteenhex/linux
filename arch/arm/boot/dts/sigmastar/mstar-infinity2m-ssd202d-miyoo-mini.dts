@@ -176,14 +176,28 @@
 		gpio = <&gpio SSD20XD_GPIO_GPIO0 GPIO_ACTIVE_LOW>;
 	};
 
-	reg_vbat: regulator-vbat {
-		compatible = "regulator-fixed";
-		regulator-name = "vbat";
-		regulator-min-microvolt = <4200000>;
-		regulator-max-microvolt = <4200000>;
-		gpio = <&gpio SSD20XD_GPIO_GPIO85 0>;
-		enable-active-high;
-		regulator-always-on;
+	/*
+	 * GPIO85 is the power latch, not a regulator: pressing the power button
+	 * brings the supply up only for as long as it is held, and the SoC has to
+	 * drive this pin high before it is let go or the board drops straight back
+	 * off. Releasing it is how the device turns itself off.
+	 *
+	 * So it belongs to gpio-poweroff rather than to a regulator that was
+	 * marked always-on to keep it asserted: the pin is held in its inactive
+	 * state - which is high, hence GPIO_ACTIVE_LOW - for as long as the kernel
+	 * is up, and driven low when the kernel powers down. Userspace then asks
+	 * for the power off in the ordinary way, with reboot(LINUX_REBOOT_CMD_
+	 * POWER_OFF), and does not have to touch a GPIO to do it.
+	 *
+	 * The driver drives the pin active, waits active-delay-ms, pulses it
+	 * inactive and active again. A board that has lost its own power by then
+	 * never sees the pulse, so the delay is long rather than the default
+	 * 100 ms - there is no hurry on the way out.
+	 */
+	gpio-poweroff {
+		compatible = "gpio-poweroff";
+		gpios = <&gpio SSD20XD_GPIO_GPIO85 GPIO_ACTIVE_LOW>;
+		active-delay-ms = <3000>;
 	};
 
 	backlight: backlight {
