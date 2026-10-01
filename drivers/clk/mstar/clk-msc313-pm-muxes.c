@@ -111,21 +111,7 @@ static const struct clk_parent_data ir_parents[] = {
 	{ .fw_name = "xtal_div2_div4" },
 };
 
-/*
- * ir and pm_sleep both have to be left alone, or the Miyoo Mini's blue LED - which
- * sits on a pin in this same PM block and is normally held solidly on by hardware -
- * starts blinking. Gating either one of them is enough to do it; it only stays
- * solid with both left running.
- *
- * Nothing in Linux drives that LED: there is no leds node and /sys/class/leds is
- * empty. Nothing can claim either clock either - the ir node is a stub with no
- * compatible - so the unused sweep takes them both every time.
- *
- * Ignored rather than critical: the machine runs perfectly well without them, and
- * suspend to RAM works with pm_sleep gated. It is only the state of that pin that
- * depends on the clocks being left running.
- */
-#define IR MSC313_MUX_CLK_PARENT_DATA_FLAGS(MSC313_PM_MUXES_IR, "ir", ir_parents, 0x84, 5, 7, 3, -1, CLK_IGNORE_UNUSED, 0)
+#define IR MSC313_MUX_CLK_PARENT_DATA(MSC313_PM_MUXES_IR, "ir", ir_parents, 0x84, 5, 7, 3, -1)
 
 static const struct clk_parent_data rtc_parents[] = {
 	{ .fw_name = "xtal_div2" },
@@ -145,7 +131,7 @@ static const struct clk_parent_data sar_pm_sleep_parents[] = {
 
 #define RTC		MSC313_MUX_CLK_PARENT_DATA(MSC313_PM_MUXES_RTC, "rtc", rtc_parents, 0x88, 0, 2, 2, -1)
 #define SAR		MSC313_MUX_CLK_PARENT_DATA(MSC313_PM_MUXES_SAR, "sar", sar_pm_sleep_parents, 0x88, 5, 7, 3, -1)
-#define PM_SLEEP	MSC313_MUX_CLK_PARENT_DATA_FLAGS(MSC313_PM_MUXES_PM_SLEEP, "pm_sleep", sar_pm_sleep_parents, 0x88, 10, 12, 3, -1, CLK_IGNORE_UNUSED, 0)
+#define PM_SLEEP	MSC313_MUX_CLK_PARENT_DATA(MSC313_PM_MUXES_PM_SLEEP, "pm_sleep", sar_pm_sleep_parents, 0x88, 10, 12, 3, -1)
 
 static const struct msc313_mux_data msc313_muxes[] = {
 	MCU_PM,
