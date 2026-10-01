@@ -24,25 +24,35 @@
  * ruled out:
  *
  *   - the clock, which the clkgen driver now provides and which reads ungated;
- *   - the register programming: a dump of all twenty eight registers that matter,
- *     taken immediately before the trigger, matches the working userspace run
- *     exactly apart from the crop enable, and the userspace run works with the
- *     crop either way;
- *   - the interrupt, which never asserts in either case;
+ *   - the register programming. Every non-zero register in the block was dumped
+ *     from both immediately before the trigger and diffed: the only differences
+ *     are the crop enable and its window, and poking by hand works with the crop
+ *     either way;
+ *   - the addresses. Both encode correctly, and poking by hand writes happily to
+ *     the very address this driver hands over;
+ *   - how far apart the buffers are. By hand it will write four kilobytes after
+ *     the source just as readily as six megabytes away, so the driver's adjacent
+ *     vb2 allocations are not the problem;
+ *   - the interrupt, which never asserts in either case, enabled or not;
  *   - resetting before each job, which stops it doing anything at all and is now
  *     only done at probe;
  *   - the alignment rules the vendor checks - width even, stride and address both
- *     sixteen byte aligned - all of which are satisfied;
- *   - cache visibility: the kernel's own coherent view of the destination is
- *     untouched too, so the data is genuinely not being written.
+ *     sixteen byte aligned - all of which are satisfied, as is the width blacklist;
+ *   - settling time. Each register write by hand is an mmap/write/munmap, so those
+ *     land milliseconds apart where these are back to back; inserting a delay
+ *     before the trigger changes nothing;
+ *   - the data. The kernel's own coherent view shows the source pattern present in
+ *     DRAM and the destination untouched, so this is not a cache artefact and the
+ *     write genuinely does not happen.
  *
  * Two things are wrong with the block even when poked by hand, and both need
  * answering before this can be finished: a frame never runs to completion, and it
  * never signals done - neither the interrupt nor the idle status ever changes - so
- * there is nothing for a driver to wait on. The watchdog here exists for that
- * reason: a job that is never reported finished fails cleanly instead of wedging
- * the queue. The vertical mirror bit also has no observable effect, which is why
- * only V4L2_CID_HFLIP is offered.
+ * there is nothing for a driver to wait on, so a job pokes the trigger a few times,
+ * polls, and returns rather than waiting for something that never comes. The
+ * interrupt the device tree describes is left unused for the same reason: it never
+ * asserts. The vertical mirror bit also has no observable effect, which is why only
+ * V4L2_CID_HFLIP is offered.
  *
  * Register offsets are from the block base. mhal reaches them as byte offsets from
  * 0xfd000000, so anything quoted from it as 0x2477xx is 0x5xx here.
@@ -50,8 +60,8 @@
 
 #include <linux/clk.h>
 #include <linux/delay.h>
-#include <linux/interrupt.h>
 #include <linux/io.h>
+#include <linux/iopoll.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
@@ -155,8 +165,8 @@
 #define DIP_TILEREQ_READ	0x20
 #define DIP_TILEREQ_WRITE	0x10
 
-/* a job that never reports done should fail rather than wedge the queue */
-#define DIP_JOB_TIMEOUT_MS	300
+/* how many times to poke the trigger, since nothing says when it is finished */
+#define DIP_TRIGGERS		8
 
 /*
  * The hardware's format enum. HAL_XC_DIP_GetBPP indexes bytes per pixel with it
@@ -249,10 +259,7 @@ struct mstar_dip {
 	struct v4l2_device v4l2_dev;
 	struct video_device vfd;
 	struct v4l2_m2m_dev *m2m_dev;
-	/* serialises a job against the interrupt and against its timeout */
-	spinlock_t irqlock;
 	struct mutex mutex;
-	struct delayed_work watchdog;
 	struct mstar_dip_ctx *curr;
 };
 
@@ -407,6 +414,7 @@ static void dip_setup_job(struct mstar_dip_ctx *ctx, dma_addr_t src,
 	static const u8 rfmtsel[] = { 0x00, 0x40, 0x80, 0x80, 0xc0 };
 	static const u8 wfmtsel[] = { 0x00, 0x10, 0x20, 0x20, 0x30 };
 	bool csc = sf->yuv && !df->yuv;
+	unsigned int i;
 
 	/*
 	 * The whole init goes in before every job. Driven by hand, a job that had
@@ -492,9 +500,25 @@ static void dip_setup_job(struct mstar_dip_ctx *ctx, dma_addr_t src,
 	dip_update(dip, DIP_SC_ENABLE, BIT(0), BIT(0));
 	dip_update(dip, DIP_SC_ENABLE, BIT(0), 0);
 
-	/* the done status is cleared before the run, not after */
-	regmap_write(dip->regmap, DIP_IDLE, 0);
-	dip_update(dip, DIP_CTRL, DIP_CTRL_TRIGGER, DIP_CTRL_TRIGGER);
+	/*
+	 * Fire it and wait. The block never reports done - neither the interrupt
+	 * nor the idle status ever changes - so there is nothing to wait on and
+	 * all this can do is poll for a while and move on. Triggering more than
+	 * once because by hand one trigger moved about a line's worth of bytes
+	 * and repeated ones got further, which is what a tile based engine with
+	 * no completion signal would look like.
+	 */
+	for (i = 0; i < DIP_TRIGGERS; i++) {
+		unsigned int idle;
+
+		regmap_write(dip->regmap, DIP_IDLE, 0);
+		dip_update(dip, DIP_CTRL, DIP_CTRL_TRIGGER, DIP_CTRL_TRIGGER);
+
+		if (!regmap_read_poll_timeout(dip->regmap, DIP_IDLE, idle,
+					      idle & 1, 200, 10000))
+			break;
+	}
+
 }
 
 static void dip_finish(struct mstar_dip *dip, enum vb2_buffer_state state)
@@ -502,15 +526,11 @@ static void dip_finish(struct mstar_dip *dip, enum vb2_buffer_state state)
 	struct vb2_v4l2_buffer *src, *dst;
 	struct mstar_dip_ctx *ctx;
 
-	spin_lock(&dip->irqlock);
 	ctx = dip->curr;
 	dip->curr = NULL;
-	spin_unlock(&dip->irqlock);
 
 	if (!ctx)
 		return;
-
-	cancel_delayed_work(&dip->watchdog);
 
 	src = v4l2_m2m_src_buf_remove(ctx->fh.m2m_ctx);
 	dst = v4l2_m2m_dst_buf_remove(ctx->fh.m2m_ctx);
@@ -522,58 +542,6 @@ static void dip_finish(struct mstar_dip *dip, enum vb2_buffer_state state)
 	}
 
 	v4l2_m2m_job_finish(dip->m2m_dev, ctx->fh.m2m_ctx);
-}
-
-static irqreturn_t mstar_dip_irq(int irq, void *data)
-{
-	struct mstar_dip *dip = data;
-	unsigned int status;
-
-	regmap_read(dip->regmap, DIP_INTR_STATUS, &status);
-	if (!(status & DIP_INTR_ALL))
-		return IRQ_NONE;
-
-	dip_update(dip, DIP_INTR_CLEAR, DIP_INTR_ALL, DIP_INTR_ALL);
-
-	dip_finish(dip, VB2_BUF_STATE_DONE);
-
-	return IRQ_HANDLED;
-}
-
-/*
- * Driven by hand from userspace, without the interrupt, one trigger moved about a
- * line and a frame never finished. If that is still true with the interrupt wired
- * up then a job will land here, and failing it is much better than leaving the
- * queue stuck forever.
- */
-static void mstar_dip_watchdog(struct work_struct *work)
-{
-	struct mstar_dip *dip = container_of(to_delayed_work(work),
-					     struct mstar_dip, watchdog);
-	unsigned int idle, status;
-
-	regmap_read(dip->regmap, DIP_IDLE, &idle);
-	regmap_read(dip->regmap, DIP_INTR_STATUS, &status);
-	dev_warn(dip->dev, "job timed out, idle 0x%04x status 0x%04x\n",
-		 idle, status);
-	{
-		unsigned int rl, rh, wl, wh, sw, sh2, ctrl;
-
-		regmap_read(dip->regmap, DIP_R_ADDR0_LO, &rl);
-		regmap_read(dip->regmap, DIP_R_ADDR0_HI, &rh);
-		regmap_read(dip->regmap, DIP_W_ADDR0_LO, &wl);
-		regmap_read(dip->regmap, DIP_W_ADDR0_HI, &wh);
-		regmap_read(dip->regmap, DIP_SC_SRC_W, &sw);
-		regmap_read(dip->regmap, DIP_SC_SRC_H, &sh2);
-		regmap_read(dip->regmap, DIP_CTRL, &ctrl);
-		dev_warn(dip->dev,
-			 "  read %04x:%04x write %04x:%04x src %ux%u ctrl %04x\n",
-			 rh, rl, wh, wl, sw, sh2, ctrl);
-	}
-
-	dip_reset(dip);
-	dip_hw_init(dip);
-	dip_finish(dip, VB2_BUF_STATE_ERROR);
 }
 
 static void mstar_dip_device_run(void *priv)
@@ -589,12 +557,7 @@ static void mstar_dip_device_run(void *priv)
 		return;
 	}
 
-	spin_lock(&dip->irqlock);
 	dip->curr = ctx;
-	spin_unlock(&dip->irqlock);
-
-	schedule_delayed_work(&dip->watchdog,
-			      msecs_to_jiffies(DIP_JOB_TIMEOUT_MS));
 
 	dev_dbg(dip->dev, "job: src %pad dst %pad %ux%u -> %ux%u\n",
 		&(dma_addr_t){ vb2_dma_contig_plane_dma_addr(&src->vb2_buf, 0) },
@@ -603,6 +566,8 @@ static void mstar_dip_device_run(void *priv)
 
 	dip_setup_job(ctx, vb2_dma_contig_plane_dma_addr(&src->vb2_buf, 0),
 		      vb2_dma_contig_plane_dma_addr(&dst->vb2_buf, 0));
+
+	dip_finish(dip, VB2_BUF_STATE_DONE);
 }
 
 static void mstar_dip_job_abort(void *priv)
@@ -938,16 +903,14 @@ static int mstar_dip_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct mstar_dip *dip;
 	void __iomem *base;
-	int irq, ret;
+	int ret;
 
 	dip = devm_kzalloc(dev, sizeof(*dip), GFP_KERNEL);
 	if (!dip)
 		return -ENOMEM;
 
 	dip->dev = dev;
-	spin_lock_init(&dip->irqlock);
 	mutex_init(&dip->mutex);
-	INIT_DELAYED_WORK(&dip->watchdog, mstar_dip_watchdog);
 
 	base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(base))
@@ -966,14 +929,6 @@ static int mstar_dip_probe(struct platform_device *pdev)
 	if (IS_ERR(dip->clk))
 		return dev_err_probe(dev, PTR_ERR(dip->clk),
 				     "Failed to get the DIP clock\n");
-
-	irq = platform_get_irq(pdev, 0);
-	if (irq < 0)
-		return irq;
-
-	ret = devm_request_irq(dev, irq, mstar_dip_irq, 0, dev_name(dev), dip);
-	if (ret)
-		return dev_err_probe(dev, ret, "Failed to claim the interrupt\n");
 
 	dip_reset(dip);
 	dip_hw_init(dip);
@@ -1014,7 +969,6 @@ static void mstar_dip_remove(struct platform_device *pdev)
 {
 	struct mstar_dip *dip = platform_get_drvdata(pdev);
 
-	cancel_delayed_work_sync(&dip->watchdog);
 	video_unregister_device(&dip->vfd);
 	v4l2_m2m_release(dip->m2m_dev);
 	v4l2_device_unregister(&dip->v4l2_dev);
