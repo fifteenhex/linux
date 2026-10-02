@@ -214,6 +214,25 @@ static void mstar_gop_dump(struct mstar_gop *gop)
 }
 
 
+/*
+ * Latch what has been written into the shadow registers.
+ *
+ * The window registers are double buffered: writes land in a shadow bank and
+ * reads come from the active one, and this is the trigger that copies across. It
+ * is an *edge*, not a level - the vendor's _HalGopWriteDoubleBuffer clears the
+ * trigger bits, writes the one for its GOP, and clears them again - so leaving
+ * the bit high, as this used to, means the first update of a window takes effect
+ * and nothing after it ever does. Nothing noticed while there was one plane
+ * whose framebuffer never changed address; a second plane coming up later gets
+ * programmed perfectly and never appears.
+ */
+static void mstar_gop_commit(struct mstar_gop *gop)
+{
+	regmap_field_force_write(gop->commit_all, 0);
+	regmap_field_force_write(gop->commit_all, 1);
+	regmap_field_force_write(gop->commit_all, 0);
+}
+
 static void mstar_gop_reset(struct mstar_gop *gop)
 {
 	regmap_field_force_write(gop->rst, 1);
@@ -331,7 +350,7 @@ static void gop_plane_atomic_update(struct drm_plane *plane,
 	regmap_field_write(window->addrh, addr >> 16);
 	regmap_field_write(window->addrl, addr);
 
-	regmap_field_force_write(window->gop->commit_all, 1);
+	mstar_gop_commit(window->gop);
 
 	mstar_gop_dump(window->gop);
 }
