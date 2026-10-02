@@ -370,8 +370,15 @@ static void gop_plane_atomic_update(struct drm_plane *plane,
 	/* Not sure why but the output colour space needs to be YUV */
 	regmap_field_force_write(gop->colorspace, 1);
 
+	/*
+	 * ... and only for a format that has alpha. Inverting it for one that
+	 * does not makes the window vanish: with no alpha channel the hardware
+	 * has every pixel opaque, and the inverse of opaque is gone. That is how
+	 * this arrived - the RGB565 framebuffer console went blank the moment
+	 * the bit was set for it.
+	 */
 	regmap_field_write(gop->alphainv,
-			   gop->data->alpha_invert &&
+			   gop->data->alpha_invert && fb->format->has_alpha &&
 			   fb->format->format != DRM_FORMAT_ARGB1555);
 
 	regmap_field_write(gop->stretch_window_size_h,
