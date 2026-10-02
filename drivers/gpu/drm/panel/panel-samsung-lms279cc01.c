@@ -50,15 +50,37 @@ static int lms279cc01_prepare(struct drm_panel *panel)
 	struct lms279cc01 *ctx = to_lms279cc01(panel);
 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
 	struct device *dev = &ctx->dsi->dev;
+	bool flip;
 	u8 mode = 0;
 	int ret;
+
+	/*
+	 * A panel fitted upside down can turn itself round: MADCTL's MY and MX
+	 * bits reverse the page and column order, which together are the half
+	 * turn this one needs. Doing it here rather than telling userspace to
+	 * rotate costs nothing - it is one byte in the init sequence - and it is
+	 * the only way the video window can come out the right way up at all: the
+	 * MOP's rotators only do quarter turns, so a hardware decoder writing
+	 * straight into display memory has no way to turn its pictures round.
+	 *
+	 * Having corrected it, the orientation is not reported to userspace: it is
+	 * no longer true of what comes out of the panel, and fbcon and anything
+	 * else that honours it would turn an upright picture upside down.
+	 */
+	flip = ctx->orientation == DRM_MODE_PANEL_ORIENTATION_BOTTOM_UP;
 
 	if (ctx->reset_gpio)
 		lms279cc01_reset(ctx);
 
 	mipi_dsi_dcs_soft_reset_multi(&dsi_ctx);
 	mipi_dsi_msleep(&dsi_ctx, 10);
-	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_SET_ADDRESS_MODE, 0x00);
+	/* the write takes a constant byte string, so the two cases are spelt out */
+	if (flip)
+		mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_SET_ADDRESS_MODE,
+					     0xc0);
+	else
+		mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_SET_ADDRESS_MODE,
+					     0x00);
 	mipi_dsi_dcs_set_pixel_format_multi(&dsi_ctx, MIPI_DCS_PIXEL_FMT_24BIT << 4 |
 					    MIPI_DCS_PIXEL_FMT_24BIT);
 	mipi_dsi_dcs_set_column_address_multi(&dsi_ctx, 0, 639);
@@ -140,9 +162,16 @@ static int lms279cc01_get_modes(struct drm_panel *panel,
 	return drm_connector_helper_get_modes_fixed(connector, &lms279cc01_mode);
 }
 
+/*
+ * Nothing, when the panel has been turned round in hardware above: the picture
+ * leaves the panel the right way up, so there is nothing for userspace to undo.
+ */
 static enum drm_panel_orientation lms279cc01_get_orientation(struct drm_panel *panel)
 {
 	struct lms279cc01 *ctx = to_lms279cc01(panel);
+
+	if (ctx->orientation == DRM_MODE_PANEL_ORIENTATION_BOTTOM_UP)
+		return DRM_MODE_PANEL_ORIENTATION_NORMAL;
 
 	return ctx->orientation;
 }
