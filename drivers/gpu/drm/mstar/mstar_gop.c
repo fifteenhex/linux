@@ -93,6 +93,23 @@ struct mstar_gop_data {
 	const unsigned int pixel_alpha_bit;
 
 	/*
+	 * Whether this GOP needs CONFIG bit 15 - "alpha invert", or as the
+	 * vendor names it alpha-zero-opaque - set for per-pixel alpha to mean
+	 * what everybody means by it. It does on GOP1 and does not on GOP0:
+	 * HalGopCheckAlphaZeroOpaque() returns the caller's flag unchanged for
+	 * GOP0 and inverted for GOP1, and fbdev always passes 0, so the vendor
+	 * ends up with the bit clear on GOP0 and set on GOP1. ARGB1555 is the
+	 * exception on GOP1, where it is left clear.
+	 *
+	 * Without it GOP1 reads alpha the other way up: a fully opaque ARGB8888
+	 * layer disappears completely and a transparent one is solid. That is
+	 * not obvious from looking at it - the window is enabled, the format and
+	 * the address are right, the pixels are in memory - so it looks like the
+	 * plane is not scanning out at all.
+	 */
+	const bool alpha_invert;
+
+	/*
 	 * Register offsets for registers that are at different locations
 	 * depending on the gop version/instance.
 	 */
@@ -140,6 +157,7 @@ struct mstar_gop {
 	struct regmap_field *rst;
 	struct regmap_field *scan_type;
 	struct regmap_field *colorspace;
+	struct regmap_field *alphainv;
 	struct regmap_field *dst;
 
 	struct regmap_field *stretch_window_size_h;
@@ -352,6 +370,10 @@ static void gop_plane_atomic_update(struct drm_plane *plane,
 	/* Not sure why but the output colour space needs to be YUV */
 	regmap_field_force_write(gop->colorspace, 1);
 
+	regmap_field_write(gop->alphainv,
+			   gop->data->alpha_invert &&
+			   fb->format->format != DRM_FORMAT_ARGB1555);
+
 	regmap_field_write(gop->stretch_window_size_h,
 			   new_state->crtc_w >> gop->data->stretch_h_shift);
 	regmap_field_write(gop->stretch_window_size_v, new_state->crtc_h);
@@ -507,6 +529,7 @@ static int mstar_gop_probe(struct platform_device *pdev)
 	gop->rst = regmap_field_alloc(regmap, gop_rst_field);
 	gop->scan_type = regmap_field_alloc(regmap, gop_scan_type_field);
 	gop->colorspace = regmap_field_alloc(regmap, gop_colorspace_field);
+	gop->alphainv = regmap_field_alloc(regmap, gop_alphainv_field);
 	gop->dst = regmap_field_alloc(regmap, gop_dst_field);
 
 	gop->stretch_window_size_h = regmap_field_alloc(regmap, stretch_window_size_h_field);
@@ -623,6 +646,7 @@ static const struct mstar_gop_data ssd20xd_gop0_data = {
 	.geometry_in_pixels = true,
 	.stretch_h_shift = 0,
 	.pixel_alpha_bit = 1,
+	.alpha_invert = false,
 	.offset_hstart = 0xc,
 	.offset_hend = 0x10,
 	.offset_vstart = 0x14,
@@ -642,6 +666,7 @@ static const struct mstar_gop_data ssd20xd_gop1_data = {
 	.geometry_in_pixels = false,
 	.stretch_h_shift = 1,
 	.pixel_alpha_bit = 14,
+	.alpha_invert = true,
 	.offset_hstart = 0x10, // confirmed
 	.offset_hend = 0x14, // confirmed
 	.offset_vstart = 0x18, // confirmed
