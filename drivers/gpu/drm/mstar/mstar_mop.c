@@ -119,6 +119,15 @@ static const struct reg_field commit_all_field = REG_FIELD(0x1fc, 8, 8);
  */
 #define MOP_MIU0_BASE		0x20000000
 #define MOP_SCALE_1X		0x1000
+/*
+ * The scale registers are thirteen bits wide - write 0x3fff and 0x1fff reads
+ * back - so the largest source:destination ratio the hardware can hold is
+ * 8191:4096, a whisker under 2x. A 2x shrink needs 8192, which does not fit:
+ * regmap masks it to zero and the window scans out garbage, which is a very
+ * confusing way to find this out.
+ */
+#define MOP_SCALE_MAX		0x1fff
+#define MOP_SCALE_MAX_16_16	(((MOP_SCALE_MAX) << 16) / (MOP_SCALE_1X))
 
 /*
  * There is one double buffer trigger for the whole MOP and it sits in the
@@ -313,13 +322,16 @@ static int mop_plane_atomic_check(struct drm_plane *plane,
 		return -EINVAL;
 
 	/*
-	 * The scaler takes source:destination as a 1/4096ths ratio, so it can
-	 * shrink by a lot but only ever stretch to 1x - let the helper reject
-	 * anything outside that rather than silently programming a bad ratio.
+	 * The scaler takes source:destination as a 1/4096ths ratio in a thirteen
+	 * bit register, so it shrinks by up to 8191/4096 - not quite 2x - and
+	 * only ever stretches to 1x. Let the helper reject anything outside that
+	 * rather than silently programming a bad ratio: asking for exactly 2x
+	 * (640x480 into 320x240, the obvious thing to want) is outside it.
 	 */
 	return drm_atomic_helper_check_plane_state(new_state, crtc_state,
 						   DRM_PLANE_NO_SCALING,
-						   16 << 16, true, true);
+						   MOP_SCALE_MAX_16_16,
+						   true, true);
 }
 
 static void mstar_mop_win_addr(struct mstar_mop_window *window,
@@ -367,9 +379,16 @@ static void mstar_mop_plane_atomic_update(struct drm_plane *plane,
 	regmap_field_write(window->vend, new_state->dst.y2 - 1);
 	mstar_mop_latch(mop);
 
-	/* scale is source:destination in 1/4096ths, so equal sizes give 1x */
-	regmap_field_write(window->scale_h, (srcw * MOP_SCALE_1X) / dstw);
-	regmap_field_write(window->scale_v, (srch * MOP_SCALE_1X) / dsth);
+	/*
+	 * Scale is source:destination in 1/4096ths, so equal sizes give 1x. The
+	 * atomic check has already refused anything the register cannot hold;
+	 * clamp anyway, because the failure mode of not clamping is a window full
+	 * of nothing rather than a slightly wrong picture.
+	 */
+	regmap_field_write(window->scale_h,
+			   min((srcw * MOP_SCALE_1X) / dstw, MOP_SCALE_MAX));
+	regmap_field_write(window->scale_v,
+			   min((srch * MOP_SCALE_1X) / dsth, MOP_SCALE_MAX));
 	mstar_mop_latch(mop);
 
 	/* NV12: plane 0 is the luma, plane 1 the interleaved chroma */
