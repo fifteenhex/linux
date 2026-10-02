@@ -70,6 +70,29 @@ struct mstar_gop_data {
 	const bool has_stretching;
 
 	/*
+	 * How the window's horizontal geometry is counted. GOP1 wants 16 byte
+	 * units and an exclusive end; GOP0 wants plain pixels and an inclusive
+	 * one, which is why a window programmed GOP1's way came out 80 pixels
+	 * wide instead of 640. From HalGopSetGwinSize()'s two branches.
+	 */
+	const bool geometry_in_pixels;
+
+	/*
+	 * The stretch window's width is halved for GOP1 and not for GOP0, again
+	 * from the vendor's HalGopSetStretchWindowSize().
+	 */
+	const unsigned int stretch_h_shift;
+
+	/*
+	 * Bit in the window's control register that says alpha comes from the
+	 * pixels rather than from the window's constant: bit 1 on GOP0, bit 14
+	 * on GOP1 (HalGopSetAlphaBlending writes the inverse of its
+	 * bConstantAlpha argument there). Without it a format with an alpha
+	 * channel is composed as if every pixel were opaque.
+	 */
+	const unsigned int pixel_alpha_bit;
+
+	/*
 	 * Register offsets for registers that are at different locations
 	 * depending on the gop version/instance.
 	 */
@@ -94,6 +117,9 @@ struct mstar_gop_window {
 	struct drm_plane drm_plane;
 	struct regmap_field *en;
 	struct regmap_field *format;
+	struct regmap_field *pixel_alpha;
+	/* the whole of the register the three above live in, see the update */
+	struct regmap_field *ctrl;
 	struct regmap_field *addrl;
 	struct regmap_field *addrh;
 	struct regmap_field *hstart;
@@ -311,6 +337,7 @@ static void gop_plane_atomic_update(struct drm_plane *plane,
 	struct drm_plane_state *new_state = drm_atomic_get_new_plane_state(state, plane);
 	struct drm_framebuffer *fb = new_state->fb;
 	struct drm_gem_dma_object *gem;
+	unsigned int ctrl;
 	u32 addr;
 
 	fb = new_state->fb;
@@ -326,22 +353,58 @@ static void gop_plane_atomic_update(struct drm_plane *plane,
 	regmap_field_force_write(gop->colorspace, 1);
 
 	regmap_field_write(gop->stretch_window_size_h,
-			   new_state->crtc_w >> STRETCH_WINDOW_SIZE_H_SHIFT);
+			   new_state->crtc_w >> gop->data->stretch_h_shift);
 	regmap_field_write(gop->stretch_window_size_v, new_state->crtc_h);
 	regmap_field_write(gop->stretch_window_coordinate_h, new_state->crtc_x);
 	regmap_field_write(gop->stretch_window_coordinate_v, new_state->crtc_y);
 
 	// gop window
 
-	regmap_field_write(window->en, new_state->crtc ? 1 : 0);
-	regmap_field_write(window->format, gop->data->drm_color_to_gop(fb->format->format));
+	/*
+	 * Enable, format and where the alpha comes from all live in one register,
+	 * and it has to be written in one go.
+	 *
+	 * These registers are double buffered: a write lands in the shadow bank
+	 * and a read comes from the active one. So a read-modify-write of a
+	 * single field - which is what writing a regmap_field is - reads the
+	 * *old* value and puts back everything else as it used to be, throwing
+	 * away whatever the previous field write had put in the shadow. Three
+	 * field writes in a row leave only the last one. That is how the cursor
+	 * plane ended up enabled nowhere, with no format, and only the alpha bit
+	 * set. The vendor's HAL keeps a software shadow of this register for the
+	 * same reason; composing the value is the same thing, with less state.
+	 */
+	ctrl = (new_state->crtc ? BIT(0) : 0) |
+	       (gop->data->drm_color_to_gop(fb->format->format) << 4) |
+	       (fb->format->has_alpha ? BIT(gop->data->pixel_alpha_bit) : 0);
 
-	regmap_field_write(window->hstart, new_state->crtc_x);
-	regmap_field_write(window->vstart, new_state->crtc_y);
+	regmap_field_write(window->ctrl, ctrl);
 
-	// This seems to be the same as pitch?
-	regmap_field_write(window->hend, fb->pitches[0] >> gop->data->addr_shift);
-	regmap_field_write(window->vend, new_state->crtc_y + new_state->crtc_h);
+	/*
+	 * The two GOPs count their windows differently, and getting it wrong
+	 * costs a window of the wrong width in the wrong place rather than an
+	 * error: GOP0 takes plain pixels with an inclusive end, GOP1 takes
+	 * 16 byte units with an exclusive one. Vertically both count lines.
+	 */
+	if (gop->data->geometry_in_pixels) {
+		regmap_field_write(window->hstart, new_state->crtc_x);
+		regmap_field_write(window->hend,
+				   new_state->crtc_x + new_state->crtc_w - 1);
+		regmap_field_write(window->vstart, new_state->crtc_y);
+		regmap_field_write(window->vend,
+				   new_state->crtc_y + new_state->crtc_h - 1);
+	} else {
+		unsigned int cpp = fb->format->cpp[0];
+
+		regmap_field_write(window->hstart,
+				   (new_state->crtc_x * cpp) >> gop->data->addr_shift);
+		regmap_field_write(window->hend,
+				   ((new_state->crtc_x + new_state->crtc_w) * cpp) >>
+				   gop->data->addr_shift);
+		regmap_field_write(window->vstart, new_state->crtc_y);
+		regmap_field_write(window->vend,
+				   new_state->crtc_y + new_state->crtc_h);
+	}
 
 	regmap_field_write(window->pitch, fb->pitches[0] >> gop->data->addr_shift);
 
@@ -458,6 +521,10 @@ static int mstar_gop_probe(struct platform_device *pdev)
 		unsigned int winoffset = WINDOW_START + 0x40 * i;
 		struct reg_field en_field = REG_FIELD(winoffset + 0, 0, 0);
 		struct reg_field format_field = REG_FIELD(winoffset + 0, 4, 7);
+		struct reg_field pixel_alpha_field = REG_FIELD(winoffset + 0,
+							      match_data->pixel_alpha_bit,
+							      match_data->pixel_alpha_bit);
+		struct reg_field ctrl_field = REG_FIELD(winoffset + 0, 0, 15);
 		struct reg_field addrl_field = REG_FIELD(winoffset + 0x4, 0, 15);
 		struct reg_field addrh_field = REG_FIELD(winoffset + 0x8, 0, 11);
 		struct reg_field hstart_field = REG_FIELD(winoffset + match_data->offset_hstart, 0, 15);
@@ -470,6 +537,9 @@ static int mstar_gop_probe(struct platform_device *pdev)
 
 		window->en = devm_regmap_field_alloc(dev, regmap, en_field);
 		window->format = devm_regmap_field_alloc(dev, regmap, format_field);
+		window->pixel_alpha = devm_regmap_field_alloc(dev, regmap,
+							      pixel_alpha_field);
+		window->ctrl = devm_regmap_field_alloc(dev, regmap, ctrl_field);
 		window->addrl = devm_regmap_field_alloc(dev, regmap, addrl_field);
 		window->addrh = devm_regmap_field_alloc(dev, regmap, addrh_field);
 
@@ -550,6 +620,9 @@ static const struct mstar_gop_data ssd20xd_gop0_data = {
 	.num_windows = 1,
 	.addr_shift = 4,
 	.has_stretching = false,
+	.geometry_in_pixels = true,
+	.stretch_h_shift = 0,
+	.pixel_alpha_bit = 1,
 	.offset_hstart = 0xc,
 	.offset_hend = 0x10,
 	.offset_vstart = 0x14,
@@ -566,6 +639,9 @@ static const struct mstar_gop_data ssd20xd_gop1_data = {
 	.num_windows = 1,
 	.addr_shift = 4,
 	.has_stretching = true,
+	.geometry_in_pixels = false,
+	.stretch_h_shift = 1,
+	.pixel_alpha_bit = 14,
 	.offset_hstart = 0x10, // confirmed
 	.offset_hend = 0x14, // confirmed
 	.offset_vstart = 0x18, // confirmed
