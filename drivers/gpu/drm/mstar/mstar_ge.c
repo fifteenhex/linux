@@ -177,7 +177,14 @@ static const struct reg_field dstpitch_field = REG_FIELD(REG_DSTPITCH, 0, 13);
 
 static const struct reg_field src_colorfmt_field = REG_FIELD(REG_COLORFMT, 0, 4);
 static const struct reg_field dst_colorfmt_field = REG_FIELD(REG_COLORFMT, 8, 12);
+/*
+ * The engine's own colour field, which is not either of the GOP's two encodings
+ * - this SoC has three. These are the values U-Boot's driver for the same engine
+ * uses, where they are exercised every boot by the logo blit.
+ */
 #define COLOR_FORMAT_RGB565	0x8
+#define COLOR_FORMAT_ARGB1555	0x9
+#define COLOR_FORMAT_ARGB4444	0xa
 #define COLOR_FORMAT_ARGB8888	0xf
 
 static const struct reg_field clip_left_field = REG_FIELD(REG_CLIP_LEFT, 0, 11);
@@ -792,6 +799,16 @@ static int mstar_ge_drm_color_to_gop(u32 fourcc)
 		return COLOR_FORMAT_ARGB8888;
 	case DRM_FORMAT_RGB565:
 		return COLOR_FORMAT_RGB565;
+	/*
+	 * The formats the cursor plane takes, so that an overlay drawn over a
+	 * running program is accelerated like everything else rather than
+	 * falling back to the CPU - which it did, silently, because a job the
+	 * engine will not take is replayed in software by whoever asked.
+	 */
+	case DRM_FORMAT_ARGB1555:
+		return COLOR_FORMAT_ARGB1555;
+	case DRM_FORMAT_ARGB4444:
+		return COLOR_FORMAT_ARGB4444;
 	};
 
 	return -ENOTSUPP;
