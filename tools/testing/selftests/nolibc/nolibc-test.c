@@ -858,6 +858,51 @@ static int test_dirent(void)
 	return 0;
 }
 
+static int test_dirfd(void)
+{
+	struct dirent dirent, *result;
+	int ret = 0, fd;
+	struct stat st;
+	DIR *dir;
+
+	fd = open("/", O_RDONLY | O_DIRECTORY);
+	if (fd < 0)
+		return __LINE__;
+
+	dir = fdopendir(fd);
+	if (!dir) {
+		ret = __LINE__;
+		goto out;
+	}
+
+	/* Check that dirfd() gives the same fd as open() */
+	if (dirfd(dir) != fd) {
+		ret = __LINE__;
+		goto out;
+	}
+
+	while (1) {
+		if (readdir_r(dir, &dirent, &result) != 0) {
+			ret = __LINE__;
+			goto out;
+		}
+
+		if (!result)
+			break;
+
+		if (fstatat(dirfd(dir), dirent.d_name, &st, AT_SYMLINK_NOFOLLOW) != 0) {
+			ret = __LINE__;
+			goto out;
+
+		}
+	}
+
+out:
+	closedir(dir);
+
+	return ret;
+}
+
 int test_getcwd(void)
 {
 	char cwd_syscall[PATH_MAX];
@@ -1651,6 +1696,7 @@ int run_syscall(int min, int max)
 		CASE_TEST(getdents64_root);   EXPECT_SYSNE(1, test_getdents64("/"), -1); break;
 		CASE_TEST(getdents64_null);   EXPECT_SYSER(1, test_getdents64("/dev/null"), -1, ENOTDIR); break;
 		CASE_TEST(directories);       EXPECT_SYSZR(is_nolibc && proc, test_dirent()); break;
+		CASE_TEST(dirfd);             EXPECT_SYSZR(is_nolibc, test_dirfd()); break;
 		CASE_TEST(getrandom);         EXPECT_SYSZR(1, test_getrandom()); break;
 		CASE_TEST(gettimeofday_tv);   EXPECT_SYSZR(1, gettimeofday(&tv, NULL)); break;
 		CASE_TEST(gettimeofday_tv_tz);EXPECT_SYSZR(1, gettimeofday(&tv, &tz)); break;
