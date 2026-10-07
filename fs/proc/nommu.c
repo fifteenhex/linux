@@ -6,24 +6,10 @@
  */
 
 #include <linux/init.h>
-#include <linux/module.h>
-#include <linux/errno.h>
-#include <linux/time.h>
-#include <linux/kernel.h>
-#include <linux/string.h>
-#include <linux/mman.h>
-#include <linux/proc_fs.h>
 #include <linux/mm.h>
-#include <linux/mmzone.h>
-#include <linux/pagemap.h>
-#include <linux/swap.h>
-#include <linux/smp.h>
+#include <linux/proc_fs.h>
+#include <linux/rbtree.h>
 #include <linux/seq_file.h>
-#include <linux/hugetlb.h>
-#include <linux/vmalloc.h>
-#include <asm/tlb.h>
-#include <asm/div64.h>
-#include "internal.h"
 
 /*
  * display a single region to a sequenced file
